@@ -1,7 +1,8 @@
 @echo off
 setlocal
+title ReEzSynth Windows GUI
 
-rem Always run from the folder containing this launcher.
+rem Always use the project folder as the working directory.
 pushd "%~dp0"
 if errorlevel 1 (
     echo ERROR: Could not open the project folder.
@@ -10,17 +11,18 @@ if errorlevel 1 (
 )
 
 set "ENV_NAME=reezsynth"
-set "DEFAULT_SCRIPT=reezsynth_gui_v04.py"
+set "DEFAULT_SCRIPT=reezsynth_gui.py"
 set "RESULT=0"
+set "CONDA_COMMAND="
 
-rem With no arguments, launch the default GUI.
+rem No arguments: start the consolidated GUI.
+rem With arguments: run the specified script and forward its arguments.
 if "%~1"=="" (
     if not exist "%DEFAULT_SCRIPT%" (
-        echo ERROR: Default GUI file not found:
+        echo ERROR: GUI file not found:
         echo   %DEFAULT_SCRIPT%
         echo.
-        echo Edit DEFAULT_SCRIPT in this launcher, or provide a filename:
-        echo   run_reezsynth.bat your_gui_file.py
+        echo Place this launcher beside reezsynth_gui.py.
         set "RESULT=1"
         goto finish
     )
@@ -28,28 +30,31 @@ if "%~1"=="" (
     if not exist "%~1" (
         echo ERROR: Script not found:
         echo   %~1
+        echo.
+        echo Examples:
+        echo   run_reezsynth.bat
+        echo   run_reezsynth.bat test_reezsynth_worker.py
         set "RESULT=1"
         goto finish
     )
 )
 
-rem If the requested Conda environment is already active, use it.
+rem Prefer the environment that is already active.
 if /I "%CONDA_DEFAULT_ENV%"=="%ENV_NAME%" goto active_environment
 
-rem Conda normally exposes its executable through CONDA_EXE.
-set "CONDA_COMMAND="
+rem Conda normally provides this variable in initialized terminals.
 if defined CONDA_EXE (
     if exist "%CONDA_EXE%" set "CONDA_COMMAND=%CONDA_EXE%"
 )
 if defined CONDA_COMMAND goto conda_environment
 
-rem Otherwise, search PATH.
+rem Search PATH.
 for /f "delims=" %%C in ('where conda.exe 2^>nul') do (
     if not defined CONDA_COMMAND set "CONDA_COMMAND=%%C"
 )
 if defined CONDA_COMMAND goto conda_environment
 
-rem Common per-user and system-wide Conda installations.
+rem Search common Conda installation locations.
 for %%D in (
     "%USERPROFILE%\miniconda3"
     "%USERPROFILE%\anaconda3"
@@ -75,12 +80,13 @@ echo Open your Conda-enabled terminal and run:
 echo   conda activate %ENV_NAME%
 echo   .\run_reezsynth.bat
 echo.
-echo For a custom Conda installation, set CONDA_EXE to its conda.exe path.
+echo For a custom installation, set CONDA_EXE to its conda.exe path.
 set "RESULT=1"
 goto finish
 
 :active_environment
 echo [Launcher] Using active environment: %ENV_NAME%
+
 if "%~1"=="" (
     python -X utf8 -u "%DEFAULT_SCRIPT%"
 ) else (
@@ -91,6 +97,7 @@ goto finish
 
 :conda_environment
 echo [Launcher] Running in Conda environment: %ENV_NAME%
+
 if "%~1"=="" (
     "%CONDA_COMMAND%" run --no-capture-output -n "%ENV_NAME%" python -X utf8 -u "%DEFAULT_SCRIPT%"
 ) else (
@@ -100,15 +107,10 @@ set "RESULT=%ERRORLEVEL%"
 goto finish
 
 :finish
-echo.
 if not "%RESULT%"=="0" (
+    echo.
     echo [Launcher] Exited with error code %RESULT%.
     pause
-) else (
-    rem Keep a double-clicked launcher open so test results remain visible.
-    rem When launched from an existing terminal, return immediately.
-    echo(%cmdcmdline% | findstr /I /C:" /c " >nul
-    if not errorlevel 1 pause
 )
 
 popd
