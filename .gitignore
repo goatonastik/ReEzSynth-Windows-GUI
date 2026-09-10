@@ -21,3 +21,5 @@ __pycache__
 # Extra model files
 /ezsynth/utils/flow_utils/flow_diffusion_models/*.pth
 /ezsynth/utils/flow_utils/ef_raft_models/*.pth
+/reezsynth_outputs
+/reezsynth_projects
