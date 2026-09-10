@@ -56,6 +56,20 @@ from reezsynth_jobs import (
     validate_row,
 )
 
+# ReEzSynth project controls integration v1
+from reezsynth_project_controls import (
+    FolderHistoryCombo,
+    add_output_controls,
+    create_batch_directory,
+    default_job_definitions,
+    project_naming,
+    restore_ui_state,
+    save_ui_state,
+    set_project_naming,
+    validate_output_folders,
+    validate_project_naming,
+)
+
 
 APP_NAME = "ReEzSynth-Windows-GUI"
 SESSION_PREFIX = "@@REEZSYNTH_SESSION@@"
@@ -425,6 +439,7 @@ class MainWindow(QMainWindow):
         self.reset_streams()
         self.build_interface()
         self.set_busy(False)
+        restore_ui_state(self)
 
     # ------------------------------------------------------------------
     # Interface
@@ -498,6 +513,7 @@ class MainWindow(QMainWindow):
         page.addLayout(options)
 
         self.locked.extend([self.quality, self.resolution])
+        add_output_controls(self, page)
 
         self.summary = QLabel(
             "Select the source-frame and keyframe directories "
@@ -616,7 +632,9 @@ class MainWindow(QMainWindow):
         return button
 
     def path_row(self, form, label):
-        field = FolderEdit()
+        field = FolderHistoryCombo(
+            label, FolderEdit(), self.preferences
+        )
         select = self.button(
             "Select", lambda: self.choose_folder(field, label)
         )
@@ -632,9 +650,12 @@ class MainWindow(QMainWindow):
         return field
 
     def choose_folder(self, field, label):
-        selected = QFileDialog.getExistingDirectory(self, label)
+        selected = QFileDialog.getExistingDirectory(
+            self, label, field.text()
+        )
         if selected:
             field.setText(selected)
+            field.remember()
 
     def path_value(self, field):
         text = field.text().strip().strip('"')
@@ -670,6 +691,8 @@ class MainWindow(QMainWindow):
                 self.path_value(self.keyframe_dir),
             )
 
+            definitions = default_job_definitions(self, definitions)
+
             for definition in definitions:
                 self.add_row(definition)
 
@@ -679,6 +702,7 @@ class MainWindow(QMainWindow):
                 f"{len(self.rows)} keyframe jobs"
             )
             self.set_busy(False)
+            save_ui_state(self)
             return True
 
         except Exception as exc:
@@ -822,6 +846,7 @@ class MainWindow(QMainWindow):
                 "keyframe_dir": self.path_value(self.keyframe_dir),
                 "quality": self.quality.currentText(),
                 "max_width": self.resolution.currentData(),
+                "output_naming": project_naming(self),
                 "rows": [
                     validate_row(
                         self.definition(row), self.video, self.keys
@@ -848,6 +873,7 @@ class MainWindow(QMainWindow):
             )
             self.project_file = path
             self.status.setText(f"Project saved: {path}")
+            save_ui_state(self)
 
         except Exception as exc:
             QMessageBox.warning(
@@ -895,6 +921,10 @@ class MainWindow(QMainWindow):
                     "Project contains duplicate keyframe rows."
                 )
 
+            naming = validate_project_naming(
+                data.get("output_naming")
+            )
+
             self.loading_project = True
             self.scan_timer.stop()
 
@@ -905,6 +935,7 @@ class MainWindow(QMainWindow):
             self.resolution.setCurrentIndex(
                 self.resolution.findData(data["max_width"])
             )
+            set_project_naming(self, naming)
 
             self.video = video
             self.keys = keys
@@ -922,6 +953,7 @@ class MainWindow(QMainWindow):
             )
             self.status.setText(f"Project loaded: {selected}")
             self.set_busy(False)
+            save_ui_state(self)
 
         except Exception as exc:
             QMessageBox.warning(
@@ -996,13 +1028,15 @@ class MainWindow(QMainWindow):
                     (row, definition, frames, str(keys[key]))
                 )
 
+            validate_output_folders([
+                definition["folder"]
+                for _, definition, _, _ in planned
+            ])
+
             project_root = Path(
                 self.path_value(self.project_dir)
             )
-            batch = project_root / "renders" / datetime.now().strftime(
-                "batch_%Y%m%d_%H%M%S_%f"
-            )
-            batch.mkdir(parents=True, exist_ok=False)
+            batch = create_batch_directory(self, project_root)
 
             records = []
 
@@ -1053,6 +1087,7 @@ class MainWindow(QMainWindow):
 
         self.queue_generation += 1
         self.batch = batch
+        save_ui_state(self)
         self.pending = records
         self.current = None
         self.cancelled = False
@@ -1797,6 +1832,7 @@ class MainWindow(QMainWindow):
 
         self.scan_timer.stop()
         self.shutdown_timer.stop()
+        save_ui_state(self)
         self.preferences.sync()
         event.accept()
 
