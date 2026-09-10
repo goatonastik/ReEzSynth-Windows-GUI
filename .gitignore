@@ -1,0 +1,23 @@
+#The Zipped Library
+*.zip
+
+#The Dist Folder from building
+/dist/
+
+#The Build Folder from building
+/build/
+
+/ezsynth.egg-info/
+
+/.vscode/
+
+##
+__pycache__
+.mypy_cache
+
+/venv/
+*.so
+
+# Extra model files
+/ezsynth/utils/flow_utils/flow_diffusion_models/*.pth
+/ezsynth/utils/flow_utils/ef_raft_models/*.pth

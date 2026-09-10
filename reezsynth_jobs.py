@@ -1,0 +1,365 @@
+import json
+import os
+import re
+import sys
+import traceback
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+PREFIX = "@@REEZSYNTH_PROGRESS@@"
+EXTENSIONS = {".png", ".jpg", ".jpeg"}
+FRAME_PATTERN = re.compile(r"^(.*?)(\d+)$")
+
+
+def scan_images(folder, source=False):
+    folder = Path(folder).expanduser().resolve()
+    if not folder.is_dir():
+        raise ValueError(f"Directory does not exist: {folder}")
+
+    files = sorted(
+        p for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() in EXTENSIONS
+    )
+
+    if not files:
+        raise ValueError(f"No PNG/JPEG images found in: {folder}")
+
+    mapping = {}
+    prefixes = set()
+    padding = 1
+
+    for path in files:
+        match = FRAME_PATTERN.fullmatch(path.stem)
+        if not match:
+            raise ValueError(
+                f"Cannot identify a frame number in '{path.name}'. "
+                "Use names ending in digits, such as frame_0023.png."
+            )
+
+        prefix, digits = match.groups()
+        number = int(digits)
+
+        if number > 2147483647:
+            raise ValueError(f"Frame number is too large: {path.name}")
+
+        if number in mapping:
+            raise ValueError(
+                f"Duplicate frame number {number}: "
+                f"'{mapping[number].name}' and '{path.name}'."
+            )
+
+        mapping[number] = path
+        prefixes.add(prefix.casefold())
+        padding = max(padding, len(digits))
+
+    numbers = sorted(mapping)
+
+    if source:
+        if len(prefixes) != 1:
+            raise ValueError(
+                "The video directory contains multiple filename prefixes. "
+                "Place a single source sequence in this directory."
+            )
+
+        for previous, current in zip(numbers, numbers[1:]):
+            if current != previous + 1:
+                raise ValueError(
+                    f"Source sequence has a gap between frames "
+                    f"{previous} and {current}. "
+                    "This version requires consecutive source frames."
+                )
+
+    return {number: mapping[number] for number in numbers}, padding
+
+
+def validate_folder(name):
+    name = str(name).strip()
+    path = Path(name)
+
+    if (
+        not name
+        or path.is_absolute()
+        or path.drive
+        or not path.parts
+        or ".." in path.parts
+        or any(character in name for character in '<>:"|?*')
+        or any(part.endswith((" ", ".")) for part in path.parts)
+    ):
+        raise ValueError(
+            "Output must be a relative subfolder such as out_023, "
+            "without '..' or invalid Windows filename characters."
+        )
+
+    return str(path)
+
+
+def validate_row(row, video, keys):
+    for field in ("key", "start", "end"):
+        if type(row.get(field)) is not int:
+            raise ValueError(f"'{field}' must be an integer.")
+
+    key = row["key"]
+    if key not in keys or key not in video:
+        raise ValueError(f"Keyframe {key} has no matching source/keyframe file.")
+
+    if not (
+        row["start"] in video
+        and row["end"] in video
+        and row["start"] <= key <= row["end"]
+    ):
+        raise ValueError(
+            f"Invalid range for keyframe {key}: "
+            f"{row['start']} <= {key} <= {row['end']} is required."
+        )
+
+    for field in ("reverse", "forward"):
+        if type(row.get(field)) is not bool:
+            raise ValueError(f"'{field}' must be true or false.")
+
+    result = dict(row)
+    result["folder"] = validate_folder(row["folder"])
+    return result
+
+
+def build_plan(video_folder, keyframe_folder):
+    video, padding = scan_images(video_folder, source=True)
+    keys, _ = scan_images(keyframe_folder)
+
+    unmatched = sorted(set(keys) - set(video))
+    if unmatched:
+        shown = ", ".join(map(str, unmatched[:12]))
+        raise ValueError(
+            f"Keyframes without matching source frames: {shown}. "
+            "Keyframe numbers must match actual source-frame numbers."
+        )
+
+    key_numbers = sorted(keys)
+    first, last = min(video), max(video)
+
+    rows = []
+    for index, key in enumerate(key_numbers):
+        rows.append({
+            "key": key,
+            "start": key_numbers[index - 1] if index else first,
+            "end": (
+                key_numbers[index + 1]
+                if index + 1 < len(key_numbers)
+                else last
+            ),
+            "reverse": True,
+            "forward": True,
+            "folder": f"out_{key:0{padding}d}",
+        })
+
+    return video, keys, padding, rows
+
+
+def progress(percent, stage):
+    message = {
+        "percent": max(0, min(99, int(percent))),
+        "stage": stage,
+    }
+    print("\n" + PREFIX + json.dumps(message), flush=True)
+
+
+def render_job(job_path):
+    os.environ["TQDM_DISABLE"] = "1"
+
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+    progress(0, "Loading libraries")
+
+    import cv2
+    import numpy as np
+
+    job = json.loads(Path(job_path).read_text(encoding="utf-8"))
+    entries = job["frames"]
+    numbers = [entry[0] for entry in entries]
+    count = len(entries)
+    key = job["key"]
+    key_position = numbers.index(key)
+    output = Path(job["output"])
+
+    def read_image(path):
+        path = Path(path)
+        data = np.frombuffer(path.read_bytes(), dtype=np.uint8)
+        if data.size == 0:
+            raise ValueError(f"Empty image: {path}")
+
+        image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError(f"Cannot decode image: {path}")
+        return image
+
+    print(f"Keyframe: {key}", flush=True)
+    print(f"Source range: {numbers[0]} to {numbers[-1]}", flush=True)
+    print(f"Frames in this job: {count}", flush=True)
+    print(f"Keyframe position within job: {key_position}", flush=True)
+
+    frames = []
+    original_shape = None
+    size = None
+
+    for index, (_, path) in enumerate(entries):
+        image = read_image(path)
+
+        if original_shape is None:
+            original_shape = image.shape
+            height, width = image.shape[:2]
+            limit = job["max_width"]
+            scale = min(1.0, limit / width) if limit else 1.0
+            size = (
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
+            )
+
+            if count > 1 and min(size) < 128:
+                raise ValueError(
+                    "Processing width and height must both be at least "
+                    "128 pixels for this RAFT configuration."
+                )
+
+        if image.shape != original_shape:
+            raise ValueError(f"Source frame dimensions differ: {path}")
+
+        if image.shape[1::-1] != size:
+            image = cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+
+        frames.append(image)
+        progress(10 * (index + 1) / count, f"Loading {index + 1}/{count}")
+
+    style = read_image(job["style"])
+    if style.shape != original_shape:
+        raise ValueError(
+            f"Keyframe {key} dimensions do not match the original source frames."
+        )
+
+    if style.shape[1::-1] != size:
+        style = cv2.resize(style, size, interpolation=cv2.INTER_AREA)
+
+    print("Processing size:", size, flush=True)
+
+    if count == 1:
+        results = [style]
+        progress(90, "Keyframe copy")
+    else:
+        progress(10, "Initializing engine")
+
+        import torch
+        from ezsynth.aux_classes import RunConfig
+        from ezsynth.main_ez import EzsynthBase
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("PyTorch CUDA is unavailable.")
+
+        print("GPU:", torch.cuda.get_device_name(0), flush=True)
+
+        presets = {
+            "Preview": (5, 3, 4, 3, False),
+            "Standard": (7, 6, 12, 6, True),
+        }
+        patch, levels, votes, matches, polish = presets[job["quality"]]
+
+        config = RunConfig(
+            patchsize=patch,
+            pyramidlevels=levels,
+            searchvoteiters=votes,
+            patchmatchiters=matches,
+            extrapass3x3=polish,
+            use_gpu=False,
+            use_poisson_cupy=False,
+        )
+
+        runner = EzsynthBase(
+            style_frs=[style],
+            style_idxes=[key_position],
+            img_frs_seq=frames,
+            cfg=config,
+            edge_method="Classic",
+            raft_flow_model_name="sintel",
+            flow_arch="RAFT",
+            do_mask=False,
+        )
+
+        # Requires the backend-forwarding edits from the earlier diagnostics.
+        runner.eb.backend = runner.eb.backends["cuda"]
+        print("Requested EbSynth backend: CUDA", flush=True)
+
+        completed = 0
+        expected = count - 1
+        original_run = runner.eb.run
+
+        def tracked_run(*args, **kwargs):
+            nonlocal completed
+            result = original_run(*args, **kwargs)
+            completed += 1
+            progress(
+                15 + 75 * completed / expected,
+                f"Synthesis {completed}/{expected}",
+            )
+            return result
+
+        runner.eb.run = tracked_run
+        progress(15, f"Synthesis 0/{expected}")
+
+        try:
+            results, _ = runner.run_sequences()
+        finally:
+            runner.eb.run = original_run
+
+        if completed != expected:
+            raise RuntimeError(
+                f"Expected {expected} generated frames, received {completed}."
+            )
+
+    if len(results) != count:
+        raise RuntimeError(
+            f"Expected {count} output frames, received {len(results)}."
+        )
+
+    progress(90, f"Saving 0/{count}")
+
+    for index, (number, image) in enumerate(zip(numbers, results)):
+        if image.shape != frames[index].shape or not np.isfinite(image).all():
+            raise RuntimeError(f"Invalid output image for frame {number}.")
+
+        image = np.clip(image, 0, 255).astype(np.uint8)
+        ok, encoded = cv2.imencode(".png", image)
+        if not ok:
+            raise RuntimeError(f"Could not encode frame {number}.")
+
+        name = f"{number:0{job['padding']}d}.png"
+        destination = output / name
+        temporary = output / (name + ".part")
+        temporary.write_bytes(encoded.tobytes())
+        temporary.replace(destination)
+
+        progress(
+            90 + 9 * (index + 1) / count,
+            f"Saving {index + 1}/{count}",
+        )
+
+    (output / "COMPLETE.txt").write_text(
+        f"Keyframe: {key}\n"
+        f"Range: {numbers[0]} to {numbers[-1]}\n"
+        f"Saved frames: {count}\n",
+        encoding="utf-8",
+    )
+
+    progress(99, "Finishing")
+    print(f"COMPLETE: keyframe {key}, {count} frames -> {output}", flush=True)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: python reezsynth_jobs.py job.json")
+
+    try:
+        render_job(sys.argv[1])
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
+

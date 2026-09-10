@@ -1,0 +1,35 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated project data and renders
+reezsynth_projects/
+
+# Local backups
+backups/
+
+# Common model weight formats
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# Secrets and local environment configuration
+.env
+.env.*
+!.env.example
+
+# Temporary files and logs
+*.log
+*.tmp
+*.part
+
+# OS metadata
+Thumbs.db
+.DS_Store
