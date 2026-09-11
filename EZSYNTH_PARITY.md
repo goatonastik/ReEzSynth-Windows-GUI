@@ -58,10 +58,10 @@ remain. These tests do not establish real GPU output or performance equivalence.
 | RAFT model selection | Fixed to Sintel | Add Kitti; do not offer raft-small just because its file exists |
 | EF-RAFT and FlowDiffuser | Missing | Add supported architecture/model pairs, availability diagnostics and validated forwarding |
 | Error/selection maps and flow visualization | Exported with a metadata manifest; mapping tested against upstream methods | Real GPU output validation; raw flow vectors are not exposed by the upstream full-results API |
-| ImageSynth / ImageSynthBase | Placeholder tab | Add style/source/target image inputs and synthesis job type |
-| Image guide pairs | Missing | Editable source/target pairs, weights, add/remove controls and dimension/channel validation |
-| Image output and error output | Missing | Save both results, keeping numerical error data distinct from display images |
-| Presets and projects for new modes | Partial | Extend the schema compatibly; retain old independent jobs and saved row names |
+| ImageSynth / ImageSynthBase | Implemented through Image Synthesis tab and dedicated job type | Real CUDA render comparison |
+| Image guide pairs | Editable pairs/weights with dimension and channel validation | Real example validation |
+| Image output and error output | image.png, numerical error.npy and metadata, required before COMPLETE | Real output validation |
+| Presets and projects for new modes | Image preset group and optional image project data; legacy tests pass | Continue compatibility tests when adding further modes |
 | Backend selection via the low-level wrapper | Fixed CUDA | Audit CPU/auto availability separately; never silently lose the working CUDA forwarding |
 
 Core references: [rendering entry points](https://github.com/Trentonom0r3/Ezsynth/blob/b198f2d7051eee542c4efc51c2d43dc442630bbf/ezsynth/main_ez.py),
@@ -127,7 +127,10 @@ Step 3 is also implemented: optional numerical maps and flow visualizations are
 saved with explicit sequence/transition metadata. `test_reezsynth_artifacts.py`
 checks flattened output indexing, lossless map values, export failure, persistence
 and empty single-frame results. Full suite: 81 tests passed; GPU computation remains
-unverified. Step 4 (Image Synthesis) is next.
+unverified. Step 4 is now implemented: still-image inputs, weighted guide pairs,
+image/error outputs, image presets and image-only projects. Tests execute the live
+upstream ImageSynthBase.run method with native computation mocked. Full lightweight
+suite: 100 tests passed. Step 5 (model/backend choices and advanced hooks) is next.
 
 1. Add an explicit grouped-video job type and Qt-free planning/configuration
    validation. Keep independent keyframe jobs and current defaults working.

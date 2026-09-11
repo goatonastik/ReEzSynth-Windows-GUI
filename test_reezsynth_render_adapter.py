@@ -64,6 +64,19 @@ class RenderAdapterTests(unittest.TestCase):
         }))
         return captured
 
+    def test_cuda_memory_failure_explains_resolution_and_preserves_failure(self):
+        self.fake_engine()
+        engine = sys.modules['ezsynth.main_ez'].EzsynthBase
+        failure = RuntimeError('CUDA out of memory. Tried to allocate 62.57 GiB.')
+        log = io.StringIO()
+        with patch.object(engine, 'run_sequences', side_effect=failure), \
+             contextlib.redirect_stdout(log), self.assertRaises(RuntimeError) as raised:
+            self.run_job()
+        self.assertIs(raised.exception, failure)
+        self.assertIn('Maximum width 960', log.getvalue())
+        self.assertIn('also reduces output resolution', log.getvalue())
+        self.assertFalse((self.output / 'COMPLETE.txt').exists())
+
     def test_legacy_jobs_preserve_preview_and_standard_parameters(self):
         captured = self.fake_engine()
         for quality, expected in (("Preview", PREVIEW), ("Standard", STANDARD)):

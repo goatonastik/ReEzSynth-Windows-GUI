@@ -27,6 +27,10 @@ change as rendering, queue management, and resource handling are refined.
 
 ## Using the interface
 
+For a new machine, follow [Windows setup](INSTALL_WINDOWS.md). The setup script
+creates a dedicated environment, installs pinned dependencies, and checks GUI,
+CUDA and native-library availability without rendering.
+
 Launch `run_reezsynth.bat` with the existing `reezsynth` Conda environment.
 The entry point is `reezsynth_gui.py`.
 
@@ -37,7 +41,7 @@ The entry point is `reezsynth_gui.py`.
   iteration counts, polishing, edge method and masks. Preview/Standard reset
   synthesis parameters while preserving guide weights. RAFT Sintel and the CUDA
   synthesis backend remain selected.
-- **Masks:** tick Enable masks beside the directory inputs. Untick it to ignore
+- **Masks:** tick the Masks checkbox beside its directory input. Untick it to ignore
   the remembered mask folder for rendering and compositing. Supply one mask per source frame,
   matching its number and dimensions. White selects stylized pixels; black keeps
   source pixels. Feather size is zero or an odd integer.
@@ -46,13 +50,24 @@ The entry point is `reezsynth_gui.py`.
 
 ### Presets and startup behavior
 
-Key, video and mask-guide weights are beside the directory inputs. Key weight
+Key, video and mask-guide weights occupy a column between their directory inputs
+and Select buttons. The remaining Guide weights are underneath the directories. Key weight
 controls the style-to-guide ratio: because the native library fixes style weight
 at 1, the adapter divides all guide weights by the key weight (minimum 0.001).
 Video weight controls the source-image guide. Mask guide weight adds a source/target
 mask correspondence guide when masks are enabled; zero disables that additional
 guide without disabling mask compositing. Defaults (key 1, mask guide 0) preserve
 previous rendering behavior. All are saved in weight presets and projects.
+
+The default quality preset is Standard. Video weight 6, Mapping 2 and Deflicker
+0.5 match Ezsynth's RunConfig defaults.
+Processing size defaults to Original resolution; explicitly saved size choices
+remain respected. With Original resolution selected, video jobs check selected
+source-frame and keyframe dimensions before creating outputs or launching workers.
+Mismatches show the filename, actual size and expected size. Image Synthesis keeps
+its separate rule allowing target dimensions to differ from source/style dimensions.
+Existing saved weights are preserved. The visible guide order is Mapping,
+Deflicker, Diversity.
 
 Rendering labels relate familiar Beta concepts to Ezsynth controls: Mapping
 (position guide), Deflicker (warped-style guide), and Diversity (uniformity).
@@ -110,7 +125,7 @@ ambiguous matches prompt for selection. Discovery is disabled by default.
 Automatic start is disabled by default. When enabled, input edits or directory
 preset selection can start a validated queue after a short delay. Enabling it
 with inputs already present also checks them. It can wait for a complete mask
-sequence; tick Enable masks separately to apply masks. Startup restore and Open
+sequence; tick Masks separately to apply masks. Startup restore and Open
 project never automatically render. Identical input identities are not repeatedly
 launched; manual Run All remains available. Folders are not continuously watched
 for files arriving after validation.
@@ -126,16 +141,49 @@ Completion sound defaults to queue completion. Choose per-render notification,
 queue notification, both or neither, and optionally select a WAV file.
 `assets/complete.wav` is a generated placeholder tone that may be replaced.
 
+### Memory-efficient RAFT and GPU memory errors
+
+For high-resolution video, enable **Memory-efficient RAFT correlation
+(CUDA)** in Rendering while leaving Processing size at Original. This
+option is saved in projects/rendering presets and defaults off for older projects.
+It applies to video, including grouped jobs; Image Synthesis does not use RAFT.
+
+The Windows setup installs the bundled compiled `alt_cuda_corr` extension; no
+extra commands, CUDA Toolkit, or C++ compiler are needed after downloading a
+complete repository release. It supports the project-pinned Windows x64 CPython
+3.11/PyTorch 2.11.0+cu128 environment and NVIDIA architectures 7.5, 8.0, 8.6,
+8.9 and 12.0. See [memory-efficient RAFT support](INSTALL_WINDOWS.md#memory-efficient-raft-extension)
+for compatibility and manual rebuilding.
+It retains full-resolution RAFT features, model weights, search neighborhoods and
+iteration counts. The former pure-PyTorch implementation was too slow in the user's
+4K trial and remains only as a numerical/benchmark reference. Missing or incompatible
+extensions produce an error; there is no automatic slow fallback. The original
+all-pairs implementation remains available when the checkbox is off.
+
+GPU comparisons against all-pairs correlations and a random-weight RAFT forward
+pass passed within numerical tolerances. On the development RTX 5090, a synthetic
+4K-equivalent correlation lookup took about 45 ms versus 368 ms for the former
+PyTorch implementation (about 8x faster), with 1207 MiB peak PyTorch allocation.
+These are correlation-only measurements, not total render time or whole-render
+VRAM requirements. Real-video visual quality remains unverified; bit-identical
+results are not promised. Other stages can still exhaust GPU memory.
+
+Explicit CUDA out-of-memory exception lines trigger one nonblocking error popup
+per queue, including the original error details. Generic crashes and CPU memory
+errors are not labelled GPU OOM. Shared, isolated and parallel worker shutdown
+continues while the popup is visible. No automatic resizing or retry occurs.
+
 ### Regression tests
 
 Run these explicit modules in the existing environment, without real GPU renders:
 
 ```powershell
-python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations -v
+python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations test_reezsynth_image test_reezsynth_setup test_reezsynth_raft -v
 ```
 
 Tests isolate settings/files, use offscreen Qt, mock workers and a fake engine,
-and include CPU image handling. Audio playback is mocked. The older
+and include CPU image handling and CPU RAFT numerical checks without pretrained
+weights. Audio playback is mocked. The older
 `test_imgsynth.py` and `test_redux.py` are rendering demos; do not use unrestricted
 test discovery for this lightweight suite.
 
@@ -158,7 +206,35 @@ NumPy maps retain their numerical values and dtype. Flow PNGs use upstream color
 visualization with per-image magnitude normalization; they are not raw flow vectors.
 A single-frame copy writes an empty manifest when exports are requested.
 Requested exports must finish before the job receives `COMPLETE.txt`.
-Image Synthesis remains planned.
+### Image Synthesis
+
+Select or drop a styled image, its source guide and a target guide, then click
+**Synthesize Image**. Add optional source/target guide pairs with their own weights.
+Source guides must match the style's dimensions, and target guides must match each
+other; the target may have a different size from the style. Each guide pair must
+have the same channel count. Inputs must be 8-bit images, with at most 24 guide
+channels in total. The style is read as a three-channel color image; its alpha is
+not used as a mask. Outputs use the target dimensions after processing-size limits.
+
+Quality, processing size and the six synthesis parameters are shared with video.
+Image jobs use their own primary-guide and style weights (defaults 6 and 1).
+Video masks, automatic edges, position/warped-style guides, and blending options
+do not apply. Additional guides are supplied explicitly as image pairs.
+
+Output naming/location and batch settings apply. For input-relative destinations,
+the styled image's folder takes the place of the keyframe folder and the target
+image's folder takes the place of the video folder. Each run creates a unique job
+subfolder containing `job.json`, `image.png`, a lossless numerical `error.npy`,
+`image_manifest.json` and, only after successful saving, `COMPLETE.txt`.
+
+Image presets store input files, guide pairs, weights and output subfolder in the
+existing shareable preset file, with their own startup restore choice. Projects
+store these inputs as optional `image_synthesis` data. Image-only projects can be
+saved without video folders; older projects load with empty image inputs.
+Use the tab's Stop and Open outputs buttons to manage an image run. Worker reuse,
+isolated mode, cancellation and asynchronous shutdown use the existing lifecycle.
+Rendering remains CUDA-backed. The implementation has mock/CPU file-handling
+tests; real CUDA image quality and performance have not yet been validated.
 
 ## Credits and attribution
 

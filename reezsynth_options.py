@@ -1,6 +1,7 @@
 """Frontend options, presets and optional automation. No engine imports."""
 import json
 import os
+from reezsynth_widget_style import QueueDoubleSpinBox
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, QTimer, QUrl
@@ -15,6 +16,7 @@ from reezsynth_project_controls import (project_naming, set_project_naming,
     update_naming_preview)
 
 LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (position guide)",
+    memory_efficient_raft="Memory-efficient RAFT correlation (CUDA)",
     key_wgt="Key weight", mask_wgt="Mask guide weight",
     wrp_wgt="Deflicker (warped-style guide)", uniformity="Diversity (uniformity)", patchsize="Patch size (odd)",
     pyramidlevels="Pyramid levels", searchvoteiters="Search/vote iterations",
@@ -89,6 +91,7 @@ class Options(QObject):
 
         window.mask_dir = window.path_row(form, "Masks (optional)")
         window.directory_layout.insertLayout(0, self.preset_bar("directories", "Directory presets"))
+        window.image_synthesis.layout.insertLayout(1, self.preset_bar('image', 'Image presets'))
         advanced = QGroupBox("Rendering controls")
         advanced_layout = QVBoxLayout(advanced)
         self.export_widgets = {}
@@ -101,32 +104,54 @@ class Options(QObject):
             advanced_layout.addWidget(widget)
             window.locked.append(widget)
         columns = QHBoxLayout()
+        control_forms = {}
         for group, defaults, title in (("weights", WEIGHTS, "Guide weights"), ("render", RENDER, "Synthesis")):
             box = QGroupBox(title)
             layout = QVBoxLayout(box)
             layout.addLayout(self.preset_bar(group, title + " presets"))
             fields = QFormLayout()
+            control_forms[group] = fields
             self.widgets[group] = {}
             for name, default in defaults.items():
                 widget = self.make_control(name, default)
                 self.widgets[group][name] = widget
                 if name == 'do_mask':
-                    widget.setText('Enable masks')
+                    widget.setText('Masks')
                     widget.setToolTip('Uncheck to ignore masks for synthesis and compositing; the folder stays remembered.')
-                    form.addRow(widget)
+                    mask_row = window.mask_dir.parentWidget()
+                    row_index, _ = form.getWidgetPosition(mask_row)
+                    old_label = form.labelForField(mask_row)
+                    form.removeWidget(old_label)
+                    old_label.hide()
+                    old_label.deleteLater()
+                    form.setWidget(row_index, QFormLayout.ItemRole.LabelRole, widget)
                 elif name in ('key_wgt', 'img_wgt', 'mask_wgt'):
-                    form.addRow(LABELS[name], widget)
+                    field = {'key_wgt': window.keyframe_dir, 'img_wgt': window.video_dir,
+                             'mask_wgt': window.mask_dir}[name]
+                    widget.setFixedWidth(90)
+                    widget.setAccessibleName(LABELS[name])
+                    widget.setToolTip(LABELS[name])
+                    field.parentWidget().layout().insertWidget(1, widget)
                 else:
                     fields.addRow(LABELS[name], widget)
                 if name == 'key_wgt':
                     widget.setMinimum(0.001)
                     widget.setToolTip('Style-to-guide ratio: guide weights are divided by this value. Default 1 preserves Ezsynth behavior.')
+                elif name == 'memory_efficient_raft':
+                    widget.setToolTip('Video only. Uses the compiled alt_cuda_corr extension at full resolution, without the large all-pairs table. Requires the optional extension installation. No slow fallback or image resizing. Other render stages still need GPU memory.')
                 elif name == 'mask_wgt':
                     widget.setToolTip('Additional mask correspondence guide when masks are enabled. Zero disables this guide; mask compositing remains controlled by Enable masks.')
                 elif name in ('pos_wgt', 'wrp_wgt', 'uniformity'):
                     widget.setToolTip('Ezsynth control with a related purpose to the EbSynth Beta setting; numerical equivalence is not guaranteed.')
             layout.addLayout(fields)
-            columns.addWidget(box)
+            if group == 'weights':
+                window.directory_layout.addWidget(box)
+            else:
+                columns.addWidget(box)
+        edge_row = control_forms['weights'].takeRow(self.widgets['weights']['edg_wgt'])
+        diversity_row = control_forms['render'].takeRow(self.widgets['render']['uniformity'])
+        control_forms['weights'].addRow(diversity_row.labelItem.widget(), diversity_row.fieldItem.widget())
+        control_forms['render'].insertRow(0, edge_row.labelItem.widget(), edge_row.fieldItem.widget())
         advanced_layout.addLayout(columns)
         advanced_layout.addWidget(QLabel("Preview / Standard reset synthesis parameters; guide weights are independent.\n"
             "RAFT Sintel and the CUDA synthesis backend remain selected. Use Blend / Flow for grouped video."))
@@ -213,7 +238,7 @@ class Options(QObject):
             widget.addItems(["Classic", "PST", "PAGE"])
             widget.currentTextChanged.connect(self.changed)
         elif isinstance(default, (int, float)):
-            widget = QSpinBox() if isinstance(default, int) else QDoubleSpinBox()
+            widget = QSpinBox() if isinstance(default, int) else QueueDoubleSpinBox()
             low, high = LIMITS.get(name, (0, 64 if name == "parallel_limit" else 10000))
             widget.setRange(low, high)
             if isinstance(widget, QDoubleSpinBox):
@@ -271,6 +296,8 @@ class Options(QObject):
 
     def snapshot(self, group):
         w = self.w
+        if group == 'image':
+            return w.image_synthesis.settings()
         if group == "directories":
             return {name: getattr(w, name).text() for name in ("project_dir", "keyframe_dir", "video_dir", "mask_dir")}
         if group == "render":
@@ -286,7 +313,9 @@ class Options(QObject):
         previous = self.loading
         self.loading = True
         try:
-            if group == "directories":
+            if group == 'image':
+                self.w.image_synthesis.set_settings(data)
+            elif group == "directories":
                 for name, value in data.items():
                     getattr(self.w, name).setText(value)
             elif group == "render":
@@ -316,8 +345,8 @@ class Options(QObject):
         # into the separate last-used file unless an explicit policy says otherwise.
         defaults = {"directories": dict(project_dir=str(self.w.project_dir.text()),
                        keyframe_dir="", video_dir="", mask_dir=""),
-                    "weights": WEIGHTS, "render": dict(options=RENDER, quality="Preview", max_width=512),
-                    "application": APPLICATION}
+                    "weights": WEIGHTS, "render": dict(options=RENDER, quality="Standard", max_width=0),
+                    "application": APPLICATION, "image": {}}
         # The project default should never inherit a previous directory in defaults mode.
         defaults["directories"]["project_dir"] = self.default_project
         last, policy = {}, {}
@@ -533,6 +562,7 @@ class Options(QObject):
 
     def project_data(self):
         return dict(render_options=self.render(), guide_weights=self.weights(), mask_dir=self.w.mask_dir.text(),
+                    image_synthesis=self.w.image_synthesis.settings(),
                     exports=self.snapshot("render")["exports"],
                     blend_options=self.w.grouped.blend_options(), grouped_video=self.w.grouped.selection())
 
@@ -543,6 +573,7 @@ class Options(QObject):
                                  output_naming=data.get("output_naming"), blend_options=data.get("blend_options"),
                                  exports=data.get("exports")))
         self.apply("weights", data.get("guide_weights", {}))
+        self.apply('image', data.get('image_synthesis', {}))
         self.w.mask_dir.setText(data.get("mask_dir", ""))
         self.auto_timer.stop()
         self.auto_armed = False

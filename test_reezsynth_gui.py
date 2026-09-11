@@ -26,7 +26,7 @@ class GuiFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
-        cls.app.setStyle("Fusion")
+        cls.app.setStyle(gui.QueueStyle('Fusion'))
         cls.app.setStyleSheet(gui.THEME)
 
     def setUp(self):
@@ -89,6 +89,7 @@ class ConstructionTests(GuiFixture):
         self.assertFalse(window.run_all.isEnabled())
         self.assertIsNone(window.process)
         self.assertTrue(window.reuse_worker.isChecked())
+        self.assertEqual(window.resolution.currentData(), 0)
         self.assertEqual(window.batch_name_pattern.text(), controls.DEFAULT_BATCH_PATTERN)
         self.assertIn("out_023", window.naming_preview.text())
         for field in (window.project_dir, window.keyframe_dir, window.video_dir):
@@ -250,7 +251,7 @@ class NamingTests(GuiFixture):
         for pattern, expected in ((controls.DEFAULT_BATCH_PATTERN, "batch_20260910_123456_123456"),
                 (controls.DEFAULT_JOB_PATTERN, "out_023"), ("paint_{key:04d}", "paint_0023"),
                 ("{index:02d}_key_{key}", "01_key_23"),
-                ("{quality}_{width}_{start}_{end}", "Preview_512_0_46")):
+                ("{quality}_{width}_{start}_{end}", "Standard_original_0_46")):
             with self.subTest(pattern=pattern):
                 self.assertEqual(controls._format_name(pattern, values, controls.JOB_FIELDS), expected)
 

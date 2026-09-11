@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QPointF,
     QProcess,
     QRectF,
     QSettings,
@@ -19,9 +18,6 @@ from PySide6.QtGui import (
     QColor,
     QDesktopServices,
     QPainter,
-    QPainterPath,
-    QPen,
-    QPolygonF,
 )
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -54,6 +50,7 @@ from reezsynth_jobs import (
     PREFIX,
     build_plan,
     validate_masks,
+    validate_video_dimensions,
     validate_row,
 )
 
@@ -77,6 +74,9 @@ from reezsynth_options import Options
 from reezsynth_parallel import ParallelQueue
 from reezsynth_config import validate_render, validate_weights, validate_application
 from reezsynth_grouped_controls import GroupedVideoControls
+from reezsynth_image_controls import ImageSynthesisControls
+from reezsynth_image import validate_image_settings, image_job_settings
+from reezsynth_widget_style import StepButton, QueueStyle, paint_check
 from reezsynth_artifacts import validate_exports
 from reezsynth_video_plan import (plan_grouped_video, check_blend_dependencies,
                                   validate_grouped_selection, validate_blend_options)
@@ -196,86 +196,6 @@ class FolderEdit(QLineEdit):
         event.accept()
 
 
-class StepButton(QAbstractButton):
-    """An arrow button occupying half of the frame control."""
-
-    def __init__(self, direction):
-        super().__init__()
-        self.direction = direction
-
-        self.setAutoRepeat(True)
-        self.setAutoRepeatDelay(350)
-        self.setAutoRepeatInterval(80)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Ignored,
-        )
-
-        description = (
-            "Increase frame number"
-            if direction > 0
-            else "Decrease frame number"
-        )
-        self.setToolTip(description)
-        self.setAccessibleName(description)
-
-    def sizeHint(self):
-        return QSize(STEP_COLUMN_WIDTH, ROW_HEIGHT // 2)
-
-    def enterEvent(self, event):
-        super().enterEvent(event)
-        self.update()
-
-    def leaveEvent(self, event):
-        super().leaveEvent(event)
-        self.update()
-
-    def paintEvent(self, event):
-        width = self.width()
-        height = self.height()
-        if width < 1 or height < 1:
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        if not self.isEnabled():
-            background, foreground = "#303030", "#777777"
-        elif self.isDown():
-            background, foreground = "#007e6b", "#ffffff"
-        elif self.underMouse():
-            background, foreground = "#555555", "#ffffff"
-        else:
-            background, foreground = "#414141", "#eeeeee"
-
-        painter.fillRect(self.rect(), QColor(background))
-        painter.setPen(QColor("#626262"))
-        painter.drawLine(0, 0, width - 1, 0)
-
-        center_x = width / 2
-        center_y = height / 2
-        half_width = min(6.5, width * 0.24)
-        half_height = min(4.0, height * 0.24)
-
-        if self.direction > 0:
-            points = [
-                QPointF(center_x, center_y - half_height),
-                QPointF(center_x - half_width, center_y + half_height),
-                QPointF(center_x + half_width, center_y + half_height),
-            ]
-        else:
-            points = [
-                QPointF(center_x - half_width, center_y - half_height),
-                QPointF(center_x + half_width, center_y - half_height),
-                QPointF(center_x, center_y + half_height),
-            ]
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(foreground))
-        painter.drawPolygon(QPolygonF(points))
-
-
 class FullHeightSpinBox(QWidget):
     """Editable frame number with full-height arrow controls."""
 
@@ -372,33 +292,7 @@ class CenteredToggle(QAbstractButton):
         x = (self.width() - size) / 2
         y = (self.height() - size) / 2
 
-        if not self.isEnabled():
-            fill, border, tick = "#333333", "#555555", "#888888"
-        else:
-            fill = "#009f87" if self.isChecked() else "#151515"
-            border = "#00c9aa" if self.hasFocus() else "#777777"
-            tick = "#ffffff"
-
-        border_pen = QPen(QColor(border))
-        border_pen.setWidthF(1.2)
-        painter.setPen(border_pen)
-        painter.setBrush(QColor(fill))
-        painter.drawRoundedRect(QRectF(x, y, size, size), 2, 2)
-
-        if self.isChecked():
-            path = QPainterPath()
-            path.moveTo(x + size * 0.19, y + size * 0.51)
-            path.lineTo(x + size * 0.43, y + size * 0.75)
-            path.lineTo(x + size * 0.82, y + size * 0.28)
-
-            tick_pen = QPen(QColor(tick))
-            tick_pen.setWidthF(max(1.5, size * 0.12))
-            tick_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            tick_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-
-            painter.setPen(tick_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(path)
+        paint_check(painter, QRectF(x, y, size, size), self.isChecked(), self.isEnabled(), self.hasFocus())
 
 
 class MainWindow(QMainWindow):
@@ -520,6 +414,7 @@ class MainWindow(QMainWindow):
 
         self.quality = QComboBox()
         self.quality.addItems(["Preview", "Standard"])
+        self.quality.setCurrentText('Standard')
         options.addWidget(self.quality)
 
         options.addWidget(QLabel("Processing size:"))
@@ -527,6 +422,7 @@ class MainWindow(QMainWindow):
         self.resolution.addItem("Maximum width 512 - preview", 512)
         self.resolution.addItem("Maximum width 960", 960)
         self.resolution.addItem("Original resolution", 0)
+        self.resolution.setCurrentIndex(self.resolution.findData(0))
         options.addWidget(self.resolution)
         options.addStretch()
         page.addLayout(options)
@@ -540,16 +436,6 @@ class MainWindow(QMainWindow):
         )
         self.summary.setWordWrap(True)
         page.addWidget(self.summary)
-
-        note = QLabel(
-            "Stops are inclusive. ← / → enable backward / forward "
-            "propagation. Changing either input directory rebuilds "
-            "the queue and resets its ranges.\n"
-            "Each job has one keyframe and its own output sequence. "
-            "No cross-keyframe blending is performed."
-        )
-        note.setWordWrap(True)
-        page.addWidget(note)
 
         self.table = QTableWidget(0, 10)
         self.table.setHorizontalHeaderLabels([
@@ -649,6 +535,14 @@ class MainWindow(QMainWindow):
                 placeholder = self.tabs.widget(index)
                 self.tabs.removeTab(index)
                 self.tabs.insertTab(index, self.grouped, "Blend / Flow")
+                placeholder.deleteLater()
+                break
+        self.image_synthesis = ImageSynthesisControls(self)
+        for index in range(self.tabs.count()):
+            if self.tabs.tabText(index) == 'Image Synthesis (planned)':
+                placeholder = self.tabs.widget(index)
+                self.tabs.removeTab(index)
+                self.tabs.insertTab(index, self.image_synthesis, 'Image Synthesis')
                 placeholder.deleteLater()
                 break
         self.options = Options(self, page, form, settings_page, settings_layout)
@@ -866,7 +760,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            if not self.rows:
+            image_only = not self.rows and any(self.image_synthesis.settings()[name] for name in ('style', 'source', 'target'))
+            if not self.rows and not image_only:
                 raise ValueError(
                     "Build a queue before saving the project."
                 )
@@ -874,9 +769,10 @@ class MainWindow(QMainWindow):
             data = {
                 "format": APP_NAME,
                 "version": 1,
+                "project_mode": 'image' if image_only else 'video',
                 "project_dir": self.path_value(self.project_dir),
-                "video_dir": self.path_value(self.video_dir),
-                "keyframe_dir": self.path_value(self.keyframe_dir),
+                "video_dir": self.video_dir.text() if image_only else self.path_value(self.video_dir),
+                "keyframe_dir": self.keyframe_dir.text() if image_only else self.path_value(self.keyframe_dir),
                 "quality": self.quality.currentText(),
                 "max_width": self.resolution.currentData(),
                 "output_naming": project_naming(self),
@@ -888,6 +784,9 @@ class MainWindow(QMainWindow):
                     for row in self.rows
                 ],
             }
+
+            if image_only:
+                data['grouped_video'] = None
 
             path = self.project_file
             if save_as or path is None:
@@ -942,9 +841,15 @@ class MainWindow(QMainWindow):
             if data["max_width"] not in {0, 512, 960}:
                 raise ValueError("Unknown processing size.")
 
-            video, keys, padding, _ = build_plan(
-                data["video_dir"], data["keyframe_dir"]
-            )
+            if data.get('project_mode', 'video') not in ('image', 'video'):
+                raise ValueError('Unknown project mode.')
+            validate_image_settings(data.get('image_synthesis'))
+            if data.get('project_mode') == 'image':
+                if data['rows']:
+                    raise ValueError('Image-only projects cannot contain video rows.')
+                video, keys, padding = {}, {}, 3
+            else:
+                video, keys, padding, _ = build_plan(data['video_dir'], data['keyframe_dir'])
             definitions = [
                 validate_row(row, video, keys)
                 for row in data["rows"]
@@ -992,6 +897,8 @@ class MainWindow(QMainWindow):
                 self.add_row(definition)
 
             self.project_file = Path(selected)
+            if data.get('project_mode') == 'image':
+                self.tabs.setCurrentWidget(self.image_synthesis)
             self.grouped.set_selection(grouped_selection)
             self.summary.setText(
                 f"{len(video)} source frames | "
@@ -1093,6 +1000,12 @@ class MainWindow(QMainWindow):
                 for _, definition, _, _ in planned
             ])
 
+            if self.resolution.currentData() == 0:
+                selected_video = {number: path for _, _, frames, _ in planned for number, path in frames}
+                selected_keys = (dict(group_plan['styles']) if group_plan else
+                                 {definition['key']: style for _, definition, _, style in planned})
+                validate_video_dimensions(selected_video, selected_keys)
+
             project_root = Path(
                 self.path_value(self.project_dir)
             )
@@ -1147,6 +1060,47 @@ class MainWindow(QMainWindow):
             )
             return
 
+        self.start_records(records, batch, shared, parallel, worker_script, application)
+
+    def run_image(self):
+        if self.busy or self.process is not None or self.close_when_idle:
+            return
+        self.options.auto_timer.stop()
+        self.options.auto_armed = False
+        try:
+            from reezsynth_output_location import output_root, create_unique_directory
+            from reezsynth_project_controls import _values, _format_name, BATCH_FIELDS
+            settings = image_job_settings(self.image_synthesis.settings())
+            validate_output_folders([settings['folder']])
+            naming = project_naming(self)
+            root = output_root(naming, self.path_value(self.project_dir),
+                               str(Path(settings['style']).parent), str(Path(settings['target']).parent))
+            options = self.options.render()
+            application = validate_application(self.options.application())
+            parallel = application['parallel']
+            shared = self.reuse_worker.isChecked() and not parallel
+            worker_script = ROOT / ('reezsynth_shared_worker.py' if shared else 'reezsynth_jobs.py')
+            if not worker_script.is_file():
+                raise ValueError(f'Worker script not found: {worker_script}')
+            values = _values(self)
+            values.update(keyframe_dir_name=Path(settings['style']).parent.name,
+                          video_dir_name=Path(settings['target']).parent.name)
+            batch = create_unique_directory(root, _format_name(naming['batch_pattern'], values,
+                    BATCH_FIELDS, allow_nested=False)) if naming['batch_enabled'] else root
+            destination = create_unique_directory(batch, settings['folder'])
+            job = dict(type='image_synthesis', image_synthesis=settings, output=str(destination),
+                       quality=self.quality.currentText(), max_width=self.resolution.currentData(),
+                       render_options=options)
+            job_path = destination / 'job.json'
+            job_path.write_text(json.dumps(job, indent=2), encoding='utf-8')
+            records = [dict(row=self.image_synthesis.row, job_path=job_path, output=destination, weight=1)]
+        except Exception as exc:
+            QMessageBox.warning(self, 'Cannot synthesize image', str(exc))
+            return
+        self.start_records(records, batch, shared, parallel, worker_script, application)
+
+    def start_records(self, records, batch, shared, parallel, worker_script, application):
+        self.gpu_memory_error_reported = False
         self.scan_timer.stop()
         self.shutdown_timer.stop()
         self.shutdown_process = None
@@ -1223,7 +1177,8 @@ class MainWindow(QMainWindow):
 
         row = self.current["row"]
         row["state"].setText("Starting")
-        self.status.setText(f"Starting keyframe {row['key']}")
+        label = row.get('label', f"Keyframe {row['key']}")
+        self.status.setText(f"Starting {label}")
 
         mode = (
             "shared worker"
@@ -1231,7 +1186,7 @@ class MainWindow(QMainWindow):
             else "isolated worker"
         )
         self.log.appendPlainText(
-            f"\n=== Keyframe {row['key']} - {mode} ===\n"
+            f"\n=== {label} - {mode} ===\n"
             f"Output: {self.current['output']}"
         )
 
@@ -1640,9 +1595,31 @@ class MainWindow(QMainWindow):
             self.buffers[name] = ""
             self.consume_line(name, line)
 
+    def check_gpu_memory_error(self, line):
+        from reezsynth_errors import is_cuda_out_of_memory
+        if getattr(self, 'gpu_memory_error_reported', False) or not is_cuda_out_of_memory(line):
+            return
+        self.gpu_memory_error_reported = True
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Critical)
+        dialog.setWindowTitle('GPU out of memory')
+        dialog.setText('The render failed because CUDA reported insufficient GPU memory.')
+        dialog.setInformativeText(
+            'For video, try enabling Memory-efficient RAFT correlation in Rendering. '
+            'If it is already enabled, another allocation may still exceed available memory. '
+            'Disable parallel rendering and close other GPU workloads before retrying. '
+            'Reducing Processing size is another option, but also reduces output resolution. '
+            'See Diagnostics for the full error. No automatic retry or resizing was performed.')
+        dialog.setDetailedText(line)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        # Asynchronous: worker output, shutdown timers and cancellation keep running.
+        dialog.show()
+
     def consume_line(self, name, line):
         if not line.strip():
             return
+
+        self.check_gpu_memory_error(line)
 
         if (
             self.shared_this_run
@@ -1715,7 +1692,7 @@ class MainWindow(QMainWindow):
                 row["bar"].setValue(percent)
                 row["state"].setText(stage)
                 self.status.setText(
-                    f"Keyframe {row['key']}: {stage}"
+                    f"{row.get('label', 'Keyframe ' + str(row['key']))}: {stage}"
                 )
                 self.update_overall(percent)
             return
@@ -1841,6 +1818,7 @@ class MainWindow(QMainWindow):
 
         self.run_all.setEnabled(editable and bool(self.rows))
         self.grouped.update_enabled()
+        self.image_synthesis.set_busy(busy)
         update_naming_preview(self)
         self.stop.setEnabled(
             busy and not self.cancelled
@@ -1919,7 +1897,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
+    app.setStyle(QueueStyle('Fusion'))
     app.setStyleSheet(THEME)
 
     window = MainWindow()

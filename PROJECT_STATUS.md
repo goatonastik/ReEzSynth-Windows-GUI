@@ -1,9 +1,158 @@
 # Project status
 
-Updated 2026-09-10. Live files are authoritative. Usage and settings are described
+Updated 2026-09-11. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+Latest real-render report: 3840x2160 video on RTX 5090 failed in RAFT CorrBlock
+with a 62.57 GiB allocation request against 31.82 GiB total VRAM. This is a
+per-frame-pair correlation allocation, not evidence of a worker-cache leak.
+The adapter now logs actionable resolution guidance on CUDA OOM while preserving
+the exception and failed-job behavior. Original remains the default; no automatic
+resizing, engine changes or real GPU reruns were performed for this diagnostic fix.
+
+## Memory-efficient correlation and OOM popup
+
+- Added opt-in `memory_efficient_raft` rendering setting, saved through existing
+  presets/projects. Old projects default off. Video only; no output downscaling.
+- Following the user's slow-render report, the setting now selects compiled
+  `alt_cuda_corr`. The former PyTorch chunk implementation is reference/test code
+  only; missing extensions fail explicitly rather than silently falling back.
+  Worker-scoped CorrBlock override restores the original implementation even on
+  failure; upstream engine files and native backend forwarding remain untouched.
+- Pinned upstream source/license in third_party/raft_alt_cuda_corr, with tensor
+  validation, current CUDA stream/device support and Windows compilation fixes.
+  `build_reezsynth_corr.py --install` built and installed version 0.2.0 into the
+  test and working environments. CUDA 12.8.93, MSVC 14.43, Python 3.11,
+  PyTorch 2.11.0+cu128, RTX 5090/sm_120. No other packages were changed.
+- Version 0.2.0 is bundled in `wheels/` with cubins for 7.5, 8.0, 8.6, 8.9 and
+  12.0. `setup_reezsynth.ps1` installs its hash-pinned wheel after PyTorch and
+  validates loading before reporting setup complete. Fresh Windows users do not
+  need CUDA Toolkit or Visual Studio for these supported configurations.
+- CPU comparisons cover fractional/outside coordinates, batch size 2, four levels,
+  radius 4, chunk boundaries, and a small random-weight RAFT forward pass. Tests
+  establish numerical agreement within tolerance, not real-video quality parity.
+- Conservative exception-line classification triggers a nonblocking GPU OOM popup
+  once per queue. Mock subprocess tests exercise shared/isolated/parallel failures,
+  cleanup with popup open, duplicate suppression and successful restart.
+- GPU checks passed in both environments: native correlation vs all-pairs at
+  subpixel/outside coordinates and partial thread blocks, batches/channels,
+  nondefault CUDA stream, invalid input rejection and a random-weight full-size
+  RAFT architecture forward comparison (128x128, 3 iterations).
+- Synthetic 4K-equivalent (480x270 feature map, 256 channels, 4 levels/radius 4)
+  lookup: former PyTorch 0.3679s, compiled 0.0453s (~8.1x). Peak allocated memory
+  797.8 vs 1207.4 MiB. Compiled mode avoids the 62.57 GiB all-pairs table; these
+  timings/memory figures exclude the rest of the render. Check script records
+  setup and lookup separately; measured after one warmup, average of two calls.
+- Full explicit suite: **115 tests passed in 14.345 seconds**. The added setup
+  regression verifies the bundled wheel's installer hash and runtime manifest.
+  No real GPU render,
+  pretrained model loading, commits or pushes for this feature.
+  Next manual check: short 4K video with the option on, parallel off; measure peak
+  VRAM, completion and speed, then compare feasible-resolution output with the
+  default mode. Memory needs in other render stages remain unverified.
+
+## Consistent control styling and launcher warning
+
+- `reezsynth_widget_style.py` shares the queue arrow/checkmark painters. Weight
+  editors retain QDoubleSpinBox typing/signals but use full-height queue arrows.
+  Standard checkbox and item-view indicators use the same teal tick at 14px;
+  queue toggles retain their larger size. Main application and test fixture install
+  QueueStyle over Fusion. Image-synthesis weight editors use the same arrows.
+- 67 relevant GUI/options/destination/image tests passed, plus manual offscreen
+  stepping, min-bound, busy/unbusy and 1320x820 visual checks.
+- With user approval, base Conda chardet was changed from 7.6.0 to 5.2.0 to satisfy
+  Requests 2.31.0. Importing Requests with warnings treated as errors and launching
+  the working environment through Conda now pass. ReEzSynth packages were unchanged.
+
+## Reproducible Windows setup
+
+- `INSTALL_WINDOWS.md` and `setup_reezsynth.ps1` provide a dedicated Python 3.11
+  environment with pinned direct packages, explicit CUDA 12.8 PyTorch wheels and
+  working-snapshot constraints. Setup refuses existing environment names and
+  supports preview/check-only modes. It never downloads models or renders.
+- Successful setup saves ignored local Conda path/environment files for the
+  launcher; active environments use their exact Python executable.
+- `check_reezsynth.py` checks imports, dependency consistency, runtime hashes,
+  CUDA availability, DLL entry point and isolated offscreen GUI construction.
+  Asset hashes identify this checkout, not upstream provenance.
+- Clean installation into `reezsynth-setup-check` succeeded, including all
+  diagnostics, the existing 102-test suite and five new setup tests (asset checks,
+  launcher environment selection/argument forwarding and non-mutating preview).
+  The separate test environment is
+  retained for validation; the working `reezsynth` environment remains intact.
+- Compatibility with other GPUs and real rendering from a clean installation
+  still require manual checks. Engine files were not changed.
+
+Latest default/validation change: Original resolution (max_width=0) is now the
+default in the GUI, startup defaults, missing render-preset size and naming preview.
+Explicit saved sizes remain respected. `validate_video_dimensions` reads headers
+for selected source frames and keyframes before output creation/worker startup
+when Original resolution is selected. Errors include the mismatched filename,
+actual size and expected source size. Applies to independent and grouped video;
+the existing worker-side validation remains in place at every processing size.
+Image Synthesis continues to permit different source and target dimensions.
+Validation: full lightweight suite passed, **102 tests in 8.844 seconds**, including
+mismatched key/video rejection before startup in both video modes and saved-size
+restoration. No GPU renders or engine-file changes.
+
+## Image Synthesis implementation
+
+- The tab now supports style/source/target image selection and file drag/drop,
+  additional weighted guide pairs, independent style/primary weights, an output
+  subfolder, Synthesize Image, Stop, project controls and Open outputs.
+- `reezsynth_image.py` owns Qt-free validation and the image adapter;
+  `reezsynth_image_controls.py` owns its controls. render_job(job_path) dispatches
+  the new image_synthesis job type. Engine files remain unchanged.
+- Source/style dimensions must match; target dimensions may differ but must agree
+  across all pairs. Pair channel counts must match, total guide channels <=24.
+  Only 8-bit inputs are accepted. Style grayscale is expanded to BGR and alpha is
+  discarded; guide channels are preserved. Width limits resize source and target
+  groups independently. Image output uses target dimensions and three channels.
+- ImageSynthBase uses shared synthesis/quality settings and CUDA EbSynth, with a
+  fresh guide list on every call to avoid upstream's mutable default. Image jobs
+  do not use video masks, flow or generated guides. Numerical error data is stored
+  losslessly in error.npy; image.png and image_manifest.json must also save before
+  COMPLETE is written. The image adapter does not initialize RAFT models.
+- Image presets and startup restore use the existing separate preset storage.
+  Projects optionally save image_synthesis data. Image-only saves set project_mode
+  to image and permit empty video folders/rows; older projects retain video behavior.
+- Image runs share queue startup, process management and cancellation with video.
+  Output destinations use the style/target folders for input-relative locations.
+- Full suite: **100 tests passed in 8.090 seconds**. After adding the tab's Stop
+  button, all 12 image-specific tests passed again. Tests cover real upstream run
+  orchestration with native computation mocked, image dimensions/channels, weight
+  forwarding, outputs, save failure, presets, project compatibility, all worker
+  modes, failure/cancellation/restart and closing. Layout checked at 1320x820.
+- No GPU renders, dependency installations, commits or pushes. Real CUDA output
+  quality, memory and speed remain unverified. Next parity work: model/backend
+  selection and remaining advanced controls, then YAML configuration support.
+
 ## Input weights and output destinations
+
+Latest adjustment: visible guide controls are Mapping, Deflicker, Diversity in
+that order. Default quality is now Standard. The user requested restoring Ezsynth
+weights after temporarily choosing video weight 4: video 6, Mapping 2 and
+Deflicker .5 come directly from local Ezsynth RunConfig defaults
+(img_wgt, pos_wgt, wrp_wgt), not EbSynth Beta defaults. Explicit saved values remain
+unchanged. The video adapter still requires CUDA and selects the CUDA EbSynth
+backend; disabling GPU blending is not a CPU-only render switch. Detail controls
+are Preview/Standard and individual patch/pyramid/iteration/polishing settings,
+not an implementation of Beta's named synthesis-detail levels.
+
+Layout follow-up: key/video/mask weights now share their directory rows, in a
+90-pixel column immediately before Select. The Masks checkbox replaces the old
+optional label. Remaining Guide weights and their preset selector sit underneath
+the directories. Removed the inclusive-stop and independent-job explanation block.
+The 53 GUI/options/destination tests passed; layout visually checked at 1320x820.
+
+Further layout update: the four naming suffix checkboxes occupy one line.
+Diversity and Edge guide swapped visible locations: Diversity is below the
+directories, Edge guide is in Rendering. Preset/schema membership is unchanged.
+Custom output (label, field and Select) is visibly gray and disabled unless Custom
+folder is selected; it remains locked while rendering. 53 relevant tests passed
+again (3.322 s), plus manual offscreen enable/disable and 1320x820 layout checks.
+Rendering settings serve both independent video and grouped Blend / Flow jobs;
+Image Synthesis now has its own active rendering path; see the implementation above.
 
 - Output naming now sits to the right of the directory inputs. Removed the two
   batch/time explanatory messages. A per-run checkbox can disable batch folders.
@@ -29,7 +178,7 @@ Full upstream feature parity is tracked in [EZSYNTH_PARITY.md](EZSYNTH_PARITY.md
 The renewed local review pinned Trentonom0r3/Ezsynth at b198f2d7051eee542c4efc51c2d43dc442630bbf,
 confirmed the existing backend-forwarding differences, and reran all 66 tests
 successfully (4.848 s). Grouped-video parity is now implemented with mock validation;
-image synthesis and model/architecture selection remain pending. Auxiliary exports
+model/architecture selection remains pending. Image synthesis and auxiliary exports
 are now implemented as described below.
 
 ## Auxiliary export update
@@ -113,7 +262,7 @@ process exit remains the resource boundary. COMPLETE.txt is required for success
 Rendering uses RAFT Sintel and explicitly selects runner.eb.backends["cuda"].
 Single-frame jobs do not initialize the engine; optional masks composite styled
 pixels over the source. Cross-keyframe blending is available in Blend / Flow;
-Image Synthesis remains planned.
+Image Synthesis is implemented; real CUDA validation remains pending.
 Unsupported/model-architecture controls are not presented as working features.
 
 Preset groups: directories, guide weights, render settings and application
@@ -140,10 +289,10 @@ torch 2.11.0+cu128 and torchvision 0.26.0+cu128.
 Run only the explicit lightweight suite, not the upstream rendering demos:
 
 ```powershell
-python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter -v
+python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations test_reezsynth_image -v
 ```
 
-Final execution: all 66 tests passed in 4.913 seconds with the interpreter above.
+Historical baseline: 66 tests passed; current full suite is 102 tests (see above).
 Tests cover GUI construction, folder history/drag-drop, naming, preset
 persistence, startup choices, old/new projects, masks, automation guards,
 sequential/parallel failure/cancellation/close/restart and shutdown timeout.
@@ -162,11 +311,11 @@ performance and memory returning toward baseline remain unverified.
 - `.gitignore` has the correct filename and ignores common weights, but three
   RAFT .pth files are already tracked (about 46 MB total). No files were untracked.
 - Tracked source bundle, example inputs/keyframes, backup and output_synth PNGs
-  remain; review provenance before changing their tracking. Generic renders/
-  and output_synth/ are not covered by current ignore rules.
-- `requirements.txt` omits PySide6. The working dependency snapshot includes
-  CUDA PyTorch pins but lacks complete wheel-index/model provisioning guidance.
-  Clean-environment reproduction has not been demonstrated.
+  remain; review provenance before changing their tracking. Root renders/,
+  output_synth/ and outputs/ now have ignore rules; existing tracked files remain.
+- `requirements.txt` now includes PySide6 and pinned direct dependencies.
+  See INSTALL_WINDOWS.md for wheel-index/runtime guidance and the clean-install
+  validation recorded above.
 - History retains older saved paths even if no longer present; new entries must
   be valid directories. This behavior has regression coverage.
 - No commit/push or GPU render was performed. Next manual step, with approval:

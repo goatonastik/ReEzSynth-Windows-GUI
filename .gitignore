@@ -1,6 +1,12 @@
 # Python caches
 __pycache__/
 *.py[cod]
+*.pyd
+*.whl
+!wheels/reezsynth_alt_cuda_corr-0.2.0-cp311-cp311-win_amd64.whl
+*.egg-info/
+/third_party/raft_alt_cuda_corr/build/
+/third_party/raft_alt_cuda_corr/dist/
 
 # Virtual environments
 .venv/
@@ -12,6 +18,9 @@ env/
 /ezsynth/utils/flow_utils/ef_raft_models/*.pth
 /reezsynth_outputs
 /reezsynth_projects
+/renders/
+/output_synth/
+/outputs/
 
 # Local backups
 backups/
@@ -27,6 +36,8 @@ backups/
 .env
 .env.*
 !.env.example
+.reezsynth-conda-path.txt
+.reezsynth-env-name.txt
 
 # Temporary files and logs
 *.log

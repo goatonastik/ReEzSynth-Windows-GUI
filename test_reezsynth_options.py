@@ -101,6 +101,9 @@ class PresetTests(GuiFixture):
 
     def test_quality_resets_synthesis_but_preserves_weights(self):
         w = self.window()
+        self.assertEqual(w.quality.currentText(), 'Standard')
+        self.assertEqual(w.options.weights()['img_wgt'], 6)
+        w.quality.setCurrentText('Preview')
         w.options.widgets["weights"]["img_wgt"].setValue(11)
         w.quality.setCurrentText("Standard")
         for key, value in STANDARD.items():
@@ -155,6 +158,7 @@ class IntegrationTests(LifecycleFixture):
         w.rows[0]["folder"].setText("manual")
         w.options.widgets["weights"]["img_wgt"].setValue(8)
         w.options.widgets["render"]["uniformity"].setValue(4100)
+        w.options.widgets['render']['memory_efficient_raft'].setChecked(True)
         w.project_file = self.root / "project.json"
         w.save_project()
         data = json.loads(w.project_file.read_text())
@@ -164,6 +168,7 @@ class IntegrationTests(LifecycleFixture):
             w.open_project()
         self.assertEqual(w.options.weights()["img_wgt"], 8)
         self.assertEqual(w.options.render()["uniformity"], 4100)
+        self.assertTrue(w.options.render()['memory_efficient_raft'])
         for key in ("guide_weights", "render_options", "mask_dir", "output_naming"):
             data.pop(key, None)
         data["quality"] = "Standard"

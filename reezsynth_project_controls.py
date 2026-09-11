@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QGroupBox,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -147,8 +146,8 @@ def _values(window=None, definition=None, index=1, now=None):
         "date": now.strftime("%Y%m%d"),
         "time": now.strftime("%H%M%S"),
         "microsecond": now.strftime("%f"),
-        "quality": "Preview",
-        "width": 512,
+        "quality": "Standard",
+        "width": "original",
         "padding": 3,
         "key": 23,
         "start": 0,
@@ -362,6 +361,10 @@ def add_output_controls(window, page):
         window.output_location.addItem(label, value)
     form.addRow('Output location', window.output_location)
     window.custom_output = window.path_row(form, 'Custom output')
+    window.custom_output.parentWidget().setStyleSheet(
+        'QComboBox:disabled, QLineEdit:disabled { color: #666666; background-color: #252525; border-color: #303030; }'
+    )
+    window.custom_output_label = form.labelForField(window.custom_output.parentWidget())
     window.batch_enabled = QCheckBox('Create a batch folder for each run')
     window.batch_enabled.setChecked(True)
     form.addRow(window.batch_enabled)
@@ -404,11 +407,11 @@ def add_output_controls(window, page):
     form.addRow("Job subfolder pattern", job_controls)
 
     layout.addLayout(form)
-    suffixes = QGridLayout()
+    suffixes = QHBoxLayout()
     for index, (label, suffix) in enumerate((("Keyframe name", "_{key_name}"), ("Date/time", "_{date}_{time}"),
                           ("Keyframe folder", "_{keyframe_dir_name}"), ("Video folder", "_{video_dir_name}"))):
         toggle = QCheckBox(label)
-        suffixes.addWidget(toggle, index // 2, index % 2)
+        suffixes.addWidget(toggle)
         window.locked.append(toggle)
         def change_suffix(enabled, text=suffix):
             pattern = window.job_name_pattern.text()
@@ -457,6 +460,8 @@ def update_naming_preview(window):
     editable = not window.busy and not window.close_when_idle
     window.batch_name_pattern.setEnabled(editable and window.batch_enabled.isChecked())
     window.custom_output.parentWidget().setEnabled(editable and window.output_location.currentData() == 'custom')
+    window.custom_output_label.setEnabled(editable and window.output_location.currentData() == 'custom')
+    window.custom_output_label.setStyleSheet('' if window.custom_output_label.isEnabled() else 'color: #666666;')
     try:
         naming = project_naming(window)
         definition = (
@@ -653,17 +658,17 @@ def restore_ui_state(window):
                 field.setText(value)
 
         quality = preferences.value(
-            "last_setup/quality", "Preview"
+            "last_setup/quality", "Standard"
         )
         if quality in {"Preview", "Standard"}:
             window.quality.setCurrentText(quality)
 
         try:
             width = int(preferences.value(
-                "last_setup/max_width", 512
+                "last_setup/max_width", 0
             ))
         except (ValueError, TypeError):
-            width = 512
+            width = 0
 
         index = window.resolution.findData(width)
         if index >= 0:

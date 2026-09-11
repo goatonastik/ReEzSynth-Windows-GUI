@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import QProcess
+from PySide6.QtCore import QEvent, QProcess
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 
@@ -25,6 +25,8 @@ def render_job(job_path):
         time.sleep(30)
     if mode == "fail":
         raise RuntimeError("Intentional render failure")
+    if mode == "oom":
+        raise RuntimeError("CUDA out of memory. Tried to allocate 62.57 GiB.")
     Path(job["output"], "COMPLETE.txt").write_text("done")
 
 if __name__ == "__main__":
@@ -79,6 +81,30 @@ class LifecycleFixture(GuiFixture):
 
 
 class LifecycleTests(LifecycleFixture):
+    def test_cuda_oom_popup_all_worker_modes_and_restart(self):
+        for shared, parallel in ((True, False), (False, False), (False, True)):
+            self.w.options.widgets['application']['parallel'].setChecked(parallel)
+            self.mode('oom')
+            self.run_queue(shared)
+            self.until(lambda: not self.w.busy)
+            dialogs = [d for d in self.w.findChildren(gui.QMessageBox)
+                       if d.windowTitle() == 'GPU out of memory']
+            self.assertEqual(len(dialogs), 1)
+            self.assertTrue(dialogs[0].isVisible())
+            self.assertIn('62.57 GiB', dialogs[0].detailedText())
+            self.assertTrue(self.w.gpu_memory_error_reported)
+            self.assertIsNone(self.w.process)
+            self.assertIsNone(self.w.parallel_queue)
+            self.w.check_gpu_memory_error('RuntimeError: CUDA out of memory')
+            self.assertEqual(len(self.w.findChildren(gui.QMessageBox)), 1)
+            dialogs[0].close()
+            self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.mode('normal')
+            self.run_queue(shared)
+            self.until(lambda: not self.w.busy)
+            self.assertFalse(self.w.gpu_memory_error_reported)
+            self.assertEqual(self.w.overall.value(), 100)
+
     def test_shared_completion_and_restart(self):
         for _ in range(2):
             self.run_queue()

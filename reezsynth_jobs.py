@@ -163,6 +163,31 @@ def progress(percent, stage):
     print("\n" + PREFIX + json.dumps(message), flush=True)
 
 
+def validate_video_dimensions(video, keys):
+    """Read image headers before creating outputs or starting an original-size job."""
+    from PIL import Image
+    if not video:
+        raise ValueError('No source frames selected.')
+    def dimensions(path):
+        try:
+            with Image.open(path) as image:
+                return image.size
+        except (OSError, ValueError) as exc:
+            raise ValueError(f'Cannot read image dimensions: {path}') from exc
+    reference = video[min(video)]
+    expected = dimensions(reference)
+    for label, images in (('Video frame', video), ('Keyframe', keys)):
+        for number, path in sorted(images.items()):
+            actual = dimensions(path)
+            if actual != expected:
+                raise ValueError(
+                    f'Original resolution requires matching video and keyframe dimensions.\n'
+                    f'{label} {number} ({Path(path).name}): {actual[0]} x {actual[1]}\n'
+                    f'Expected: {expected[0]} x {expected[1]} (video {Path(reference).name}).\n'
+                    'Use video frames and styled keyframes with matching dimensions.'
+                )
+
+
 def validate_masks(folder, video):
     """Require one readable mask per source frame with matching dimensions."""
     if not str(folder).strip():
@@ -192,6 +217,9 @@ def render_job(job_path):
     import numpy as np
 
     job = json.loads(Path(job_path).read_text(encoding="utf-8"))
+    if job.get('type') == 'image_synthesis':
+        from reezsynth_image import render_image_job
+        return render_image_job(job, progress)
     from reezsynth_artifacts import validate_exports, artifact_records, save_artifacts
     exports = validate_exports(job.get("exports"))
     auxiliary_maps, auxiliary_flows = [], []
@@ -282,6 +310,9 @@ def render_job(job_path):
     options = dict(RENDER, **(STANDARD if job["quality"] == "Standard" else PREVIEW))
     options.update(job.get("render_options", {}))
     options = validate_render(options)
+    if count > 1 and options['memory_efficient_raft']:
+        from reezsynth_raft import require_alt_cuda_corr
+        require_alt_cuda_corr()
     weights = validate_weights(job.get("guide_weights"))
     masks = []
     if options["do_mask"]:
@@ -319,7 +350,7 @@ def render_job(job_path):
         print("GPU:", torch.cuda.get_device_name(0), flush=True)
 
         config = RunConfig(
-            **{name: value for name, value in options.items() if name != "edge_method"},
+            **{name: value for name, value in options.items() if name not in ("edge_method", "memory_efficient_raft")},
             **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
             **blend_options,
         )
@@ -373,10 +404,25 @@ def render_job(job_path):
         progress(15, f"Synthesis 0/{expected}")
 
         try:
-            if any(exports.values()):
-                results, auxiliary_maps, auxiliary_flows = runner.run_sequences_full(return_flow=exports["flow"])
-            else:
-                results, _ = runner.run_sequences()
+            from reezsynth_raft import correlation_mode
+            with correlation_mode(options['memory_efficient_raft']):
+                if any(exports.values()):
+                    results, auxiliary_maps, auxiliary_flows = runner.run_sequences_full(return_flow=exports["flow"])
+                else:
+                    results, _ = runner.run_sequences()
+        except RuntimeError as exc:
+            if "cuda out of memory" in str(exc).lower():
+                print(
+                    f"[Memory] GPU memory exhausted at {size[0]} x {size[1]}. "
+                    "RAFT optical flow can require more memory than the GPU's total capacity "
+                    "at high resolutions. Try Processing size: Maximum width 960 "
+                    "(or 512 for preview). This also reduces output resolution; "
+                    "the application will not silently resize or retry this job. "
+                    "Fewer frames or worker reuse will not reduce the per-frame-pair "
+                    "RAFT correlation allocation. Keep parallel rendering off while testing.",
+                    flush=True,
+                )
+            raise
         finally:
             runner.eb.run = original_run
 

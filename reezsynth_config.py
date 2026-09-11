@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 from reezsynth_video_plan import validate_blend_options
 from reezsynth_artifacts import validate_exports
+from reezsynth_image import validate_image_settings
 
 WEIGHTS = {"edg_wgt": 1.0, "img_wgt": 6.0, "pos_wgt": 2.0, "wrp_wgt": 0.5,
            "key_wgt": 1.0, "mask_wgt": 0.0}
@@ -12,12 +13,13 @@ PREVIEW = dict(uniformity=3500.0, patchsize=5, pyramidlevels=3,
                searchvoteiters=4, patchmatchiters=3, extrapass3x3=False)
 STANDARD = dict(uniformity=3500.0, patchsize=7, pyramidlevels=6,
                 searchvoteiters=12, patchmatchiters=6, extrapass3x3=True)
-RENDER = dict(PREVIEW, edge_method="Classic", do_mask=False, pre_mask=False, feather=0)
+RENDER = dict(STANDARD, edge_method="Classic", do_mask=False, pre_mask=False, feather=0,
+              memory_efficient_raft=False)
 APPLICATION = dict(discover=False, keys_prefix="keys", video_prefix="video",
     auto_start=False, wait_for_mask=False, parallel=False, parallel_limit=2,
     sound_enabled=True, sound_each=False, sound_queue=True, sound_file="",
     reuse_queue_worker=True)
-GROUPS = ("directories", "weights", "render", "application")
+GROUPS = ("directories", "weights", "render", "application", "image")
 LIMITS = {"uniformity": (0, 100000), "patchsize": (3, 99), "pyramidlevels": (1, 20),
     "searchvoteiters": (1, 1000), "patchmatchiters": (1, 1000), "feather": (0, 999)}
 
@@ -84,6 +86,8 @@ def validate_application(data):
 
 
 def validate_group(group, data):
+    if group == 'image':
+        return validate_image_settings(data)
     if group == "weights":
         return validate_weights(data)
     if group == "application":
@@ -99,10 +103,14 @@ def validate_group(group, data):
         from reezsynth_project_controls import validate_project_naming
         if set(data) - {"options", "quality", "max_width", "output_naming", "blend_options", "exports"}:
             raise ValueError("Unknown render preset field.")
-        quality, width = data.get("quality", "Preview"), data.get("max_width", 512)
+        quality, width = data.get("quality", "Standard"), data.get("max_width", 0)
         if quality not in ("Preview", "Standard") or type(width) is not int or width not in (0, 512, 960):
             raise ValueError("Invalid quality or processing size.")
-        return dict(options=validate_render(data.get("options")), quality=quality,
+        options = data.get('options', {})
+        if not isinstance(options, dict):
+            raise ValueError('Invalid rendering settings.')
+        options = dict(STANDARD if quality == 'Standard' else PREVIEW, **options)
+        return dict(options=validate_render(options), quality=quality,
                     max_width=width, output_naming=validate_project_naming(data.get("output_naming")),
                     blend_options=validate_blend_options(data.get("blend_options")),
                     exports=validate_exports(data.get("exports")))

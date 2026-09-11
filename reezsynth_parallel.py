@@ -56,6 +56,7 @@ class ParallelQueue(QObject):
         for line in lines:
             if not line.strip():
                 continue
+            self.w.check_gpu_memory_error(line)
             if name == "out" and line.startswith(PREFIX) and not self.cancelled and not self.failed:
                 try:
                     message = json.loads(line[len(PREFIX):])

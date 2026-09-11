@@ -15,6 +15,32 @@ from reezsynth_project_controls import project_naming
 
 
 class DestinationTests(LifecycleFixture):
+    def test_original_resolution_rejects_mismatched_keys_and_video_before_start(self):
+        w = self.w
+        self.assertEqual(w.resolution.currentData(), 0)
+        paths = [Path(w.keyframe_dir.text())/'style002.png', Path(w.video_dir.text())/'frame001.png']
+        for path in paths:
+            original = path.read_bytes()
+            path.write_bytes(cv2.imencode('.png', np.zeros((9,8,3),np.uint8))[1].tobytes())
+            for grouped in (False, True):
+                with patch.object(gui.QMessageBox, 'warning') as warning:
+                    w.run_rows(list(w.rows), grouped=grouped)
+                self.assertIn('8 x 9', warning.call_args.args[2])
+                self.assertIn('Expected: 8 x 8', warning.call_args.args[2])
+                self.assertIn(path.name, warning.call_args.args[2])
+                self.assertIsNone(w.process)
+                self.assertIsNone(w.batch)
+                self.assertFalse(w.busy)
+                self.assertFalse((Path(w.project_dir.text())/'renders').exists())
+            path.write_bytes(original)
+
+    def test_explicit_saved_processing_size_survives_new_default(self):
+        w = self.w
+        w.resolution.setCurrentIndex(w.resolution.findData(960))
+        w.options.persist()
+        restored = self.window()
+        self.assertEqual(restored.resolution.currentData(), 960)
+
     def test_all_location_roots(self):
         w = self.w
         keys, video, project = map(Path, (w.keyframe_dir.text(), w.video_dir.text(), w.project_dir.text()))
@@ -72,7 +98,7 @@ class DestinationTests(LifecycleFixture):
         self.assertGreater(w.output_location.mapTo(w, w.output_location.rect().topLeft()).x(),
                            w.keyframe_dir.mapTo(w, w.keyframe_dir.rect().topLeft()).x())
         checkbox = w.options.widgets['render']['do_mask']
-        self.assertEqual(checkbox.text(), 'Enable masks')
+        self.assertEqual(checkbox.text(), 'Masks')
         checkbox.setChecked(True)
         self.assertTrue(w.options.render()['do_mask'])
         checkbox.setChecked(False)

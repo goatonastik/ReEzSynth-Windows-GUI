@@ -1,5 +1,6 @@
 @echo off
 setlocal
+chcp 65001 >nul
 title ReEzSynth Windows GUI
 
 rem Always use the project folder as the working directory.
@@ -11,6 +12,8 @@ if errorlevel 1 (
 )
 
 set "ENV_NAME=reezsynth"
+if exist ".reezsynth-env-name.txt" set /p "ENV_NAME="<".reezsynth-env-name.txt"
+if defined REEZSYNTH_ENV set "ENV_NAME=%REEZSYNTH_ENV%"
 set "DEFAULT_SCRIPT=reezsynth_gui.py"
 set "RESULT=0"
 set "CONDA_COMMAND="
@@ -40,9 +43,14 @@ if "%~1"=="" (
 )
 
 rem Prefer the environment that is already active.
-if /I "%CONDA_DEFAULT_ENV%"=="%ENV_NAME%" goto active_environment
+if /I "%CONDA_DEFAULT_ENV%"=="%ENV_NAME%" if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" goto active_environment
 
 rem Conda normally provides this variable in initialized terminals.
+rem A fresh setup records its installation path for Explorer/double-click launches.
+if exist ".reezsynth-conda-path.txt" set /p "CONDA_COMMAND="<".reezsynth-conda-path.txt"
+if defined CONDA_COMMAND if not exist "%CONDA_COMMAND%" set "CONDA_COMMAND="
+if defined CONDA_COMMAND goto conda_environment
+
 if defined CONDA_EXE (
     if exist "%CONDA_EXE%" set "CONDA_COMMAND=%CONDA_EXE%"
 )
@@ -81,6 +89,7 @@ echo   conda activate %ENV_NAME%
 echo   .\run_reezsynth.bat
 echo.
 echo For a custom installation, set CONDA_EXE to its conda.exe path.
+echo For first-time setup, see INSTALL_WINDOWS.md and setup_reezsynth.ps1.
 set "RESULT=1"
 goto finish
 
@@ -88,9 +97,9 @@ goto finish
 echo [Launcher] Using active environment: %ENV_NAME%
 
 if "%~1"=="" (
-    python -X utf8 -u "%DEFAULT_SCRIPT%"
+    "%CONDA_PREFIX%\python.exe" -X utf8 -u "%DEFAULT_SCRIPT%"
 ) else (
-    python -X utf8 -u %*
+    "%CONDA_PREFIX%\python.exe" -X utf8 -u %*
 )
 set "RESULT=%ERRORLEVEL%"
 goto finish

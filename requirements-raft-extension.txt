@@ -1,0 +1,3 @@
+# Bundled Windows x64 extension: CPython 3.11 + PyTorch 2.11.0+cu128.
+./wheels/reezsynth_alt_cuda_corr-0.2.0-cp311-cp311-win_amd64.whl \
+    --hash=sha256:1c0ee46345cdc02744f6c96e89708f104ee7957c4f0de106e64cf1838eae4a4d
