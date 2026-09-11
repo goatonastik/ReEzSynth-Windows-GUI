@@ -284,7 +284,8 @@ class NamingTests(GuiFixture):
 
     def test_missing_project_naming_defaults_and_invalid_data(self):
         expected = {"batch_pattern": controls.DEFAULT_BATCH_PATTERN,
-                    "job_pattern": controls.DEFAULT_JOB_PATTERN}
+                    "job_pattern": controls.DEFAULT_JOB_PATTERN,
+                    "batch_enabled": True, "location": "project_renders", "custom_folder": ""}
         for value in (None, {}):
             self.assertEqual(controls.validate_project_naming(value), expected)
         for value in ([], "bad", {"job_pattern": 23}):

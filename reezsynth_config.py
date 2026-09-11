@@ -6,7 +6,8 @@ from pathlib import Path
 from reezsynth_video_plan import validate_blend_options
 from reezsynth_artifacts import validate_exports
 
-WEIGHTS = {"edg_wgt": 1.0, "img_wgt": 6.0, "pos_wgt": 2.0, "wrp_wgt": 0.5}
+WEIGHTS = {"edg_wgt": 1.0, "img_wgt": 6.0, "pos_wgt": 2.0, "wrp_wgt": 0.5,
+           "key_wgt": 1.0, "mask_wgt": 0.0}
 PREVIEW = dict(uniformity=3500.0, patchsize=5, pyramidlevels=3,
                searchvoteiters=4, patchmatchiters=3, extrapass3x3=False)
 STANDARD = dict(uniformity=3500.0, patchsize=7, pyramidlevels=6,
@@ -59,6 +60,8 @@ def validate_weights(data=None):
     for value in result.values():
         if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 10000:
             raise ValueError("Guide weights must be finite numbers between 0 and 10000.")
+    if result['key_wgt'] < 0.001:
+        raise ValueError('Key weight must be at least 0.001.')
     return result
 
 

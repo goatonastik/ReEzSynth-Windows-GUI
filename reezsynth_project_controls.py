@@ -3,6 +3,7 @@ import re
 import string
 from datetime import datetime
 from pathlib import Path
+from reezsynth_output_location import LOCATIONS, validate_location, output_root, create_unique_directory
 
 from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import (
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -326,6 +328,7 @@ def validate_project_naming(data):
     return {
         "batch_pattern": batch,
         "job_pattern": job,
+        **validate_location(data),
     }
 
 
@@ -333,12 +336,19 @@ def project_naming(window):
     return validate_project_naming({
         "batch_pattern": window.batch_name_pattern.text(),
         "job_pattern": window.job_name_pattern.text(),
+        "batch_enabled": window.batch_enabled.isChecked(),
+        "location": window.output_location.currentData(),
+        "custom_folder": window.custom_output.text(),
     })
 
 
 def set_project_naming(window, naming):
+    naming = validate_project_naming(naming)
     window.batch_name_pattern.setText(naming["batch_pattern"])
     window.job_name_pattern.setText(naming["job_pattern"])
+    window.batch_enabled.setChecked(naming['batch_enabled'])
+    window.output_location.setCurrentIndex(window.output_location.findData(naming['location']))
+    window.custom_output.setText(naming['custom_folder'])
     update_naming_preview(window)
 
 
@@ -346,6 +356,15 @@ def add_output_controls(window, page):
     group = QGroupBox("Output naming")
     layout = QVBoxLayout(group)
     form = QFormLayout()
+
+    window.output_location = QComboBox()
+    for value, label in LOCATIONS:
+        window.output_location.addItem(label, value)
+    form.addRow('Output location', window.output_location)
+    window.custom_output = window.path_row(form, 'Custom output')
+    window.batch_enabled = QCheckBox('Create a batch folder for each run')
+    window.batch_enabled.setChecked(True)
+    form.addRow(window.batch_enabled)
 
     window.batch_name_pattern = QLineEdit(DEFAULT_BATCH_PATTERN)
     window.batch_name_pattern.setToolTip(
@@ -385,12 +404,11 @@ def add_output_controls(window, page):
     form.addRow("Job subfolder pattern", job_controls)
 
     layout.addLayout(form)
-    suffixes = QHBoxLayout()
-    suffixes.addWidget(QLabel("Job name suffixes:"))
-    for label, suffix in (("Keyframe name", "_{key_name}"), ("Date/time", "_{date}_{time}"),
-                          ("Keyframe folder", "_{keyframe_dir_name}"), ("Video folder", "_{video_dir_name}")):
+    suffixes = QGridLayout()
+    for index, (label, suffix) in enumerate((("Keyframe name", "_{key_name}"), ("Date/time", "_{date}_{time}"),
+                          ("Keyframe folder", "_{keyframe_dir_name}"), ("Video folder", "_{video_dir_name}"))):
         toggle = QCheckBox(label)
-        suffixes.addWidget(toggle)
+        suffixes.addWidget(toggle, index // 2, index % 2)
         window.locked.append(toggle)
         def change_suffix(enabled, text=suffix):
             pattern = window.job_name_pattern.text()
@@ -410,21 +428,13 @@ def add_output_controls(window, page):
     window.naming_preview.setWordWrap(True)
     layout.addWidget(window.naming_preview)
 
-    explanation = QLabel(
-        "A new batch folder is created for each run. "
-        "Job patterns are applied when rebuilding the queue, or with "
-        "Apply to Queue. You can still edit individual output names "
-        "in the table."
-    )
-    explanation.setWordWrap(True)
-    layout.addWidget(explanation)
-
     page.addWidget(group)
 
     window.locked.extend([
         window.batch_name_pattern,
         window.job_name_pattern,
         window.apply_output_names,
+        window.output_location, window.batch_enabled,
     ])
 
     for signal in (
@@ -432,6 +442,9 @@ def add_output_controls(window, page):
         window.job_name_pattern.textChanged,
         window.quality.currentTextChanged,
         window.resolution.currentIndexChanged,
+        window.output_location.currentIndexChanged,
+        window.batch_enabled.toggled,
+        window.custom_output.textChanged,
     ):
         signal.connect(
             lambda *args: update_naming_preview(window)
@@ -441,6 +454,9 @@ def add_output_controls(window, page):
 
 
 def update_naming_preview(window):
+    editable = not window.busy and not window.close_when_idle
+    window.batch_name_pattern.setEnabled(editable and window.batch_enabled.isChecked())
+    window.custom_output.parentWidget().setEnabled(editable and window.output_location.currentData() == 'custom')
     try:
         naming = project_naming(window)
         definition = (
@@ -464,9 +480,8 @@ def update_naming_preview(window):
 
         window.naming_preview.setStyleSheet("color: #91b6aa;")
         window.naming_preview.setText(
-            f"Pattern example: renders / {batch} / {job}\n"
-            "Time fields are evaluated when names are generated; "
-            "this preview does not rename existing queue entries."
+            f"Pattern example: {window.output_location.currentText()} / "
+            + (f"{batch} / " if naming['batch_enabled'] else '') + job
         )
 
     except (ValueError, TypeError, KeyError) as exc:
@@ -555,6 +570,11 @@ def apply_names_to_queue(window):
 
 def create_batch_directory(window, project_root):
     """Create a fresh batch directory without overwriting an existing one."""
+    naming = project_naming(window)
+    render_root = output_root(naming, project_root, window.keyframe_dir.text(), window.video_dir.text())
+    if not naming['batch_enabled']:
+        render_root.mkdir(parents=True, exist_ok=True)
+        return render_root
     name = _format_name(
         window.batch_name_pattern.text(),
         _values(window),
@@ -562,7 +582,6 @@ def create_batch_directory(window, project_root):
         allow_nested=False,
     )
 
-    render_root = Path(project_root) / "renders"
     render_root.mkdir(parents=True, exist_ok=True)
 
     for number in range(1, 10001):

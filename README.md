@@ -37,13 +37,28 @@ The entry point is `reezsynth_gui.py`.
   iteration counts, polishing, edge method and masks. Preview/Standard reset
   synthesis parameters while preserving guide weights. RAFT Sintel and the CUDA
   synthesis backend remain selected.
-- **Masks:** enable Use masks in Rendering. Supply one mask per source frame,
+- **Masks:** tick Enable masks beside the directory inputs. Untick it to ignore
+  the remembered mask folder for rendering and compositing. Supply one mask per source frame,
   matching its number and dimensions. White selects stylized pixels; black keeps
   source pixels. Feather size is zero or an odd integer.
 - **Settings:** the toolbar button opens the Settings tab, including optional
   discovery, automatic start, parallel rendering, notifications and startup choices.
 
 ### Presets and startup behavior
+
+Key, video and mask-guide weights are beside the directory inputs. Key weight
+controls the style-to-guide ratio: because the native library fixes style weight
+at 1, the adapter divides all guide weights by the key weight (minimum 0.001).
+Video weight controls the source-image guide. Mask guide weight adds a source/target
+mask correspondence guide when masks are enabled; zero disables that additional
+guide without disabling mask compositing. Defaults (key 1, mask guide 0) preserve
+previous rendering behavior. All are saved in weight presets and projects.
+
+Rendering labels relate familiar Beta concepts to Ezsynth controls: Mapping
+(position guide), Deflicker (warped-style guide), and Diversity (uniformity).
+These are related controls, not a promise of identical EbSynth Beta behavior or
+matching numerical scales. The native weighting model is described in the
+[EbSynth source documentation](https://github.com/jamriska/ebsynth#examples).
 
 Directory, guide-weight, rendering and application presets are independent.
 Select from a dropdown; **+** saves the current group and **-** removes it after
@@ -65,7 +80,15 @@ saved row names and get the original quality defaults for missing new settings.
 
 ### Output naming
 
-Outputs go to `<project>/renders/<batch>/<job>`. Default templates:
+Output naming sits to the right of the directory inputs. By default outputs go
+to `<project>/renders/<batch>/<job>`. Disable **Create a batch folder for each run**
+to put job folders directly in the selected output location. The location choices
+include `outputs/` inside the keyframes or video folder, the parent of either input
+folder, the project folder, or a custom folder (typing, selection and drag/drop).
+The original project/renders location remains available and is the default for old
+projects. Existing job folders receive numeric suffixes instead of being overwritten.
+Output location and batch choices are saved in projects and rendering presets.
+Default templates:
 `batch_{date}_{time}_{microsecond}` and `out_{key:0{padding}d}`.
 
 Batch fields: `date`, `time`, `microsecond`, `quality`, `width`,
@@ -87,7 +110,7 @@ ambiguous matches prompt for selection. Discovery is disabled by default.
 Automatic start is disabled by default. When enabled, input edits or directory
 preset selection can start a validated queue after a short delay. Enabling it
 with inputs already present also checks them. It can wait for a complete mask
-sequence; enable Use masks separately to apply masks. Startup restore and Open
+sequence; tick Enable masks separately to apply masks. Startup restore and Open
 project never automatically render. Identical input identities are not repeatedly
 launched; manual Run All remains available. Folders are not continuously watched
 for files arriving after validation.
@@ -108,7 +131,7 @@ queue notification, both or neither, and optionally select a WAV file.
 Run these explicit modules in the existing environment, without real GPU renders:
 
 ```powershell
-python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts -v
+python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations -v
 ```
 
 Tests isolate settings/files, use offscreen Qt, mock workers and a fake engine,

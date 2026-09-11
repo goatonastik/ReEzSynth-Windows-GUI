@@ -3,6 +3,28 @@
 Updated 2026-09-10. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Input weights and output destinations
+
+- Output naming now sits to the right of the directory inputs. Removed the two
+  batch/time explanatory messages. A per-run checkbox can disable batch folders.
+- New destinations: outputs/ inside keys or video, the parent of either folder,
+  project folder, or custom folder. The user confirmed that “root” means parent.
+  Legacy project/renders remains the default. Colliding job folders are suffixed
+  even without batches; saved project and rendering-preset data retain the choices.
+- Key/video/mask-guide weights and Enable masks are on the directory panel.
+  Key weight (default 1, minimum .001) adjusts the native style-to-guide ratio by
+  dividing all guide weights. Mask-guide weight (default 0) adds mask correspondence
+  only when masks are enabled. Mask compositing is separately controlled by Enable
+  masks. No changes to engine files; this is frontend adapter behavior.
+- Mapping, Deflicker and Diversity label the related position-guide, warped-style
+  and uniformity controls. These are not verified numerical equivalents to Beta.
+- **88 tests passed in 6.484 seconds**, including destination selection, collision
+  preservation, persistence, layout placement, weight normalization, mask guide
+  forwarding with/without premasking, and disabling masks. Offscreen layout checked
+  at 1320x820 using the installed Segoe UI font. No GPU rendering or dependency
+  installation was performed; visual output of the new weights remains unverified.
+- Include `test_reezsynth_destinations` in the explicit test command in README.
+
 Full upstream feature parity is tracked in [EZSYNTH_PARITY.md](EZSYNTH_PARITY.md).
 The renewed local review pinned Trentonom0r3/Ezsynth at b198f2d7051eee542c4efc51c2d43dc442630bbf,
 confirmed the existing backend-forwarding differences, and reran all 66 tests

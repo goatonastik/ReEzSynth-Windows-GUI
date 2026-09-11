@@ -14,8 +14,9 @@ from reezsynth_config import (APPLICATION, GROUPS, LIMITS, PREVIEW, RENDER, STAN
 from reezsynth_project_controls import (project_naming, set_project_naming,
     update_naming_preview)
 
-LABELS = dict(edg_wgt="Edge guide", img_wgt="Source image guide", pos_wgt="Position guide",
-    wrp_wgt="Warped style guide", uniformity="Uniformity", patchsize="Patch size (odd)",
+LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (position guide)",
+    key_wgt="Key weight", mask_wgt="Mask guide weight",
+    wrp_wgt="Deflicker (warped-style guide)", uniformity="Diversity (uniformity)", patchsize="Patch size (odd)",
     pyramidlevels="Pyramid levels", searchvoteiters="Search/vote iterations",
     patchmatchiters="Patch-match iterations", extrapass3x3="Extra 3x3 polishing pass",
     edge_method="Edge method", do_mask="Use masks", pre_mask="Mask inputs before synthesis",
@@ -87,7 +88,7 @@ class Options(QObject):
         self.discovery_timer.timeout.connect(self.discover)
 
         window.mask_dir = window.path_row(form, "Masks (optional)")
-        page.insertLayout(3, self.preset_bar("directories", "Directory presets"))
+        window.directory_layout.insertLayout(0, self.preset_bar("directories", "Directory presets"))
         advanced = QGroupBox("Rendering controls")
         advanced_layout = QVBoxLayout(advanced)
         self.export_widgets = {}
@@ -109,7 +110,21 @@ class Options(QObject):
             for name, default in defaults.items():
                 widget = self.make_control(name, default)
                 self.widgets[group][name] = widget
-                fields.addRow(LABELS[name], widget)
+                if name == 'do_mask':
+                    widget.setText('Enable masks')
+                    widget.setToolTip('Uncheck to ignore masks for synthesis and compositing; the folder stays remembered.')
+                    form.addRow(widget)
+                elif name in ('key_wgt', 'img_wgt', 'mask_wgt'):
+                    form.addRow(LABELS[name], widget)
+                else:
+                    fields.addRow(LABELS[name], widget)
+                if name == 'key_wgt':
+                    widget.setMinimum(0.001)
+                    widget.setToolTip('Style-to-guide ratio: guide weights are divided by this value. Default 1 preserves Ezsynth behavior.')
+                elif name == 'mask_wgt':
+                    widget.setToolTip('Additional mask correspondence guide when masks are enabled. Zero disables this guide; mask compositing remains controlled by Enable masks.')
+                elif name in ('pos_wgt', 'wrp_wgt', 'uniformity'):
+                    widget.setToolTip('Ezsynth control with a related purpose to the EbSynth Beta setting; numerical equivalence is not guaranteed.')
             layout.addLayout(fields)
             columns.addWidget(box)
         advanced_layout.addLayout(columns)
@@ -174,6 +189,9 @@ class Options(QObject):
         window.resolution.currentIndexChanged.connect(self.changed)
         window.batch_name_pattern.textChanged.connect(self.changed)
         window.job_name_pattern.textChanged.connect(self.changed)
+        window.output_location.currentIndexChanged.connect(self.changed)
+        window.batch_enabled.toggled.connect(self.changed)
+        window.custom_output.textChanged.connect(self.changed)
         window.mask_dir.textChanged.connect(window.schedule_scan)
         self.widgets["application"]["discover"].toggled.connect(self.discovery_changed)
         for name in ("keys_prefix", "video_prefix"):
@@ -258,7 +276,7 @@ class Options(QObject):
         if group == "render":
             return dict(options={n: control_value(v) for n, v in self.widgets[group].items()},
                 quality=w.quality.currentText(), max_width=w.resolution.currentData(),
-                output_naming=dict(batch_pattern=w.batch_name_pattern.text(), job_pattern=w.job_name_pattern.text()),
+                output_naming=project_naming(w),
                 blend_options=w.grouped.blend_options(),
                 exports={name: widget.isChecked() for name, widget in self.export_widgets.items()})
         return {name: control_value(widget) for name, widget in self.widgets[group].items()}

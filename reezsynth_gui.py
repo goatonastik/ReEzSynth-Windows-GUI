@@ -69,6 +69,7 @@ from reezsynth_project_controls import (
     set_project_naming,
     validate_output_folders,
     validate_project_naming,
+    update_naming_preview,
 )
 
 
@@ -498,7 +499,13 @@ class MainWindow(QMainWindow):
         page.addLayout(toolbar)
 
         form = QFormLayout()
-        page.addLayout(form)
+        directory_and_output = QHBoxLayout()
+        page.addLayout(directory_and_output)
+        self.directory_layout = QVBoxLayout()
+        directory_and_output.addLayout(self.directory_layout, 1)
+        self.directory_layout.addLayout(form)
+        output_layout = QVBoxLayout()
+        directory_and_output.addLayout(output_layout, 1)
 
         self.project_dir = self.path_row(form, "Project directory")
         self.keyframe_dir = self.path_row(form, "Keyframes")
@@ -525,7 +532,7 @@ class MainWindow(QMainWindow):
         page.addLayout(options)
 
         self.locked.extend([self.quality, self.resolution])
-        add_output_controls(self, page)
+        add_output_controls(self, output_layout)
 
         self.summary = QLabel(
             "Select the source-frame and keyframe directories "
@@ -1103,7 +1110,8 @@ class MainWindow(QMainWindow):
                         "Output directory escapes the batch directory."
                     )
 
-                destination.mkdir(parents=True, exist_ok=True)
+                from reezsynth_output_location import create_unique_directory
+                destination = create_unique_directory(batch, definition['folder'])
 
                 job = {
                     "key": definition["key"],
@@ -1833,6 +1841,7 @@ class MainWindow(QMainWindow):
 
         self.run_all.setEnabled(editable and bool(self.rows))
         self.grouped.update_enabled()
+        update_naming_preview(self)
         self.stop.setEnabled(
             busy and not self.cancelled
         )

@@ -320,7 +320,7 @@ def render_job(job_path):
 
         config = RunConfig(
             **{name: value for name, value in options.items() if name != "edge_method"},
-            **weights,
+            **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
             **blend_options,
         )
 
@@ -342,9 +342,23 @@ def render_job(job_path):
 
         completed = 0
         original_run = runner.eb.run
+        mask_lookup = {}
+        if masks and weights['mask_wgt']:
+            for source_sequence in (getattr(runner, 'img_frs_seq', frames),
+                                    getattr(runner, 'masked_frs_seq', []) or []):
+                for source_frame, mask in zip(source_sequence, masks):
+                    mask_lookup[id(source_frame)] = mask
 
         def tracked_run(*args, **kwargs):
             nonlocal completed
+            if mask_lookup:
+                guides = list(kwargs['guides'])
+                source, target, _ = guides[1]
+                if id(source) not in mask_lookup or id(target) not in mask_lookup:
+                    raise RuntimeError('Cannot match mask guides to source frames.')
+                guides.append((mask_lookup[id(source)], mask_lookup[id(target)],
+                               weights['mask_wgt'] / weights['key_wgt']))
+                kwargs['guides'] = guides
             result = original_run(*args, **kwargs)
             completed += 1
             progress(
