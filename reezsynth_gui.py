@@ -53,6 +53,7 @@ from reezsynth_jobs import (
     ROOT,
     PREFIX,
     build_plan,
+    validate_masks,
     validate_row,
 )
 
@@ -71,6 +72,15 @@ from reezsynth_project_controls import (
 )
 
 
+from reezsynth_options import Options
+from reezsynth_parallel import ParallelQueue
+from reezsynth_config import validate_render, validate_weights, validate_application
+from reezsynth_grouped_controls import GroupedVideoControls
+from reezsynth_artifacts import validate_exports
+from reezsynth_video_plan import (plan_grouped_video, check_blend_dependencies,
+                                  validate_grouped_selection, validate_blend_options)
+
+
 APP_NAME = "ReEzSynth-Windows-GUI"
 SESSION_PREFIX = "@@REEZSYNTH_SESSION@@"
 SHUTDOWN_TIMEOUT_MS = 30_000
@@ -83,7 +93,7 @@ QWidget {
     color: #b8b8b8;
     font-size: 12px;
 }
-QLineEdit, QSpinBox, QComboBox, QPlainTextEdit, QTableWidget {
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTableWidget {
     background: #151515;
     border: 1px solid #454545;
     padding: 4px;
@@ -420,6 +430,7 @@ class MainWindow(QMainWindow):
         self.queue_started_at = None
 
         self.process = None
+        self.parallel_queue = None
         self.finalizing_process = False
         self.shutdown_process = None
         self.queue_generation = 0
@@ -440,6 +451,7 @@ class MainWindow(QMainWindow):
         self.build_interface()
         self.set_busy(False)
         restore_ui_state(self)
+        self.options.restore()
 
     # ------------------------------------------------------------------
     # Interface
@@ -624,6 +636,16 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.overall)
 
+        self.grouped = GroupedVideoControls(self)
+        for index in range(self.tabs.count()):
+            if self.tabs.tabText(index) == "Blend / Flow (planned)":
+                placeholder = self.tabs.widget(index)
+                self.tabs.removeTab(index)
+                self.tabs.insertTab(index, self.grouped, "Blend / Flow")
+                placeholder.deleteLater()
+                break
+        self.options = Options(self, page, form, settings_page, settings_layout)
+
     def button(self, text, callback, accent=False):
         button = QPushButton(text)
         button.clicked.connect(callback)
@@ -642,7 +664,8 @@ class MainWindow(QMainWindow):
         row = QWidget()
         box = QHBoxLayout(row)
         box.setContentsMargins(0, 0, 0, 0)
-        box.addWidget(field)
+        box.addWidget(field, 1)
+        select.setMaximumWidth(120)
         box.addWidget(select)
 
         form.addRow(label, row)
@@ -685,6 +708,8 @@ class MainWindow(QMainWindow):
         self.video = {}
         self.keys = {}
 
+        self.grouped.sync_inputs()
+
         try:
             self.video, self.keys, self.padding, definitions = build_plan(
                 self.path_value(self.video_dir),
@@ -696,6 +721,7 @@ class MainWindow(QMainWindow):
             for definition in definitions:
                 self.add_row(definition)
 
+            self.grouped.sync_inputs()
             self.summary.setText(
                 f"{len(self.video)} source frames: "
                 f"{min(self.video)}–{max(self.video)} | "
@@ -847,6 +873,7 @@ class MainWindow(QMainWindow):
                 "quality": self.quality.currentText(),
                 "max_width": self.resolution.currentData(),
                 "output_naming": project_naming(self),
+                **self.options.project_data(),
                 "rows": [
                     validate_row(
                         self.definition(row), self.video, self.keys
@@ -925,6 +952,16 @@ class MainWindow(QMainWindow):
                 data.get("output_naming")
             )
 
+            validate_render(data.get("render_options"))
+            validate_weights(data.get("guide_weights"))
+            validate_blend_options(data.get("blend_options"))
+            validate_exports(data.get("exports"))
+            grouped_selection = validate_grouped_selection(data.get("grouped_video"))
+            if grouped_selection["keyframes"] is not None and set(grouped_selection["keyframes"]) - set(keys):
+                raise ValueError("Saved grouped keyframes are missing from the input folders.")
+            if not isinstance(data.get("mask_dir", ""), str):
+                raise ValueError("Mask directory must be text.")
+
             self.loading_project = True
             self.scan_timer.stop()
 
@@ -936,6 +973,7 @@ class MainWindow(QMainWindow):
                 self.resolution.findData(data["max_width"])
             )
             set_project_naming(self, naming)
+            self.options.load_project(data)
 
             self.video = video
             self.keys = keys
@@ -947,6 +985,7 @@ class MainWindow(QMainWindow):
                 self.add_row(definition)
 
             self.project_file = Path(selected)
+            self.grouped.set_selection(grouped_selection)
             self.summary.setText(
                 f"{len(video)} source frames | "
                 f"{len(self.rows)} saved jobs"
@@ -966,11 +1005,14 @@ class MainWindow(QMainWindow):
     # Queue preparation
     # ------------------------------------------------------------------
 
-    def run_rows(self, rows):
+    def run_rows(self, rows, grouped=False):
         if self.busy or self.process is not None or self.close_when_idle:
             return
 
-        shared = self.reuse_worker.isChecked()
+        self.options.auto_timer.stop()
+        self.options.auto_armed = False
+        parallel = self.options.application()["parallel"]
+        shared = self.reuse_worker.isChecked() and not parallel
         worker_script = ROOT / (
             "reezsynth_shared_worker.py"
             if shared
@@ -983,7 +1025,7 @@ class MainWindow(QMainWindow):
                     f"Worker script not found: {worker_script}"
                 )
 
-            if not rows:
+            if not rows and not grouped:
                 raise ValueError("There are no jobs to render.")
 
             video, keys, padding, _ = build_plan(
@@ -991,10 +1033,21 @@ class MainWindow(QMainWindow):
                 self.path_value(self.keyframe_dir),
             )
 
+            render_options = self.options.render()
+            guide_weights = self.options.weights()
+            application = validate_application(self.options.application())
+            masks = validate_masks(self.mask_dir.text(), video) if render_options["do_mask"] else {}
             planned = []
             folders = set()
+            group_plan = None
+            if grouped:
+                selection = self.grouped.selection()
+                group_plan = plan_grouped_video(video, keys, selection, self.grouped.blend_options())
+                check_blend_dependencies(group_plan["blend_options"])
+                planned.append((self.grouped.row, dict(key=group_plan["key"], folder=selection["folder"]),
+                                group_plan["frames"], group_plan["style"]))
 
-            for row in rows:
+            for row in ([] if grouped else rows):
                 definition = validate_row(
                     self.definition(row), video, keys
                 )
@@ -1060,6 +1113,11 @@ class MainWindow(QMainWindow):
                     "quality": self.quality.currentText(),
                     "max_width": self.resolution.currentData(),
                     "output": str(destination),
+                    **(group_plan or {}),
+                    "render_options": render_options,
+                    "exports": validate_exports(self.options.snapshot("render")["exports"]),
+                    "guide_weights": guide_weights,
+                    "masks": [[number, str(masks[number])] for number, _ in frames] if masks else [],
                 }
 
                 job_path = destination / "job.json"
@@ -1072,7 +1130,7 @@ class MainWindow(QMainWindow):
                     "row": row,
                     "job_path": job_path,
                     "output": destination,
-                    "weight": max(1, len(frames) - 1),
+                    "weight": max(1, group_plan["synthesis_work"] if group_plan else len(frames) - 1),
                 })
 
         except Exception as exc:
@@ -1109,7 +1167,12 @@ class MainWindow(QMainWindow):
             record["row"]["bar"].setValue(0)
 
         self.set_busy(True)
-        self.start_next()
+        if parallel:
+            self.pending = []
+            self.parallel_queue = ParallelQueue(self, records, worker_script, application["parallel_limit"])
+            self.parallel_queue.start()
+        else:
+            self.start_next()
 
     def schedule_next(self):
         generation = self.queue_generation
@@ -1659,6 +1722,7 @@ class MainWindow(QMainWindow):
         record["row"]["state"].setText("Complete")
         record["row"]["bar"].setValue(100)
         self.completed_work += record["weight"]
+        self.options.notify(each=True)
         self.current = None
         self.job_sent = False
         self.update_overall()
@@ -1682,9 +1746,11 @@ class MainWindow(QMainWindow):
 
     def end_queue(self, message):
         # Callers must wait for process finalization before unlocking.
-        if self.process is not None:
+        if self.process is not None or self.parallel_queue is not None:
             return
 
+        if self.overall.value() == 100 and not self.cancelled:
+            self.options.notify()
         self.shutdown_timer.stop()
         self.shutdown_process = None
 
@@ -1704,6 +1770,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.close)
 
     def stop_queue(self):
+        if self.parallel_queue is not None:
+            self.parallel_queue.stop()
+            return
         if not self.busy and self.process is None:
             return
 
@@ -1763,6 +1832,7 @@ class MainWindow(QMainWindow):
             )
 
         self.run_all.setEnabled(editable and bool(self.rows))
+        self.grouped.update_enabled()
         self.stop.setEnabled(
             busy and not self.cancelled
         )
@@ -1832,6 +1902,7 @@ class MainWindow(QMainWindow):
 
         self.scan_timer.stop()
         self.shutdown_timer.stop()
+        self.options.close()
         save_ui_state(self)
         self.preferences.sync()
         event.accept()

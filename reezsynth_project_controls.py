@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -30,6 +31,8 @@ BATCH_FIELDS = {
     "microsecond",
     "quality",
     "width",
+    "keyframe_dir_name",
+    "video_dir_name",
 }
 
 JOB_FIELDS = BATCH_FIELDS | {
@@ -38,6 +41,7 @@ JOB_FIELDS = BATCH_FIELDS | {
     "end",
     "index",
     "padding",
+    "key_name",
 }
 
 FORMATTER = string.Formatter()
@@ -63,6 +67,7 @@ class FolderHistoryCombo(QComboBox):
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.setLineEdit(editor)
+        editor.setStyleSheet("QLineEdit { border: none; padding: 0px; background: transparent; }")
         self.setMinimumWidth(250)
         self.setMaxVisibleItems(HISTORY_LIMIT)
         self.setToolTip(
@@ -147,6 +152,9 @@ def _values(window=None, definition=None, index=1, now=None):
         "start": 0,
         "end": 46,
         "index": index,
+        "key_name": "style023",
+        "keyframe_dir_name": "keys",
+        "video_dir_name": "video",
     }
 
     if window is not None:
@@ -154,10 +162,14 @@ def _values(window=None, definition=None, index=1, now=None):
         width = window.resolution.currentData()
         values["width"] = width if width else "original"
         values["padding"] = window.padding
+        values["keyframe_dir_name"] = Path(window.keyframe_dir.text()).name
+        values["video_dir_name"] = Path(window.video_dir.text()).name
 
     if definition is not None:
         key = definition["key"]
         values["key"] = key
+        if window is not None and key in window.keys:
+            values["key_name"] = Path(window.keys[key]).stem
         values["start"] = (
             definition["start"]
             if definition["reverse"]
@@ -338,7 +350,8 @@ def add_output_controls(window, page):
     window.batch_name_pattern = QLineEdit(DEFAULT_BATCH_PATTERN)
     window.batch_name_pattern.setToolTip(
         "Folder created under Project directory / renders.\n"
-        "Fields: {date}, {time}, {microsecond}, {quality}, {width}.\n"
+        "Fields: {date}, {time}, {microsecond}, {quality}, {width},\n"
+        "{keyframe_dir_name}, {video_dir_name}.\n"
         "Existing folders are preserved; a numeric suffix is added "
         "when necessary."
     )
@@ -347,7 +360,8 @@ def add_output_controls(window, page):
     window.job_name_pattern.setToolTip(
         "Pattern for each job's output subfolder.\n"
         "Fields: {key}, {start}, {end}, {index}, {padding}, "
-        "{date}, {time}, {microsecond}, {quality}, {width}.\n"
+        "{date}, {time}, {microsecond}, {quality}, {width},\n"
+        "{key_name}, {keyframe_dir_name}, {video_dir_name}.\n"
         "Examples: out_{key:04d}, {index:02d}_key_{key}.\n"
         "{start} and {end} reflect enabled propagation directions."
     )
@@ -371,6 +385,26 @@ def add_output_controls(window, page):
     form.addRow("Job subfolder pattern", job_controls)
 
     layout.addLayout(form)
+    suffixes = QHBoxLayout()
+    suffixes.addWidget(QLabel("Job name suffixes:"))
+    for label, suffix in (("Keyframe name", "_{key_name}"), ("Date/time", "_{date}_{time}"),
+                          ("Keyframe folder", "_{keyframe_dir_name}"), ("Video folder", "_{video_dir_name}")):
+        toggle = QCheckBox(label)
+        suffixes.addWidget(toggle)
+        window.locked.append(toggle)
+        def change_suffix(enabled, text=suffix):
+            pattern = window.job_name_pattern.text()
+            if enabled and text not in pattern:
+                window.job_name_pattern.setText(pattern + text)
+            elif not enabled and text in pattern:
+                window.job_name_pattern.setText(pattern.replace(text, ""))
+        def sync_suffix(pattern, box=toggle, text=suffix):
+            blocker = QSignalBlocker(box)
+            box.setChecked(text in pattern)
+            del blocker
+        toggle.toggled.connect(change_suffix)
+        window.job_name_pattern.textChanged.connect(sync_suffix)
+    layout.addLayout(suffixes)
 
     window.naming_preview = QLabel()
     window.naming_preview.setWordWrap(True)

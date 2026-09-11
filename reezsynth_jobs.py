@@ -163,6 +163,22 @@ def progress(percent, stage):
     print("\n" + PREFIX + json.dumps(message), flush=True)
 
 
+def validate_masks(folder, video):
+    """Require one readable mask per source frame with matching dimensions."""
+    if not str(folder).strip():
+        raise ValueError("Select a mask directory when masks are enabled.")
+    masks, _ = scan_images(folder, source=True)
+    if set(masks) != set(video):
+        raise ValueError("Mask frame numbers must exactly match the source sequence.")
+    from PIL import Image
+    for number, mask in masks.items():
+        with Image.open(mask) as mask_image, Image.open(video[number]) as source_image:
+            if mask_image.size != source_image.size:
+                raise ValueError(f"Mask dimensions differ at frame {number}.")
+            mask_image.verify()
+    return masks
+
+
 def render_job(job_path):
     os.environ["TQDM_DISABLE"] = "1"
 
@@ -176,20 +192,40 @@ def render_job(job_path):
     import numpy as np
 
     job = json.loads(Path(job_path).read_text(encoding="utf-8"))
+    from reezsynth_artifacts import validate_exports, artifact_records, save_artifacts
+    exports = validate_exports(job.get("exports"))
+    auxiliary_maps, auxiliary_flows = [], []
     entries = job["frames"]
     numbers = [entry[0] for entry in entries]
     count = len(entries)
     key = job["key"]
     key_position = numbers.index(key)
     output = Path(job["output"])
+    from reezsynth_video_plan import plan_grouped_video, check_blend_dependencies
+    grouped = job.get("type") == "grouped_video"
+    if job.get("type") not in (None, "grouped_video"):
+        raise ValueError("Unsupported render job type.")
+    style_entries = [[key, job["style"]]]
+    blend_options = dict(use_gpu=False, use_poisson_cupy=False)
+    expected = count - 1
+    if grouped:
+        style_entries = job["styles"]
+        if numbers != sorted(set(numbers)) or len(dict(style_entries)) != len(style_entries):
+            raise ValueError("Grouped frames must be ordered and keyframes must be unique.")
+        plan = plan_grouped_video(dict(entries), dict(style_entries),
+                                  blend_options=job.get("blend_options"))
+        style_entries = plan["styles"]
+        blend_options = plan["blend_options"]
+        check_blend_dependencies(blend_options)
+        expected = plan["synthesis_work"]
 
-    def read_image(path):
+    def read_image(path, grayscale=False):
         path = Path(path)
         data = np.frombuffer(path.read_bytes(), dtype=np.uint8)
         if data.size == 0:
             raise ValueError(f"Empty image: {path}")
 
-        image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        image = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError(f"Cannot decode image: {path}")
         return image
@@ -231,19 +267,44 @@ def render_job(job_path):
         frames.append(image)
         progress(10 * (index + 1) / count, f"Loading {index + 1}/{count}")
 
-    style = read_image(job["style"])
-    if style.shape != original_shape:
-        raise ValueError(
-            f"Keyframe {key} dimensions do not match the original source frames."
-        )
-
-    if style.shape[1::-1] != size:
-        style = cv2.resize(style, size, interpolation=cv2.INTER_AREA)
+    styles = []
+    for number, path in style_entries:
+        style = read_image(path)
+        if style.shape != original_shape:
+            raise ValueError(f"Keyframe {number} dimensions do not match the original source frames.")
+        if style.shape[1::-1] != size:
+            style = cv2.resize(style, size, interpolation=cv2.INTER_AREA)
+        styles.append(style)
 
     print("Processing size:", size, flush=True)
 
+    from reezsynth_config import PREVIEW, STANDARD, RENDER, validate_render, validate_weights
+    options = dict(RENDER, **(STANDARD if job["quality"] == "Standard" else PREVIEW))
+    options.update(job.get("render_options", {}))
+    options = validate_render(options)
+    weights = validate_weights(job.get("guide_weights"))
+    masks = []
+    if options["do_mask"]:
+        entries_mask = job.get("masks", [])
+        if [entry[0] for entry in entries_mask] != numbers:
+            raise ValueError("Job mask frame numbers must match its source frames.")
+        for number, path in entries_mask:
+            mask = read_image(path, grayscale=True)
+            if mask.shape != original_shape[:2]:
+                raise ValueError(f"Mask dimensions differ at frame {number}.")
+            if mask.shape[::-1] != size:
+                mask = cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST)
+            masks.append(mask)
+
     if count == 1:
         results = [style]
+        if masks:
+            mask = masks[0]
+            if options["feather"]:
+                radius = options["feather"]
+                mask = cv2.GaussianBlur(mask, (radius, radius), 0)
+            alpha = mask.astype(np.float32)[:, :, None] / 255.0
+            results = [(style * alpha + frames[0] * (1 - alpha)).astype(np.uint8)]
         progress(90, "Keyframe copy")
     else:
         progress(10, "Initializing engine")
@@ -257,31 +318,22 @@ def render_job(job_path):
 
         print("GPU:", torch.cuda.get_device_name(0), flush=True)
 
-        presets = {
-            "Preview": (5, 3, 4, 3, False),
-            "Standard": (7, 6, 12, 6, True),
-        }
-        patch, levels, votes, matches, polish = presets[job["quality"]]
-
         config = RunConfig(
-            patchsize=patch,
-            pyramidlevels=levels,
-            searchvoteiters=votes,
-            patchmatchiters=matches,
-            extrapass3x3=polish,
-            use_gpu=False,
-            use_poisson_cupy=False,
+            **{name: value for name, value in options.items() if name != "edge_method"},
+            **weights,
+            **blend_options,
         )
 
         runner = EzsynthBase(
-            style_frs=[style],
-            style_idxes=[key_position],
+            style_frs=styles,
+            style_idxes=[numbers.index(n) for n, _ in style_entries],
             img_frs_seq=frames,
             cfg=config,
-            edge_method="Classic",
+            edge_method=options["edge_method"],
             raft_flow_model_name="sintel",
             flow_arch="RAFT",
-            do_mask=False,
+            do_mask=options["do_mask"],
+            msk_frs_seq=masks or None,
         )
 
         # Requires the backend-forwarding edits from the earlier diagnostics.
@@ -289,7 +341,6 @@ def render_job(job_path):
         print("Requested EbSynth backend: CUDA", flush=True)
 
         completed = 0
-        expected = count - 1
         original_run = runner.eb.run
 
         def tracked_run(*args, **kwargs):
@@ -297,22 +348,27 @@ def render_job(job_path):
             result = original_run(*args, **kwargs)
             completed += 1
             progress(
-                15 + 75 * completed / expected,
+                15 + (65 if grouped else 75) * completed / expected,
                 f"Synthesis {completed}/{expected}",
             )
+            if grouped and completed == expected:
+                progress(80, "Finalizing synthesis and blending")
             return result
 
         runner.eb.run = tracked_run
         progress(15, f"Synthesis 0/{expected}")
 
         try:
-            results, _ = runner.run_sequences()
+            if any(exports.values()):
+                results, auxiliary_maps, auxiliary_flows = runner.run_sequences_full(return_flow=exports["flow"])
+            else:
+                results, _ = runner.run_sequences()
         finally:
             runner.eb.run = original_run
 
         if completed != expected:
             raise RuntimeError(
-                f"Expected {expected} generated frames, received {completed}."
+                f"Expected {expected} synthesis calls, received {completed}."
             )
 
     if len(results) != count:
@@ -341,6 +397,11 @@ def render_job(job_path):
             90 + 9 * (index + 1) / count,
             f"Saving {index + 1}/{count}",
         )
+
+    if any(exports.values()):
+        progress(99, "Saving auxiliary outputs")
+        records = artifact_records(numbers, [n for n, _ in style_entries], blend_options.get("only_mode", "none"))
+        save_artifacts(output, exports, records, auxiliary_maps, auxiliary_flows)
 
     (output / "COMPLETE.txt").write_text(
         f"Keyframe: {key}\n"
