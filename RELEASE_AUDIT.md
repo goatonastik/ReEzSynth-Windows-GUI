@@ -56,6 +56,11 @@ release was uploaded. A GitHub source archive is not yet a cleared binary packag
 - Preserve notices for copied EF-RAFT/FlowDiffuser code and dependencies. Their
   optional checkpoint licensing and the complete dependency redistribution notice
   set still need review before a packaged binary release.
+- Local validation used EF-RAFT revision `9ad323b` and the official FlowDiffuser
+  Google Drive checkpoint. Pinned Twin-SVT artifacts came from
+  `timm/twins_svt_large.in1k` revision `9985cdd` and
+  `timm/twins_svt_small.in1k` revision `42c9bf4`. Hash enforcement in
+  `setup_flowdiffuser.py` establishes integrity, not redistribution rights.
 
 ## Gates before publishing
 

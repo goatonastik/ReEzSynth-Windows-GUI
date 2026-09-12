@@ -28,15 +28,26 @@ def main():
     parser.add_argument('--fuoum-python', default='', help='Test a custom FuouM worker interpreter.')
     parser.add_argument('--memory-efficient', action='store_true', help='Legacy RAFT only.')
     parser.add_argument('--four-k', action='store_true', help='Legacy video at 3840x2160; requires --memory-efficient.')
+    parser.add_argument('--flow-arch', choices=('RAFT', 'EF_RAFT', 'FLOW_DIFF'), default='RAFT',
+                        help='Legacy optical-flow architecture to exercise.')
+    parser.add_argument('--flow-model', default='', help='Legacy checkpoint name for the selected architecture.')
     args = parser.parse_args()
     if args.four_k and (args.engine != 'legacy' or not args.memory_efficient):
         parser.error('--four-k requires legacy --memory-efficient')
     if args.memory_efficient and args.engine != 'legacy':
         parser.error('--memory-efficient is for the legacy engine')
+    if args.flow_arch != 'RAFT' and args.engine != 'legacy':
+        parser.error('--flow-arch is for the legacy engine')
+    if args.memory_efficient and args.flow_arch != 'RAFT':
+        parser.error('--memory-efficient requires --flow-arch RAFT')
     engine = FUOUM if args.engine == 'fuoum' else LEGACY
-    options = validate_render(dict(PREVIEW, engine=engine, memory_efficient_raft=args.memory_efficient))
+    model = args.flow_model or {'RAFT': 'sintel', 'EF_RAFT': '25000_ours-sintel',
+                                'FLOW_DIFF': 'FlowDiffuser-things'}[args.flow_arch]
+    options = validate_render(dict(PREVIEW, engine=engine, memory_efficient_raft=args.memory_efficient,
+                                   flow_arch=args.flow_arch, flow_model=model))
     runtime = prepare_runtime(options, dict(fuoum_source=args.fuoum_source, fuoum_python=args.fuoum_python))
-    base = ROOT / 'diagnostic_outputs' / ('engines_' + args.engine + '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    architecture = '' if args.flow_arch == 'RAFT' else '_' + args.flow_arch.lower()
+    base = ROOT / 'diagnostic_outputs' / ('engines_' + args.engine + architecture + '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
     size = [3840, 2160] if args.four_k else [256, 144]
     jobs = []

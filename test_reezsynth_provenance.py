@@ -114,6 +114,14 @@ class ManifestTests(unittest.TestCase):
         self.assertIn(relative, result['source_sha256'])
         self.assertEqual(result['effective_settings']['render_options']['fuoum_neuflow_model'], 'neuflow_mixed')
 
+    def test_flowdiffuser_manifest_includes_checkpoint_and_offline_backbones(self):
+        names = ('FlowDiffuser-things.pth', 'twins_svt_large.pth', 'twins_svt_small.pth')
+        for name in names:
+            self.asset('ezsynth/utils/flow_utils/flow_diffusion_models/' + name, name.encode())
+        result = self.manifest(dict(flow_arch='FLOW_DIFF', flow_model='FlowDiffuser-things'))
+        recorded = {Path(name).name for name in result['source_sha256'] if name.endswith('.pth')}
+        self.assertEqual(recorded, set(names))
+
     def test_compiled_extension_binary_and_adapter_hashes_without_torch_import(self):
         binary = self.asset('custom/alt_cuda_corr.pyd', b'custom-build')
         with patch.dict(sys.modules, {'torch': None, 'alt_cuda_corr': SimpleNamespace(__file__=str(binary))}):

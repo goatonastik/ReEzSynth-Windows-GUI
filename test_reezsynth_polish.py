@@ -1,4 +1,5 @@
 """Header, session logs and processing compatibility; no real settings or GPU."""
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -11,7 +12,8 @@ from PySide6.QtWidgets import QCheckBox
 
 from test_reezsynth_gui import GuiFixture, gui
 from test_reezsynth_lifecycle import LifecycleFixture
-from reezsynth_config import validate_group, validate_render, validate_flow_model_available
+from reezsynth_config import (OPTIONAL_FLOW_HASHES, validate_group, validate_render,
+                              validate_flow_model_available)
 
 
 class HeaderAndSettingsTests(GuiFixture):
@@ -131,7 +133,8 @@ class HeaderAndSettingsTests(GuiFixture):
             ef_model = self.root / 'ezsynth/utils/flow_utils/ef_raft_models/ours_sintel.pth'
             ef_model.parent.mkdir(parents=True)
             ef_model.write_bytes(b'test weight placeholder; never loaded')
-            self.assertEqual(validate_flow_model_available('ours_sintel', 'EF_RAFT'), ef_model)
+            with patch.dict(OPTIONAL_FLOW_HASHES, {'ours_sintel.pth': hashlib.sha256(ef_model.read_bytes()).hexdigest()}):
+                self.assertEqual(validate_flow_model_available('ours_sintel', 'EF_RAFT'), ef_model)
             with self.assertRaisesRegex(ValueError, 'timm'):
                 validate_flow_model_available('FlowDiffuser-things', 'FLOW_DIFF')
 

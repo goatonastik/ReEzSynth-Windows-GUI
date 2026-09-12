@@ -153,15 +153,18 @@ choices, but they are not part of the default installation. Before selecting one
 run `check_reezsynth.py --flow-extras`; the queue repeats the same preflight before
 it creates any outputs. EF-RAFT needs its three model files
 (`25000_ours-sintel.pth`, `ours_sintel.pth`, and `ours-things.pth`) in
-`ezsynth/utils/flow_utils/ef_raft_models/`. FlowDiffuser needs `timm` and
+`ezsynth/utils/flow_utils/ef_raft_models/`. FlowDiffuser needs the tested
+dependency set in `requirements-flowdiffuser.txt` and
 `FlowDiffuser-things.pth` in `ezsynth/utils/flow_utils/flow_diffusion_models/`.
-Its upstream code also initializes pretrained Twin-SVT backbones, which may fetch
-additional weights on first use. The setup script does not download or install
-these optional assets. Verify their source and compatibility with the pinned
-environment before adding them; installing `timm` alone does not enable FlowDiffuser.
+Upstream `timm 0.6.12` does not import on this Python 3.11 environment. The tested
+path uses `timm 1.0.29`, `huggingface_hub 1.31.0` and `safetensors 0.8.0`.
+`setup_flowdiffuser.py` downloads two pinned Twin-SVT files (about 494 MB total),
+verifies their hashes and makes rendering load them locally. It never fetches
+model data during a render. The separate official FlowDiffuser checkpoint must
+still be supplied through the Settings installer.
 The Settings tab's **Optional flow components** panel can import checkpoint files
 you have downloaded from the upstream source and can install `timm` after explicit
-confirmation. It does not silently fetch model checkpoints.
+confirmation. It does not silently fetch the main model checkpoint.
 
 ## Memory-efficient RAFT extension
 

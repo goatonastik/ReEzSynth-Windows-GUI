@@ -185,14 +185,20 @@ def write_engine_manifest(job):
             checkpoint = fuoum_checkpoint(options, source)
         else:
             checkpoint = legacy_checkpoint(options, source)
-        if checkpoint.is_file():
-            hashes[checkpoint.relative_to(source).as_posix()] = file_sha256(checkpoint)
+        checkpoints = [checkpoint]
+        if engine == LEGACY and options.get('flow_arch') == 'FLOW_DIFF':
+            checkpoints += [checkpoint.parent / 'twins_svt_large.pth',
+                            checkpoint.parent / 'twins_svt_small.pth']
+        for selected in checkpoints:
+            if selected.is_file():
+                hashes[selected.relative_to(source).as_posix()] = file_sha256(selected)
         if engine == LEGACY and options.get('memory_efficient_raft'):
             components['alt_cuda_corr'] = runtime_component('alt_cuda_corr')
     import importlib.metadata
     versions = {}
     for name in ('torch', 'torchvision', 'numpy', 'opencv-python', 'pydantic', 'scipy', 'einops', 'pyamg',
-                 'reezsynth-alt-cuda-corr', 'timm', 'cupy', 'cupy-cuda12x', 'cupy-cuda13x'):
+                 'reezsynth-alt-cuda-corr', 'timm', 'huggingface_hub', 'safetensors',
+                 'cupy', 'cupy-cuda12x', 'cupy-cuda13x'):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

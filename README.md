@@ -140,8 +140,9 @@ matching numerical scales. The native weighting model is described in the
 
 The flow controls offer RAFT with bundled Sintel (default) and Kitti weights, plus
 the upstream EF-RAFT and FlowDiffuser architecture/model pairs for video. EF-RAFT
-and FlowDiffuser are optional: a queue checks their exact files (and FlowDiffuser's
-`timm` package) before it creates output or starts a worker. Use
+and FlowDiffuser are optional: a queue checks their exact files (including
+FlowDiffuser's pinned dependencies and offline backbones) before it creates output
+or starts a worker. Use
 `check_reezsynth.py --flow-extras` to see what is missing. The default install and
 existing projects remain on RAFT; Memory-efficient RAFT correlation applies only
 to that architecture. EbSynth backend defaults to CUDA; Auto lets the native library decide and
@@ -156,8 +157,9 @@ Single-frame keyframe copies require no flow weights or GPU initialization.
 
 Settings > **Optional flow components** displays each optional model's readiness.
 Its install buttons copy user-selected official checkpoint files into the expected
-directories; the FlowDiffuser package button installs its pinned `timm` dependency
-only after confirmation. An unavailable optional architecture returns to RAFT with
+directories; the FlowDiffuser component button installs the tested dependency set
+and downloads two checksum-pinned Twin-SVT backbones only after confirmation.
+Rendering never downloads models implicitly. An unavailable architecture returns to RAFT with
 an explanation instead of allowing an invalid queue setting.
 
 **Pyramid levels: Automatic** forwards the upstream `-1` setting, which chooses

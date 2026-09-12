@@ -95,10 +95,14 @@ installed as part of the standard application setup, not as an optional engine.
 The user selected these additions. They remain planned unless checked below;
 the existing RAFT/NeuFlow workflow can be used while they are developed.
 
-1. [ ] **Additional optical-flow choices:** install and test EF-RAFT/FlowDiffuser
-   in a controlled environment with identified checkpoint versions. FlowDiffuser
-   also constructs pretrained Twin-SVT backbones, so readiness must account for
-   their downloads/cache and compatibility, not just the main checkpoint and timm.
+1. [x] **Additional optical-flow choices:** all three official EF-RAFT checkpoints
+   from pinned revision `9ad323b` were hash-recorded, installed locally and passed
+   direct finite-flow plus full frontend image/video/grouped tests. FlowDiffuser's
+   official checkpoint and exact Twin-SVT artifacts were hash-recorded; upstream
+   `timm 0.6.12` failed on Python 3.11, while the pinned tested 1.0.29 dependency
+   set passed in quarantine and the normal environment. Rendering now loads local
+   backbones only. A forced-offline full frontend run passed. Model files remain
+   ignored; their licensing/distribution remains a release gate.
 2. [ ] **Optional GPU blending:** investigate a working CuPy configuration on
    RTX 5090 and test histogram/Poisson blending. The retained CuPy 14.2.0/CUDA 12
    experiment failed a real kernel; a compatible configuration is not yet
@@ -158,7 +162,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the fixes: 226 tests passed in 29.340 seconds with normal
+- Full suite after the fixes: 229 tests passed in 30.091 seconds with normal
   temporary-directory/Qt access. The focused new regression selection also passed.
 - Synthetic CUDA correlation checks passed, followed by real 256x144 Preview
   image/video/grouped smoke checks for both engines. Legacy used compiled RAFT.

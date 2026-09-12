@@ -15,7 +15,9 @@ from unittest.mock import patch
 from check_reezsynth import EF_RAFT_MODELS, FLOW_DIFFUSION_MODEL, flow_extra_readiness, verify_assets
 from diagnose_reezsynth_adapter import (cancel_worker, render as run_adapter_diagnostic,
                                         render_parallel)
-from reezsynth_config import install_optional_flow_files, optional_flow_status
+from reezsynth_config import install_optional_flow_files, optional_flow_status, OPTIONAL_FLOW_HASHES
+import setup_flowdiffuser
+from setup_flowdiffuser import BACKBONES, PACKAGES
 
 ROOT = Path(__file__).resolve().parent
 
@@ -56,32 +58,63 @@ class SetupTests(unittest.TestCase):
         self.assertIn('sha256:' + digest, requirement)
         self.assertEqual(verify_assets(ROOT), 4)
 
-    def test_optional_flow_readiness_needs_only_files_and_timm_metadata(self):
+    def test_optional_flow_readiness_needs_pinned_dependencies_and_backbones(self):
         flow = self.root / 'ezsynth' / 'utils' / 'flow_utils'
         readiness = flow_extra_readiness(self.root, find_spec=lambda _: None)
         self.assertIn('missing weights', readiness['EF-RAFT'][0])
-        self.assertEqual(readiness['FlowDiffuser'], [
-            'missing Python package: timm', f'missing weights: {FLOW_DIFFUSION_MODEL}'])
+        self.assertIn('missing/incompatible Python packages', readiness['FlowDiffuser'][0])
+        self.assertIn('missing offline backbones', readiness['FlowDiffuser'][1])
+        self.assertIn(f'missing weights: {FLOW_DIFFUSION_MODEL}', readiness['FlowDiffuser'])
         (flow / 'ef_raft_models').mkdir(parents=True)
         (flow / 'flow_diffusion_models').mkdir()
         for model in EF_RAFT_MODELS:
             (flow / 'ef_raft_models' / f'{model}.pth').write_bytes(b'placeholder')
         (flow / 'flow_diffusion_models' / FLOW_DIFFUSION_MODEL).write_bytes(b'placeholder')
-        readiness = flow_extra_readiness(self.root, find_spec=lambda _: object())
+        for backbone in BACKBONES:
+            (flow / 'flow_diffusion_models' / f'{backbone}.pth').write_bytes(b'placeholder')
+        with patch('reezsynth_config.importlib.metadata.version', side_effect=PACKAGES.__getitem__):
+            readiness = flow_extra_readiness(self.root, find_spec=lambda _: object())
         self.assertEqual(readiness, {'EF-RAFT': [], 'FlowDiffuser': []})
+
+    def test_flowdiffuser_requirements_pin_the_tested_dependency_set(self):
+        requirements = (ROOT / 'requirements-flowdiffuser.txt').read_text(encoding='utf-8')
+        for name, version in PACKAGES.items():
+            self.assertIn(f'{name}=={version}', requirements)
+        self.assertEqual(set(BACKBONES), {'twins_svt_large', 'twins_svt_small'})
+
+    def test_flowdiffuser_setup_never_overwrites_an_unexpected_backbone(self):
+        model_dir = self.root / 'flow-models'
+        model_dir.mkdir()
+        (model_dir / 'fixture.pth').write_bytes(b'unexpected')
+        downloads = []
+        fake_hub = SimpleNamespace(
+            hf_hub_download=lambda *args, **kwargs: downloads.append((args, kwargs)))
+        fixture_backbones = {
+            'fixture': ('official/repository', 'pinned-revision',
+                        hashlib.sha256(b'expected').hexdigest())
+        }
+        with (patch.object(setup_flowdiffuser, 'MODEL_DIR', model_dir),
+              patch.object(setup_flowdiffuser, 'BACKBONES', fixture_backbones),
+              patch.dict(sys.modules, {'huggingface_hub': fake_hub}),
+              patch.object(setup_flowdiffuser.subprocess, 'run')):
+            with self.assertRaisesRegex(RuntimeError, 'was not replaced'):
+                setup_flowdiffuser.install()
+        self.assertEqual(downloads, [])
 
     def test_optional_flow_file_installer_copies_only_recognized_checkpoints(self):
         source = self.root / 'downloads'
         source.mkdir()
         ef = source / 'ours_sintel.pth'
         ef.write_bytes(b'checkpoint')
-        copied = install_optional_flow_files('EF_RAFT', [ef], self.root)
+        with patch.dict(OPTIONAL_FLOW_HASHES, {'ours_sintel.pth': hashlib.sha256(b'checkpoint').hexdigest()}):
+            copied = install_optional_flow_files('EF_RAFT', [ef], self.root)
         self.assertEqual(copied[0].read_bytes(), b'checkpoint')
         self.assertEqual(optional_flow_status(self.root, find_spec=lambda _: None)['EF_RAFT']['models'], ['ours_sintel'])
         replacement = source / 'replacement' / 'ours_sintel.pth'
         replacement.parent.mkdir()
         replacement.write_bytes(b'different checkpoint')
-        with self.assertRaisesRegex(ValueError, 'already installed'):
+        with patch.dict(OPTIONAL_FLOW_HASHES, {'ours_sintel.pth': hashlib.sha256(b'different checkpoint').hexdigest()}), \
+                self.assertRaisesRegex(ValueError, 'already installed'):
             install_optional_flow_files('EF_RAFT', [replacement], self.root)
         self.assertEqual(copied[0].read_bytes(), b'checkpoint')
         invalid = source / 'unknown.pth'

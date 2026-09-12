@@ -44,15 +44,20 @@ def flow_extra_readiness(root=ROOT, find_spec=importlib.util.find_spec):
     ef_dir = flow_root / 'ef_raft_models'
     flow_diff_dir = flow_root / 'flow_diffusion_models'
     ef_missing = [model for model in EF_RAFT_MODELS if not (ef_dir / f'{model}.pth').is_file()]
+    from reezsynth_config import optional_flow_status
+    status = optional_flow_status(root, find_spec=find_spec)['FLOW_DIFF']
+    flow_problems = []
+    if not status['dependencies']:
+        flow_problems.append('missing/incompatible Python packages: run setup_flowdiffuser.py')
+    if not status['backbones']:
+        flow_problems.append('missing offline backbones: twins_svt_large.pth, twins_svt_small.pth')
+    if not (flow_diff_dir / FLOW_DIFFUSION_MODEL).is_file():
+        flow_problems.append(f'missing weights: {FLOW_DIFFUSION_MODEL}')
     return {
         'EF-RAFT': [] if not ef_missing else [
             'missing weights: ' + ', '.join(f'{model}.pth' for model in ef_missing),
         ],
-        'FlowDiffuser': (
-            ([] if find_spec('timm') is not None else ['missing Python package: timm'])
-            + ([] if (flow_diff_dir / FLOW_DIFFUSION_MODEL).is_file()
-               else [f'missing weights: {FLOW_DIFFUSION_MODEL}'])
-        ),
+        'FlowDiffuser': flow_problems,
     }
 
 

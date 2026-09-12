@@ -5,6 +5,16 @@ in [README.md](README.md).
 
 ## Local review fixes verified (2026-09-12)
 
+- Optional legacy flow validation is complete on this host. All three official
+  EF-RAFT checkpoints from upstream revision `9ad323b` passed direct finite-flow
+  checks and full Preview image/video/grouped jobs. FlowDiffuser's official 58.1 MB
+  checkpoint (`a653fa…`) and exact Twin-SVT Large (`a8d1d6…`, 397.2 MB) and Small
+  (`719c6f…`, 96.3 MB) backbones were validated. Upstream-required `timm 0.6.12`
+  failed on Python 3.11; the tested set is `timm 1.0.29`, `huggingface_hub 1.31.0`
+  and `safetensors 0.8.0`. A final normal-environment frontend run passed in
+  10.480 seconds, followed by a forced-offline/empty-cache pass in 9.855 seconds
+  (`engines_legacy_flow_diff_20260912_141903_774431`). Rendering now loads pinned
+  local backbones and cannot trigger their former implicit network downloads.
 - Legacy CPU and Auto were validated through real frontend jobs in separate
   CUDA-hidden workers. Each completed 256x144 image synthesis and a two-frame
   video; video logs confirmed CPU optical flow. Finite output/error data, exact
@@ -29,10 +39,10 @@ in [README.md](README.md).
   relevant loaded native extensions, and expanded adapter/package provenance.
   Requested settings remain available separately. Native Auto backend decisions
   and geometry-dependent pyramid clamping are not introspected.
-- Full maintained suite: **226 tests passed in 29.340 seconds**. This includes
-  default dual-engine setup, new timing/completion tests, custom-kernel readiness,
-  and metadata regressions. Expected upstream deprecation/offscreen Qt warnings
-  remain; no test failed.
+- Full maintained suite: **229 tests passed in 30.091 seconds**. This includes
+  default dual-engine setup, optional-flow readiness and provenance, new timing/
+  completion tests, custom-kernel readiness, and metadata regressions. Expected
+  upstream deprecation/offscreen Qt warnings remain; no test failed.
 - New bounded 256x144 GPU smoke checks passed for image, three-frame video and
   grouped jobs, including previews, error arrays, frame numbering, completion and
   shared-worker exit. Legacy used compiled RAFT. Retained reports:

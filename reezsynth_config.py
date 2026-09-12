@@ -1,7 +1,9 @@
 """Versioned frontend settings; no rendering-engine imports."""
 import copy
+import hashlib
 import json
 import importlib.util
+import importlib.metadata
 import math
 import shutil
 from pathlib import Path
@@ -33,6 +35,12 @@ LIMITS = {"uniformity": (0, 100000), "patchsize": (3, 99), "pyramidlevels": (-1,
     "searchvoteiters": (1, 1000), "patchmatchiters": (1, 1000), "feather": (0, 999),
     "fuoum_stop_threshold": (0, 100000), "fuoum_search_pruning_threshold": (0, 100000),
     "fuoum_sparse_anchor_weight": (0, 10000), "parallel_limit": (0, 64), "preview_limit": (1, 64)}
+OPTIONAL_FLOW_HASHES = {
+    '25000_ours-sintel.pth': '4fb2df7d7a44f2479262aa5f873472c9c48ee2fd4c4f5bf5e9b2df50a94ea52c',
+    'ours-things.pth': 'adab5f373882e66aca4cefcd8783e50b280165367f145b16af708fe5aaf9fbc8',
+    'ours_sintel.pth': '8e1be5a14f7c734fee9289f68a6ffd35a446039de488f2f4b9bf94738b1e87ad',
+    'FlowDiffuser-things.pth': 'a653fa5d549aa80677ed02c158fe0363b453183ed0235eb0cc8557e488a8b1c3',
+}
 
 QUALITY_PROFILES = {
     "Preview": PREVIEW,
@@ -90,13 +98,19 @@ def validate_flow_model_available(flow_model, flow_arch="RAFT"):
     elif flow_arch == "FLOW_DIFF":
         if flow_model != "FlowDiffuser-things":
             raise ValueError("FlowDiffuser uses the FlowDiffuser-things model.")
-        if importlib.util.find_spec("timm") is None:
-            raise ValueError("FlowDiffuser requires the optional Python package timm. See INSTALL_WINDOWS.md before installing it.")
+        status = optional_flow_status()['FLOW_DIFF']
+        if not status['dependencies'] or not status['backbones']:
+            raise ValueError("FlowDiffuser timm dependencies/backbones are incomplete. Run setup_flowdiffuser.py or use Settings > Optional flow components.")
         path, label = root / "flow_diffusion_models" / "FlowDiffuser-things.pth", "FlowDiffuser"
     else:
         raise ValueError("Unknown flow architecture.")
     if not path.is_file():
         raise ValueError(f"{label} weights are missing: {path}")
+    if flow_arch != 'RAFT':
+        with path.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if digest != OPTIONAL_FLOW_HASHES[path.name]:
+            raise ValueError(f'{label} weights failed the official checkpoint checksum: {path}')
     return path
 
 
@@ -105,12 +119,23 @@ def optional_flow_status(root=None, find_spec=importlib.util.find_spec):
     root = Path(root or Path(__file__).parent) / "ezsynth" / "utils" / "flow_utils"
     ef_names = ("25000_ours-sintel", "ours_sintel", "ours-things")
     ef = [name for name in ef_names if (root / "ef_raft_models" / f"{name}.pth").is_file()]
-    flow_file = root / "flow_diffusion_models" / "FlowDiffuser-things.pth"
+    flow_root = root / "flow_diffusion_models"
+    flow_file = flow_root / "FlowDiffuser-things.pth"
+    try:
+        versions = {name: importlib.metadata.version(name) for name in ('timm', 'huggingface_hub', 'safetensors')}
+    except importlib.metadata.PackageNotFoundError:
+        versions = {}
+    dependencies = (find_spec("timm") is not None and versions ==
+                    {'timm': '1.0.29', 'huggingface_hub': '1.31.0', 'safetensors': '0.8.0'})
+    backbones = all((flow_root / f'{name}.pth').is_file()
+                    for name in ('twins_svt_large', 'twins_svt_small'))
     return {
         "EF_RAFT": {"models": ef, "missing": [name for name in ef_names if name not in ef]},
         "FLOW_DIFF": {"models": ["FlowDiffuser-things"] if flow_file.is_file() else [],
                       "missing": ([] if flow_file.is_file() else ["FlowDiffuser-things"]),
-                      "timm": find_spec("timm") is not None},
+                      "timm": find_spec("timm") is not None,
+                      "dependencies": dependencies, "versions": versions,
+                      "backbones": backbones},
     }
 
 
@@ -137,6 +162,10 @@ def install_optional_flow_files(flow_arch, paths, root=None):
     for name, source in selected:
         if not source.is_file() or source.stat().st_size == 0:
             raise ValueError(f"Checkpoint is missing or empty: {source}")
+        with source.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if digest != OPTIONAL_FLOW_HASHES[name]:
+            raise ValueError(f'Checkpoint failed the official checksum: {name}')
         target = destination / name
         if target.exists() and not source.samefile(target):
             raise ValueError(f"Checkpoint is already installed: {target.name}")

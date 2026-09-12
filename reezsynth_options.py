@@ -374,7 +374,8 @@ class Options(QObject):
         if self.loading or architecture == 'RAFT':
             return
         status = optional_flow_status()[architecture]
-        ready = bool(status['models']) and (architecture != 'FLOW_DIFF' or status['timm'])
+        ready = bool(status['models']) and (architecture != 'FLOW_DIFF' or
+                (status.get('dependencies', status['timm']) and status.get('backbones', True)))
         if ready:
             return
         if architecture == 'EF_RAFT':
@@ -386,6 +387,10 @@ class Options(QObject):
                 missing.append('FlowDiffuser-things.pth checkpoint')
             if not status['timm']:
                 missing.append('timm Python package')
+            elif not status.get('dependencies', True):
+                missing.append('pinned FlowDiffuser dependency set')
+            if not status.get('backbones', True):
+                missing.append('offline Twin-SVT backbones')
             detail = 'Missing: ' + ' and '.join(missing) + '.'
         box = self.widgets['render']['flow_arch']
         box.blockSignals(True)
@@ -404,7 +409,7 @@ class Options(QObject):
         self.flow_diff_status.setWordWrap(True)
         ef_install = QPushButton('Install EF-RAFT checkpoint files...')
         flow_install = QPushButton('Install FlowDiffuser checkpoint...')
-        timm_install = QPushButton('Install FlowDiffuser timm package')
+        timm_install = QPushButton('Install FlowDiffuser dependencies/backbones')
         ef_install.clicked.connect(lambda: self.install_optional_flow_checkpoints('EF_RAFT'))
         flow_install.clicked.connect(lambda: self.install_optional_flow_checkpoints('FLOW_DIFF'))
         timm_install.clicked.connect(self.install_flowdiffuser_timm)
@@ -425,7 +430,8 @@ class Options(QObject):
         self.ef_flow_status.setText('Installed: ' + (', '.join(ef['models']) or 'none') +
                                     '\nMissing: ' + (', '.join(ef['missing']) or 'none'))
         self.flow_diff_status.setText('Installed: ' + (', '.join(flow['models']) or 'none') +
-                                      '\ntimm package: ' + ('installed' if flow['timm'] else 'missing'))
+                                      '\nDependency set: ' + ('ready' if flow.get('dependencies') else 'missing/incompatible') +
+                                      '\nOffline backbones: ' + ('ready' if flow.get('backbones') else 'missing'))
 
     def install_optional_flow_checkpoints(self, architecture):
         title = 'Install EF-RAFT checkpoints' if architecture == 'EF_RAFT' else 'Install FlowDiffuser checkpoint'
@@ -440,12 +446,13 @@ class Options(QObject):
             QMessageBox.warning(self.w, title, str(exc))
 
     def install_flowdiffuser_timm(self):
-        if optional_flow_status()['FLOW_DIFF']['timm']:
-            QMessageBox.information(self.w, 'FlowDiffuser dependency', 'The timm package is already installed.')
+        status = optional_flow_status()['FLOW_DIFF']
+        if status.get('dependencies') and status.get('backbones'):
+            QMessageBox.information(self.w, 'FlowDiffuser dependency', 'The pinned dependencies and offline backbones are already installed.')
             return
         if QMessageBox.question(self.w, 'Install FlowDiffuser dependency?',
-                'Install timm 0.6.12 into this ReEzSynth Python environment?\n\n'
-                'FlowDiffuser is optional and requires a separate checkpoint. This downloads a Python package.',
+                'Install the tested FlowDiffuser dependency set and two pinned Twin-SVT backbones?\n\n'
+                'This downloads about 500 MB. A separate FlowDiffuser checkpoint is also required.',
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
@@ -459,7 +466,7 @@ class Options(QObject):
             lambda: self.w.log.appendPlainText(bytes(self.timm_process.readAllStandardError()).decode('utf-8', 'replace').rstrip()))
         self.timm_process.finished.connect(self.finished_install_flowdiffuser_timm)
         self.timm_process.errorOccurred.connect(self.flowdiffuser_timm_install_error)
-        self.timm_process.start(sys.executable, ['-m', 'pip', 'install', 'timm==0.6.12'])
+        self.timm_process.start(sys.executable, ['-B', str(Path(__file__).parent / 'setup_flowdiffuser.py')])
 
     def finished_install_flowdiffuser_timm(self, code, _status):
         if not getattr(self, 'timm_install_pending', False):
@@ -467,9 +474,12 @@ class Options(QObject):
         self.timm_install_pending = False
         self.refresh_engine_controls()
         self.refresh_optional_flow_status()
-        message = ('timm was installed successfully.' if code == 0 and optional_flow_status()['FLOW_DIFF']['timm']
-                   else 'timm installation failed. See Diagnostics for pip output.')
-        (QMessageBox.information if code == 0 else QMessageBox.warning)(self.w, 'FlowDiffuser dependency', message)
+        ready = optional_flow_status()['FLOW_DIFF']
+        success = code == 0 and ready.get('dependencies') and ready.get('backbones')
+        message = ('FlowDiffuser dependencies and backbones were installed successfully.'
+                   if success
+                   else 'FlowDiffuser installation failed. See Diagnostics for details.')
+        (QMessageBox.information if success else QMessageBox.warning)(self.w, 'FlowDiffuser dependency', message)
 
     def flowdiffuser_timm_install_error(self, _error):
         if not getattr(self, 'timm_install_pending', False):

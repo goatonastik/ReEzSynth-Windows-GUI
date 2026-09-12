@@ -4,12 +4,24 @@ import torch.nn as nn
 
 import timm
 import numpy as np
+from pathlib import Path
+
+
+def offline_backbone(name, pretrained):
+    """Load the pinned local backbone; never fetch model data during a render."""
+    model = timm.create_model(name, pretrained=False)
+    if pretrained:
+        path = Path(__file__).parents[1] / 'flow_diffusion_models' / f'{name}.pth'
+        if not path.is_file():
+            raise RuntimeError(f'FlowDiffuser backbone is missing: {path}. Run setup_flowdiffuser.py.')
+        model.load_state_dict(torch.load(path, map_location='cpu', weights_only=True), strict=True)
+    return model
 
     
 class twins_svt_large(nn.Module):
     def __init__(self, pretrained=True):
         super().__init__()
-        self.svt = timm.create_model('twins_svt_large', pretrained=pretrained)
+        self.svt = offline_backbone('twins_svt_large', pretrained)
 
         del self.svt.head
         del self.svt.patch_embeds[2]
@@ -86,7 +98,7 @@ class twins_svt_large(nn.Module):
 class twins_svt_small_context(nn.Module):
     def __init__(self, pretrained=True):
         super().__init__()
-        self.svt = timm.create_model('twins_svt_small', pretrained=pretrained)
+        self.svt = offline_backbone('twins_svt_small', pretrained)
 
         del self.svt.head
         del self.svt.patch_embeds[2]
@@ -158,4 +170,3 @@ class twins_svt_small_context(nn.Module):
             num += np.prod(param.size())
 
         return num
-
