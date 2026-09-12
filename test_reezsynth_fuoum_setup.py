@@ -2,13 +2,15 @@
 import contextlib
 import hashlib
 import io
+import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from setup_fuoum import ensure_asset, install
+from setup_fuoum import check_build_prerequisites, ensure_asset, install
 from reezsynth_engines import ROOT
 
 
@@ -63,6 +65,58 @@ class InstallerTests(unittest.TestCase):
             subprocess.run(['git', 'apply', '--unidiff-zero', '--reverse', '--check', str(compatibility)],
                            cwd=base, check=True, capture_output=True)
             self.assertTrue(all('#include <torch/types.h>' in file.read_text() for file in headers.iterdir()))
+
+
+class PrerequisiteTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='reezsynth prerequisites ')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.enterContext(patch('setup_fuoum.sys.platform', 'win32'))
+        self.enterContext(patch('setup_fuoum.sys.version_info', (3, 11)))
+        self.enterContext(patch('setup_fuoum.shutil.which', side_effect=lambda name: 'git.exe' if name == 'git' else None))
+
+    def test_missing_git_is_reported_without_writes(self):
+        with patch('setup_fuoum.shutil.which', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'Git is required'):
+                check_build_prerequisites(self.root / 'source')
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_missing_cuda_is_reported_without_source_download(self):
+        with patch.dict(os.environ, {'CUDA_HOME': str(self.root / 'missing')}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, 'CUDA 12.8 toolkit'):
+                check_build_prerequisites(self.root / 'source')
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_existing_native_binary_needs_no_compiler_prerequisites(self):
+        source = self.root / 'source'
+        source.mkdir()
+        (source / 'ebsynth_torch.test.pyd').write_bytes(b'existing binary')
+        with patch('setup_fuoum.source_revision', return_value='aaa8d06170e6cc59054410aa9c422edd789f7ab2'), \
+             patch('setup_fuoum.subprocess.check_output') as command:
+            result = check_build_prerequisites(source)
+        self.assertFalse(result['native_build_required'])
+        command.assert_not_called()
+
+    def test_fresh_build_requires_matching_cuda_and_cpp_tools(self):
+        cuda = self.root / 'cuda'
+        nvcc = cuda / 'bin/nvcc.exe'
+        vswhere = self.root / 'Microsoft Visual Studio/Installer/vswhere.exe'
+        vcvars = self.root / 'vs/VC/Auxiliary/Build/vcvars64.bat'
+        for path in (nvcc, vswhere, vcvars):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'prerequisite placeholder')
+        installations = json.dumps([{'installationPath': str(self.root / 'vs')}])
+        with patch.dict(os.environ, {'CUDA_HOME': str(cuda), 'ProgramFiles(x86)': str(self.root)}, clear=True):
+            with patch('setup_fuoum.subprocess.check_output', side_effect=['Cuda compilation tools, release 12.8, V12.8.93', installations]):
+                self.assertTrue(check_build_prerequisites(self.root / 'source')['native_build_required'])
+            with patch('setup_fuoum.subprocess.check_output', return_value='release 12.9, V12.9.1'):
+                with self.assertRaisesRegex(RuntimeError, 'match its pinned PyTorch'):
+                    check_build_prerequisites(self.root / 'source')
+            with patch('setup_fuoum.subprocess.check_output', side_effect=['release 12.8, V12.8.93', '[]']):
+                with self.assertRaisesRegex(RuntimeError, r'C\+\+ x64 build tools'):
+                    check_build_prerequisites(self.root / 'source')
+        self.assertFalse((self.root / 'source').exists())
 
 
 if __name__ == '__main__':

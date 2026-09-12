@@ -49,24 +49,40 @@ preserves original frame numbers. Each job gets its own temporary upstream cache
 
 Each output includes `engine_manifest.json` with the upstream revision, source and
 native-binary hashes, selected checkpoint hash, adapter hashes and runtime package
-versions. These identify the actual local files, including compatibility changes;
+versions. Manifest version 2 also identifies the actual compiled correlation
+extension for legacy memory-efficient RAFT and hashes the correct EF-RAFT or
+FlowDiffuser checkpoint when selected. `effective_settings` resolves frontend
+defaults, excludes engine/mode-inapplicable controls, and records normalized
+guide weights. Original requested settings remain alongside it. These are
+resolved frontend settings, not an introspection of native internals: Auto backend
+selection and geometry-clamped pyramid depths are still decided during rendering.
+These identify the actual local files, including compatibility changes;
 they are not a claim of bit-identical rendering across hardware or engine versions.
 Preset/project revisions are checked when loading. Existing presets without a
 revision use the selected engine's current supported baseline.
 
 ## Setup on another Windows machine
 
-First complete the normal GUI setup and activate its Python 3.11 environment.
-The guarded installer is the recommended entry point:
+Follow [Windows setup](INSTALL_WINDOWS.md): its standard command now installs
+and checks both engines, including FuouM's RAFT and NeuFlow checkpoints. A fresh
+FuouM build requires Git, CUDA 12.8 and Visual Studio 2022 C++ tools. The initial
+engine selection remains Trentonom0r3; choose FuouM in Rendering.
+
+The following component commands are for maintenance or adding FuouM to an older
+base-only installation, using its activated Python 3.11 environment:
 
 ```powershell
 python -B setup_fuoum.py --plan --neuflow
+python -B setup_fuoum.py --preflight
 python -B setup_fuoum.py --neuflow
 python -B setup_fuoum.py --check-only --neuflow
 ```
 
 `--neuflow` explicitly enables download/checking of three official, revision-pinned,
-SHA-256-verified checkpoints. Without it only existing local RAFT checkpoints are
+SHA-256-verified checkpoints; standard setup supplies this flag automatically.
+`--preflight` uses only the Python standard library to check Git and, when a
+native build is needed, CUDA/C++ prerequisites without downloads or writes.
+Without `--neuflow` only existing local RAFT checkpoints are
 copied. Existing environments and changed checkpoints are never overwritten.
 Existing native binaries are reused and import-checked; rebuild explicitly with
 `build_fuoum_engine.py` only after stopping render workers. Custom paths are
@@ -74,7 +90,7 @@ available through `--source` and `--venv`. Failed installations are retained for
 inspection; `--check-only` does not repair them. A fresh source/environment install
 passed on the development host; another-machine validation is still required.
 
-Manual equivalent (without the optional NeuFlow download):
+Advanced manual RAFT-only component setup (omits standard setup's NeuFlow downloads):
 
 The following commands create a worker virtual environment which reuses that
 environment's PyTorch and other installed packages. FuouM's NumPy/OpenCV overrides
@@ -91,8 +107,8 @@ python -m venv --system-site-packages .engine_envs/fuoum
 
 Copy the existing RAFT Sintel/Kitti checkpoints from
 `ezsynth/utils/flow_utils/models/` into the upstream checkout's `models/raft/`
-folder. Preserve their names and original copies. The setup does not download new
-model weights. Keep the upstream license and attribution files with the checkout.
+folder. Preserve their names and original copies. These manual commands do not
+download model weights. Keep the upstream license and attribution files with the checkout.
 
 Building requires the CUDA toolkit matching PyTorch and Visual Studio 2022 C++
 tools. On the development machine this is PyTorch 2.11.0+cu128, CUDA 12.8 and an
@@ -114,7 +130,7 @@ verified by importing it; unsupported source revisions are rejected.
 Settings has optional source-folder and Python-executable fields. Blank fields use
 `engine_sources/fuoum_reezsynth` and `.engine_envs/fuoum/Scripts/python.exe` within
 this project. Those local installations and diagnostic outputs are ignored by Git.
-The normal setup script still installs only the original engine.
+Standard setup configures these default locations and verifies both engines.
 
 ## Validation
 

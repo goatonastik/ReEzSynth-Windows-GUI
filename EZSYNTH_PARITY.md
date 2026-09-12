@@ -5,6 +5,26 @@ Trentonom0r3/Ezsynth. A second selectable FuouM/ReEzSynth adapter is now impleme
 its separate revision, capabilities and validation are recorded in DUAL_ENGINE.md
 and PROJECT_STATUS.md. WORK_REMAINING.md is the current completion checklist.
 
+## Current position (2026-09-12)
+
+Both engines are included in standard Windows setup. Settings routing, grouped
+video, masks/custom edges, auxiliary exports and multiguide image synthesis have
+regression coverage and bounded real CUDA checks on bundled samples. The latest
+full suite passes 226 tests. Numeric/indexing policies are recorded in
+[NUMERIC_SETTINGS.md](NUMERIC_SETTINGS.md); these are deliberate limits, not open
+accidental omissions. YAML interchange is implemented.
+
+Still open: native CPU/Auto checks, optional EF-RAFT/FlowDiffuser and working CuPy
+GPU blending, representative production-quality comparisons, and independent
+clean-machine/GPU validation. GPU use and the approved dependency experiments
+have user authorization; no public release has been authorized. Exact sample
+coverage and limitations are recorded in [PROJECT_STATUS.md](PROJECT_STATUS.md).
+
+Everything below is the historical 2026-09-10 review and implementation sequence.
+Its pending statements and environment observations are not the current task list.
+
+## Historical review
+
 Local review completed 2026-09-10 after approval-service access was restored.
 The user-selected target is [Trentonom0r3/Ezsynth](https://github.com/Trentonom0r3/Ezsynth).
 Its main branch resolved to commit

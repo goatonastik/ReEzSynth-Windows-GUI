@@ -1,8 +1,12 @@
 """Unit tests for the direct-CLI benchmark setup; no renderer or GPU."""
+import contextlib
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import reezsynth_cli_benchmark as benchmark
 
@@ -53,6 +57,50 @@ class CliBenchmarkTests(unittest.TestCase):
         original.mkdir()
         proposed = benchmark.benchmark_destination(original, reserve=False)
         self.assertFalse(proposed.exists())
+
+    def test_fuoum_timing_summary_does_not_imply_failure(self):
+        summary = benchmark.timing_summary(
+            '[Timing] FuouM frame 1/2: 1.000s\n[Timing] FuouM frame 2/2: 1.500s\n',
+            exit_code=0, completed=True)
+        self.assertIn('Render completed', summary)
+        self.assertIn('2 synthesis calls', summary)
+        self.assertIn('2.500s (1.250s/call)', summary)
+        self.assertIn('include preview/progress', summary)
+        self.assertNotIn('native EbSynth', summary)
+
+    def test_successful_image_without_timings_is_not_a_failure(self):
+        summary = benchmark.timing_summary('', exit_code=0, completed=True)
+        self.assertIn('Render completed', summary)
+        self.assertIn('No matching synthesis timing', summary)
+        self.assertNotIn('failed', summary)
+
+    def test_partial_timings_preserve_failure(self):
+        summary = benchmark.timing_summary('[Timing] FuouM frame 1/2: 1.000s\n',
+                                           exit_code=17, completed=False)
+        self.assertIn('Render failed (exit code 17)', summary)
+        self.assertIn('timings may be partial', summary)
+
+    def verify_process_result(self, marker, exit_code, expected):
+        destination = self.root / 'process_result'
+        destination.mkdir()
+        job = destination / 'job.json'
+        job.write_text(json.dumps({'engine_runtime': {'python': 'selected-python.exe'}}), encoding='utf-8')
+        if marker:
+            (destination / 'COMPLETE.txt').write_text('ok', encoding='utf-8')
+        process = SimpleNamespace(stdout=io.StringIO('done\n'), wait=lambda: exit_code)
+        with patch.object(benchmark.subprocess, 'Popen', return_value=process) as launch, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(benchmark.run_benchmark(job, destination), expected)
+        self.assertEqual(launch.call_args.args[0][0], 'selected-python.exe')
+        return (destination / 'cli-benchmark.log').read_text(encoding='utf-8')
+
+    def test_zero_exit_without_completion_marker_is_unsuccessful(self):
+        self.assertIn('Completion marker missing', self.verify_process_result(False, 0, 1))
+
+    def test_completed_image_process_succeeds(self):
+        self.assertIn('Render completed', self.verify_process_result(True, 0, 0))
+
+    def test_nonzero_exit_with_marker_remains_failure(self):
+        self.assertIn('Render failed (exit code 17)', self.verify_process_result(True, 17, 17))
 
     def test_timing_summary_matches_renderer_lines(self):
         output = benchmark.timing_summary(

@@ -1,3 +1,3 @@
-# Omit historical developer snapshots/backups from source archives; preserve Git history.
+# Defense in depth if historical snapshots are explicitly staged; also ignored by Git.
 /ReEzSynth-source-bundle.txt export-ignore
 /examples/*.backup-* export-ignore

@@ -1,4 +1,4 @@
-<# Creates a dedicated Windows environment. Never repairs or replaces an existing one. #>
+<# Installs both synthesis engines. Never repairs or replaces existing environments. #>
 [CmdletBinding()]
 param(
     [string]$CondaExe = '',
@@ -46,6 +46,8 @@ function Invoke-CondaStep {
 $run = @('run', '--no-capture-output', '-n', $EnvironmentName)
 if ($CheckOnly) {
     Invoke-CondaStep -Arguments ($run + @('python', '-X', 'utf8', (Join-Path $PSScriptRoot 'check_reezsynth.py'), '--gui-smoke', '--cuda', '--native', '--raft-extension'))
+    Invoke-CondaStep -Arguments ($run + @('python', '-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'setup_fuoum.py'), '--check-only', '--neuflow'))
+    Write-Host 'Both synthesis engines passed installation checks.'
     exit 0
 }
 if (-not $Plan) {
@@ -57,17 +59,24 @@ if (-not $Plan) {
             throw "Environment '$EnvironmentName' already exists. Use -CheckOnly to diagnose it, or choose a new -EnvironmentName. Existing environments are never overwritten."
         }
     }
+    $fuoumEnvironment = Join-Path $PSScriptRoot '.engine_envs\fuoum'
+    if (Test-Path -LiteralPath $fuoumEnvironment) {
+        throw "FuouM environment already exists at '$fuoumEnvironment'. Use -CheckOnly for this installation, or install into a fresh repository folder. Existing environments are never overwritten."
+    }
 }
 
 Push-Location -LiteralPath $PSScriptRoot
 try {
     Invoke-CondaStep -Arguments @('create', '--yes', '--override-channels', '-c', 'conda-forge', '-n', $EnvironmentName, 'python=3.11', 'pip')
     Invoke-CondaStep -Arguments ($run + @('python', '-c', 'import sys; assert sys.version_info[:2] == (3,11) and sys.maxsize > 2**32; print(sys.executable)'))
+    # Uses only the new environment's standard library; check build tools before large downloads.
+    Invoke-CondaStep -Arguments ($run + @('python', '-B', '-X', 'utf8', 'setup_fuoum.py', '--preflight'))
     Invoke-CondaStep -Arguments ($run + @('python', '-m', 'pip', 'install', '--disable-pip-version-check', '-r', 'requirements-torch-cu128.txt'))
     Invoke-CondaStep -Arguments ($run + @('python', '-m', 'pip', 'install', '--disable-pip-version-check', '--no-deps', '--require-hashes', '-r', 'requirements-raft-extension.txt'))
     Invoke-CondaStep -Arguments ($run + @('python', '-m', 'pip', 'install', '--disable-pip-version-check', '--index-url', 'https://pypi.org/simple', '-r', 'requirements.txt', '-c', 'reezsynth-working-requirements.txt'))
     Invoke-CondaStep -Arguments ($run + @('python', '-m', 'pip', 'check'))
     Invoke-CondaStep -Arguments ($run + @('python', '-X', 'utf8', 'check_reezsynth.py', '--gui-smoke', '--cuda', '--native', '--raft-extension'))
+    Invoke-CondaStep -Arguments ($run + @('python', '-B', '-X', 'utf8', 'setup_fuoum.py', '--neuflow'))
     if ($Plan) { Write-Host 'Plan only: no environment or packages changed.' }
     else {
         if (-not $NoLauncherConfig) {
@@ -75,7 +84,7 @@ try {
             [IO.File]::WriteAllText((Join-Path $PSScriptRoot '.reezsynth-conda-path.txt'), $CondaExe, $utf8)
             [IO.File]::WriteAllText((Join-Path $PSScriptRoot '.reezsynth-env-name.txt'), $EnvironmentName, $utf8)
         }
-        Write-Host "Setup checks passed. Activate '$EnvironmentName' and run .\run_reezsynth.bat."
+        Write-Host "Both synthesis engines are installed and checked. Activate '$EnvironmentName' and run .\run_reezsynth.bat."
         Write-Host 'No GPU render was performed; validate one short render before production use.'
         if ($NoLauncherConfig -and $EnvironmentName -ne 'reezsynth') { Write-Host "Set REEZSYNTH_ENV=$EnvironmentName when using the launcher." }
     }

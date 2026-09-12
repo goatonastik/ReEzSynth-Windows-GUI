@@ -23,6 +23,7 @@ FRAME_TIMING = re.compile(
 LOOP_TIMING = re.compile(
     r"\[Timing\] Synthesis loop ([\d.]+)s; native EbSynth ([\d.]+)s; preview capture ([\d.]+)s"
 )
+FUOUM_FRAME_TIMING = re.compile(r"\[Timing\] FuouM frame \d+/\d+: ([\d.]+)s")
 
 
 def latest_completed_job(log_path=DEFAULT_LOG):
@@ -63,19 +64,34 @@ def copy_benchmark_job(source_job, destination):
     return target, job
 
 
-def timing_summary(text):
-    """Return compact averages from the renderer's timing lines, if it completed."""
+def timing_summary(text, *, exit_code=None, completed=None):
+    """Summarize recorded timings; completion is established separately by the caller."""
+    status = ''
+    if exit_code not in (None, 0):
+        status = f'Render failed (exit code {exit_code}); timings may be partial. '
+    elif completed is False:
+        status = 'Completion marker missing; timings may be partial. '
+    elif completed is True:
+        status = 'Render completed. '
+    prefix = '[Benchmark] ' + status
+    fuoum = [float(value) for value in FUOUM_FRAME_TIMING.findall(text)]
+    if fuoum:
+        seconds = sum(fuoum)
+        return (prefix + f'FuouM timing summary: {len(fuoum)} synthesis calls; '
+                f'recorded call time {seconds:.3f}s ({seconds / len(fuoum):.3f}s/call). '
+                'Call timings include preview/progress work; flow/edge precomputation, '
+                'grouped reconstruction and output saving are measured only in wall time.\n')
     frames = [(float(preparation), float(ebsynth))
               for preparation, ebsynth in FRAME_TIMING.findall(text)]
     loop = LOOP_TIMING.findall(text)
     if not frames or not loop:
-        return "[Benchmark] Renderer timing summary unavailable (the render did not complete).\n"
+        return prefix + 'No matching synthesis timing summary was recorded.\n'
     loop_seconds, native_seconds, preview_seconds = map(float, loop[-1])
     count = len(frames)
     preparation = sum(item[0] for item in frames)
     native = sum(item[1] for item in frames)
     return (
-        f"[Benchmark] Renderer timing summary: {count} synthesis frames; "
+        prefix + f"Renderer timing summary: {count} synthesis frames; "
         f"loop {loop_seconds:.3f}s ({loop_seconds / count:.3f}s/frame); "
         f"EbSynth {native_seconds:.3f}s ({native_seconds / count:.3f}s/frame); "
         f"between-call work {preparation:.3f}s ({preparation / count:.3f}s/frame); "
@@ -114,13 +130,14 @@ def run_benchmark(job_path, destination, dry_run=False, source_job=None):
             captured.append(line)
         result = process.wait()
         elapsed = time.perf_counter() - started
-        summary = timing_summary("".join(captured))
+        completed = (Path(destination) / 'COMPLETE.txt').is_file()
+        summary = timing_summary("".join(captured), exit_code=result, completed=completed)
         print(summary, end="")
         log.write(summary)
         summary = f"[Benchmark] Direct CLI wall time: {elapsed:.3f}s; exit code: {result}\n"
         print(summary, end="")
         log.write(summary)
-    return result
+    return result if result else (0 if completed else 1)
 
 
 def main(argv=None):

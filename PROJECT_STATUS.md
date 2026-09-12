@@ -3,6 +3,61 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Local review fixes verified (2026-09-12)
+
+- FuouM CLI benchmarks now recognize FuouM timing lines. Completion requires a
+  zero process exit and `COMPLETE.txt`; missing timing lines no longer imply failure.
+  FuouM call times are explicitly distinguished from end-to-end wall time.
+- Legacy memory-efficient RAFT probes the loaded extension with a tiny real
+  kernel instead of rejecting all custom builds outside the bundled GPU list.
+  The Windows builder merges environment names case-insensitively and verifies
+  the kernel after installation. Synthetic/custom-architecture regressions and
+  the real RTX 5090 correlation/numerical checks passed. No rebuild was needed.
+- Output manifests now include version 2 effective frontend settings, normalized
+  guide weights, selected EF-RAFT/FlowDiffuser/RAFT/NeuFlow checkpoint hashes,
+  relevant loaded native extensions, and expanded adapter/package provenance.
+  Requested settings remain available separately. Native Auto backend decisions
+  and geometry-dependent pyramid clamping are not introspected.
+- Full maintained suite: **226 tests passed in 29.340 seconds**. This includes
+  default dual-engine setup, new timing/completion tests, custom-kernel readiness,
+  and metadata regressions. Expected upstream deprecation/offscreen Qt warnings
+  remain; no test failed.
+- New bounded 256x144 GPU smoke checks passed for image, three-frame video and
+  grouped jobs, including previews, error arrays, frame numbering, completion and
+  shared-worker exit. Legacy used compiled RAFT. Retained reports:
+  `engines_legacy_20260912_130741_668680` (6.287 seconds) and
+  `engines_fuoum_20260912_130759_922655` (5.799 seconds), under ignored
+  `diagnostic_outputs/`. All six version-2 manifests were independently checked
+  against the actual checkpoint/extension hashes. FuouM's real log now produces
+  a successful timing summary. These are Preview smoke checks, not visual parity
+  or isolated performance benchmarks; video auxiliary exports were not enabled.
+- Six dependency-free developer snapshots were untracked and given exact ignore
+  rules. Their local copies and Git history remain intact. Active application
+  code, maintained tests/diagnostics, runtime assets and examples remain tracked.
+- Corrected the older 1080p note: it did not test video auxiliary exports, and
+  sampled GPU usage was device-wide, not a process-specific peak. The parity
+  review now clearly separates its historical snapshot from current evidence.
+
+## Default installation of both engines (2026-09-12)
+
+- Standard `setup_reezsynth.ps1` now installs both Trentonom0r3/Ezsynth and
+  FuouM/ReEzSynth. FuouM remains in its separate runtime; the standard command
+  invokes its installer with verified RAFT copies and all three pinned NeuFlow
+  checkpoint downloads. Engine selection and saved project defaults are unchanged.
+- Setup checks Git/CUDA 12.8/C++ build prerequisites before large package
+  downloads, checks both engines in `-CheckOnly`, and records launcher settings
+  only after both components succeed. Existing environments are preserved.
+  Compilers/toolkit must be installed before a fresh FuouM native build.
+- All 26 setup regressions passed, including ten new checks for default component
+  orchestration, failure/no-overwrite behavior and compiler preflight. Conda/package
+  installation is simulated in the orchestration tests. The real combined
+  `-CheckOnly` passed against this host's existing engines, and a fresh-build
+  prerequisite probe found Git, CUDA 12.8 and VS 2022 without creating its target.
+  A new combined clean-machine installation has not been performed in this pass.
+- The user selected the remaining enhancements listed in WORK_REMAINING.md,
+  excluding direct video import and synchronized comparison playback. Those
+  enhancements remain planned; default inclusion of FuouM is implemented.
+
 ## High-reasoning follow-through (2026-09-12)
 
 Current checklist: [WORK_REMAINING.md](WORK_REMAINING.md). This section supersedes
@@ -712,20 +767,25 @@ performance and memory returning toward baseline remain unverified.
 
 - The opt-in FuouM 1080p diagnostic also passed on this Windows/RTX 5090 host:
   five bundled frames completed as both an ordinary video pass (7.97 seconds)
-  and a grouped pass (12.28 seconds). Valid output, provenance, error/export
-  checks and normal shared-worker exit were verified. It sampled a 16,151 MiB
-  process-aggregate GPU peak, with aggregate GPU memory at 2,504 MiB before
+  and a grouped pass (12.28 seconds). Valid output, styled-keyframe preservation
+  and normal shared-worker exit were verified. Both jobs disabled auxiliary
+  exports; error/flow exports were tested in earlier small extended runs instead.
+  The diagnostic did not assert engine manifests; a subsequent review confirmed
+  both identify FuouM. It sampled a 16,151 MiB device-wide GPU peak (including
+  other programs), with device-wide GPU memory at 2,504 MiB before
   and 2,496 MiB after worker exit. Diagnostics are ignored under
   `diagnostic_outputs/release_fuoum_20260912_121633_484674`.
 - The opt-in legacy 4K diagnostic passed on this Windows/RTX 5090 host using
   the bundled three-frame sample and memory-efficient RAFT. It completed in
-  10.60 seconds, sampled a process-aggregate GPU peak of 11,123 MiB, produced
+  10.60 seconds, sampled a device-wide GPU peak of 11,123 MiB, produced
   valid numbered output, previews and engine provenance, and exited its shared
   worker normally. Aggregate GPU memory was 2,529 MiB before and 2,518 MiB
   after the worker exited. Diagnostics are ignored under
   `diagnostic_outputs/engines_legacy_20260912_121412_671114`.
 - This is a bounded smoke/stability observation, not an overnight leak test,
   a universal performance benchmark, or validation of user-provided footage.
+
+### Earlier repository notes (historical; superseded by current checklist)
 
 - `.gitignore` has the correct filename and ignores common weights, but three
   RAFT .pth files are already tracked (about 46 MB total). No files were untracked.

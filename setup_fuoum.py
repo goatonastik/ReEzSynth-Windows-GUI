@@ -1,8 +1,10 @@
-"""Optional Windows FuouM installation. Never replace an existing environment or checkpoint."""
+"""FuouM component installer for the standard Windows setup; also supports maintenance checks."""
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +19,43 @@ NEUFLOW_HASHES = {
     'mixed': '76152c8068f247a7d073aa13e61da8cb4c3c6a798076d4dc8e20f7995fcc019f',
     'things': '733d13b1b2202adefcc99bd1f0fceb89fc90da5479f9826fa3f17ff42c4bdbe0',
 }
+
+
+def check_build_prerequisites(source):
+    """Check source/build prerequisites using only the standard library, without writes."""
+    if sys.platform != 'win32' or sys.version_info[:2] != (3, 11) or sys.maxsize < 2**32:
+        raise RuntimeError('Use Python 3.11 on 64-bit Windows for the FuouM installation.')
+    git = shutil.which('git')
+    if not git:
+        raise RuntimeError('Git is required to install and verify FuouM. Install Git for Windows and reopen your terminal.')
+    source = Path(source).resolve()
+    if source.exists():
+        if source_revision(source) != FUOUM_REVISION:
+            raise RuntimeError('Existing FuouM source is not the supported revision; it was not changed.')
+        if list(source.glob('ebsynth_torch*.pyd')):
+            return dict(git=git, native_build_required=False)
+    cuda = os.environ.get('CUDA_HOME') or os.environ.get('CUDA_PATH')
+    nvcc = str(Path(cuda) / 'bin/nvcc.exe') if cuda else shutil.which('nvcc')
+    if not nvcc or not Path(nvcc).is_file():
+        raise RuntimeError('Both engines are included in setup. Building FuouM requires the CUDA 12.8 toolkit. '
+                           'Install it and set CUDA_HOME to its installation folder. See INSTALL_WINDOWS.md.')
+    flags = dict(text=True, encoding='utf-8', errors='replace', timeout=30,
+                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    version = subprocess.check_output([str(nvcc), '--version'], **flags)
+    if not re.search(r'release 12\.8(?:\D|$)', version):
+        raise RuntimeError('The standard installation requires the CUDA 12.8 toolkit to match its pinned PyTorch. '
+                           'Set CUDA_HOME to that toolkit before retrying.')
+    vswhere = Path(os.environ.get('ProgramFiles(x86)', 'C:/Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vswhere.exe'
+    if not vswhere.is_file():
+        raise RuntimeError('Building FuouM requires Visual Studio 2022 C++ build tools and the Windows SDK. '
+                           'See INSTALL_WINDOWS.md.')
+    installations = json.loads(subprocess.check_output([
+        str(vswhere), '-products', '*', '-version', '[17.0,18.0)', '-requires',
+        'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-format', 'json'], **flags))
+    if not installations or not (Path(installations[0]['installationPath']) / 'VC/Auxiliary/Build/vcvars64.bat').is_file():
+        raise RuntimeError('Visual Studio 2022 C++ x64 build tools were not found. Install the C++ workload and Windows SDK.')
+    return dict(git=git, native_build_required=True, cuda_compiler=str(nvcc),
+                visual_studio=installations[0]['installationPath'])
 
 
 def sha256(path):
@@ -66,7 +105,7 @@ def install(source, environment, *, plan=False, check=False, neuflow=False):
     if plan:
         print(json.dumps(dict(source=str(source), revision=FUOUM_REVISION,
             environment=str(environment), parent_python=sys.executable, inherit_parent_packages=True,
-            steps=['Check Windows/Python/CUDA', 'Clone pinned sparse source if absent',
+            steps=['Check Windows/Python/Git/CUDA/build tools', 'Clone pinned sparse source if absent',
                    'Create a NEW worker venv', 'Install requirements-fuoum.txt only there',
                    'Verify/copy local RAFT weights', 'Build native CUDA extension', 'Check imports and pip'],
             neuflow_downloads=[f'neuflow_{n}.pth' for n in NEUFLOW_HASHES] if neuflow else [],
@@ -77,6 +116,7 @@ def install(source, environment, *, plan=False, check=False, neuflow=False):
     if not check and environment.exists():
         raise RuntimeError(f'Environment already exists; use --check-only or choose a NEW --venv: {environment}')
     if not check:
+        check_build_prerequisites(source)
         import torch
         if not torch.cuda.is_available():
             raise RuntimeError('The parent GUI Python must have working CUDA PyTorch first.')
@@ -120,6 +160,10 @@ if __name__ == '__main__':
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--plan', action='store_true', help='Print proposed work without changes or downloads.')
     mode.add_argument('--check-only', action='store_true', help='Validate an existing install without repairs.')
+    mode.add_argument('--preflight', action='store_true', help='Check source/build prerequisites without changes, downloads or PyTorch imports.')
     parser.add_argument('--neuflow', action='store_true', help='Download/check all three official pinned NeuFlow checkpoints.')
     args = parser.parse_args()
-    install(args.source, args.venv, plan=args.plan, check=args.check_only, neuflow=args.neuflow)
+    if args.preflight:
+        print(json.dumps(dict(passed=True, **check_build_prerequisites(args.source)), indent=2))
+    else:
+        install(args.source, args.venv, plan=args.plan, check=args.check_only, neuflow=args.neuflow)

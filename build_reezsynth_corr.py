@@ -10,6 +10,17 @@ import sys
 ROOT = Path(__file__).resolve().parent
 
 
+def build_environment(parent, vcvars_output, architecture, cuda_home):
+    # Windows names are case-insensitive, including variables imported from vcvars.
+    environment = {name.upper(): value for name, value in parent.items()}
+    for line in vcvars_output.splitlines():
+        name, separator, value = line.partition('=')
+        if separator and name:
+            environment[name.upper()] = value
+    environment.update(DISTUTILS_USE_SDK='1', TORCH_CUDA_ARCH_LIST=architecture, CUDA_HOME=cuda_home)
+    return environment
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install', action='store_true', help='Install the built wheel into this Python environment (no dependencies).')
@@ -40,12 +51,7 @@ def main():
     # Fixed command structure; the path comes from the Visual Studio installation registry.
     result = subprocess.run(f'cmd.exe /d /s /c ""{vcvars}" >nul && set"',
                             capture_output=True, text=True, check=True)
-    env = os.environ.copy()
-    for line in result.stdout.splitlines():
-        name, separator, value = line.partition('=')
-        if separator and name:
-            env[name] = value
-    env.update(DISTUTILS_USE_SDK='1', TORCH_CUDA_ARCH_LIST=arch, CUDA_HOME=CUDA_HOME)
+    env = build_environment(os.environ, result.stdout, arch, CUDA_HOME)
     print(f'Building for {sys.executable}; PyTorch {torch.__version__}; CUDA architecture {arch}', flush=True)
     source = ROOT / 'third_party/raft_alt_cuda_corr'
     subprocess.run([sys.executable, 'setup.py', 'build_ext', '--force', 'bdist_wheel'], cwd=source, env=env, check=True)
@@ -54,7 +60,9 @@ def main():
     print(f'Built: {wheel}', flush=True)
     if args.install:
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--force-reinstall', str(wheel)], check=True)
-        subprocess.run([sys.executable, '-c', 'import torch,alt_cuda_corr; print(alt_cuda_corr.__file__)'], check=True)
+        subprocess.run([sys.executable, '-B', '-c',
+            'from reezsynth_raft import require_alt_cuda_corr; print(require_alt_cuda_corr().__file__)'],
+            cwd=ROOT, check=True)
 
 
 if __name__ == '__main__':

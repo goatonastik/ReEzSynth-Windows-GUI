@@ -1,10 +1,10 @@
 # Windows setup
 
-This guide installs the original Trentonom0r3/Ezsynth engine. To add the optional
-FuouM/ReEzSynth runtime and native extension, follow [DUAL_ENGINE.md](DUAL_ENGINE.md)
-after completing this setup.
-The optional helper supports `python -B setup_fuoum.py --plan --neuflow` and
-`--check-only`; it does not overwrite an existing worker environment.
+The standard setup installs **both Trentonom0r3/Ezsynth and FuouM/ReEzSynth**.
+FuouM is an included engine, with a separate Python worker environment to keep
+the two engines' packages isolated. Its RAFT Sintel/Kitti and three NeuFlow
+checkpoints are included in setup. [DUAL_ENGINE.md](DUAL_ENGINE.md) describes
+engine selection and component maintenance.
 
 ReEzSynth uses its own Conda environment. Do not install its packages into base
 Conda, ComfyUI, or another application's environment. The setup below targets
@@ -22,6 +22,11 @@ Allow several GB for the environment and download cache.
    Do not fetch missing DLLs from third-party DLL sites.
 3. Download/clone the complete ReEzSynth repository into a writable folder and
    extract it before running scripts. Keep `ezsynth/`, `assets/`, and the licenses.
+   Install Git for Windows, the NVIDIA CUDA **12.8 toolkit**, and Visual Studio
+   2022 C++ build tools with the C++ x64 workload and Windows SDK. FuouM is built
+   locally for your GPU. The CUDA runtime supplied by PyTorch does not include
+   this compiler/toolkit. If several toolkits are installed, set `CUDA_HOME` to
+   the CUDA 12.8 installation folder.
 4. Open PowerShell in that folder. Preview the commands if desired:
 
    ```powershell
@@ -39,17 +44,25 @@ Allow several GB for the environment and download cache.
    and PyPI for the remaining packages. It installs pinned direct requirements
    using the working dependency snapshot as constraints. The PyTorch pair follows
    the [official 2.11.0 installation instructions](https://pytorch.org/get-started/previous-versions/).
-   A separate system CUDA toolkit is not installed by this script.
+   Setup checks Git/CUDA/C++ build prerequisites after creating the initial
+   Python environment and before downloading the large Python packages.
+   It then installs and verifies the original engine, invokes the FuouM component
+   installer, copies the verified local RAFT weights, downloads revision-pinned
+   NeuFlow weights with SHA-256 verification, and builds/checks FuouM's extension.
+   System compilers and the CUDA toolkit must already be installed.
 
-6. Launch `run_reezsynth.bat`. Successful setup records two ignored local text
+6. Launch `run_reezsynth.bat` and choose either engine in Rendering. Only after
+   both engines pass does setup record two ignored local text
    files containing the Conda executable path and environment name so double-click
    launches can find custom installations. Do not share those machine-specific files.
 
-Setup refuses to modify an environment with the chosen name if it already exists.
-It never deletes environments, installs into base, downloads model weights, or runs
-a render. If a step fails, its exit code stops setup; the partial environment remains
-for inspection. Use another environment name for a retry rather than deleting a
-working environment.
+Setup refuses to modify an existing Conda environment or an existing FuouM
+worker environment. It never deletes environments, installs into base, or runs
+a render. If either engine's setup fails, setup reports failure and does not
+update launcher configuration; partial installations remain for inspection.
+Use a new Conda environment name when retrying a failed base setup. If a FuouM
+worker environment already exists, use check-only or a fresh repository folder
+for an independent installation; do not overwrite a working environment.
 
 ## Custom Conda installations and existing environments
 
@@ -64,6 +77,8 @@ To create a separate environment, add `-EnvironmentName reezsynth-new`. Use
 configuration should remain untouched. `REEZSYNTH_ENV` overrides the launcher's
 saved/default environment name. Without saved configuration the launcher also checks
 `CONDA_EXE`, PATH and common Conda installation folders.
+Both engine environments should be installed together in a fresh repository
+folder when creating a second independent installation.
 
 For an existing `reezsynth` environment, diagnose without installing anything:
 
@@ -71,13 +86,28 @@ For an existing `reezsynth` environment, diagnose without installing anything:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_reezsynth.ps1 -CheckOnly
 ```
 
+Check-only verifies both engines, including FuouM's selected source revision,
+native imports, dependency consistency and RAFT/NeuFlow checkpoint checksums.
+It does not require compiler tools when checking existing binaries.
 The diagnostic reports the actual interpreter, package versions/imports, dependency
 conflicts, asset hashes, CUDA availability and EbSynth DLL loading. Its GUI smoke
 test uses offscreen Qt and temporary settings/directories. It does not load model
 weights or perform synthesis. Offscreen font/size-hint warnings are reported and
 are not, by themselves, a failed GUI construction test.
 
-Once the environment is available, the same check can run through the launcher:
+For older installations that have only the original engine, activate their
+working Python 3.11 environment and add the included FuouM component:
+
+```powershell
+conda activate reezsynth
+python -B setup_fuoum.py --preflight
+python -B setup_fuoum.py --neuflow
+```
+
+These component-install commands require an absent FuouM worker environment.
+Use `python -B setup_fuoum.py --check-only --neuflow` for an existing one.
+
+The original-engine check can also run through the launcher:
 
 ```powershell
 .\run_reezsynth.bat check_reezsynth.py --gui-smoke --cuda --native
@@ -129,13 +159,16 @@ confirmation. It does not silently fetch model checkpoints.
 
 The **Memory-efficient RAFT correlation (CUDA)** extension is included in the
 repository under `wheels/` and installed automatically by `setup_reezsynth.ps1`.
-No CUDA Toolkit, Visual Studio, or separate command is required for normal use.
+This wheel itself needs no compiler or separate build command. The included
+FuouM engine still requires the build prerequisites above for its first build.
 The bundled wheel is restricted to Windows x64, CPython 3.11, PyTorch
 2.11.0+cu128 and NVIDIA architectures 7.5, 8.0, 8.6, 8.9 or 12.0. The setup
 script installs it with a SHA-256 hash check, then verifies that it loads.
 
-Enable the Rendering checkbox after setup. If the GPU architecture is not in the
-wheel, the checkbox produces an explanatory error and normal RAFT remains
+Enable the Rendering checkbox after setup. Before use, a tiny kernel checks the
+actual loaded extension on the active GPU, once per worker/device. Compatible
+custom or PTX builds are accepted without a fixed architecture allow-list;
+unusable builds produce an explanatory rebuild error and normal RAFT remains
 available. The extension preserves input/output resolution but other render
 stages can still need more GPU memory.
 
@@ -155,7 +188,8 @@ python check_reezsynth_corr.py
 
 The helper selects the installed VS 2022 tools, checks the CUDA toolkit version,
 builds a wheel for the detected GPU architecture, then installs only that wheel
-into the current Python environment. Omit `--install` to build without installing.
+into the current Python environment and verifies a real correlation kernel.
+Omit `--install` to build without installing.
 Use `--arch 12.0` explicitly for RTX 5090. No admin rights or new Python packages
 are needed when the compilers are already installed. Rebuild after changing
 PyTorch, Python, CUDA or GPU architecture. The generated local build is not a

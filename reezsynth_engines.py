@@ -1,5 +1,6 @@
 """Engine identity, capability validation and process routing; no Qt/engine imports."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -90,6 +91,39 @@ def fuoum_checkpoint(options, source):
     return Path(source) / 'models/raft' / ('raft-' + options.get('fuoum_raft_model', options.get('flow_model', 'sintel')) + '.pth')
 
 
+def legacy_checkpoint(options, source):
+    root = Path(source) / 'ezsynth/utils/flow_utils'
+    architecture, model = options.get('flow_arch', 'RAFT'), options.get('flow_model', 'sintel')
+    if architecture == 'RAFT':
+        return root / 'models' / f'raft-{model}.pth'
+    if architecture == 'EF_RAFT':
+        return root / 'ef_raft_models' / f'{model}.pth'
+    if architecture == 'FLOW_DIFF':
+        return root / 'flow_diffusion_models/FlowDiffuser-things.pth'
+    raise ValueError('Unknown flow architecture.')
+
+
+def file_sha256(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def runtime_component(name):
+    """Locate/hash the actual loaded or importable binary without initializing it."""
+    module = sys.modules.get(name)
+    origin = getattr(module, '__file__', None)
+    if not origin:
+        try:
+            spec = importlib.util.find_spec(name)
+            origin = spec.origin if spec else None
+        except (ImportError, ValueError):
+            origin = None
+    if not origin or not Path(origin).is_file():
+        return dict(available=False)
+    path = Path(origin).resolve()
+    return dict(available=True, path=str(path), sha256=file_sha256(path))
+
+
 def preflight_flow(options, runtime):
     if options.get('engine', LEGACY) == LEGACY:
         from reezsynth_config import validate_flow_model_available
@@ -132,34 +166,46 @@ def write_engine_manifest(job):
     runtime = job.get('engine_runtime') or prepare_runtime({'engine': engine}, {})
     if runtime.get('engine') != engine:
         raise ValueError('Job engine and runtime do not match.')
+    from reezsynth_provenance import effective_settings
+    effective = effective_settings(job)
     source = Path(runtime['source'])
     files = list((source / 'ezsynth').rglob('*.py'))
     if engine == FUOUM:
         files += list((source / 'ebsynth_extension').glob('*')) + list(source.glob('ebsynth_torch*.pyd'))
     else:
         files += list((source / 'ezsynth/utils').glob('ebsynth.dll'))
-    hashes = {path.relative_to(source).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    hashes = {path.relative_to(source).as_posix(): file_sha256(path)
               for path in files if path.is_file()}
+    components = {}
+    if engine == FUOUM:
+        components['ebsynth_torch'] = runtime_component('ebsynth_torch')
     if job.get('type') != 'image_synthesis' and len(job.get('frames', [])) > 1:
         options = job.get('render_options', {})
         if engine == FUOUM:
             checkpoint = fuoum_checkpoint(options, source)
         else:
-            checkpoint = source / 'ezsynth/utils/flow_utils/models' / ('raft-' + options.get('flow_model', 'sintel') + '.pth')
+            checkpoint = legacy_checkpoint(options, source)
         if checkpoint.is_file():
-            hashes[checkpoint.relative_to(source).as_posix()] = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+            hashes[checkpoint.relative_to(source).as_posix()] = file_sha256(checkpoint)
+        if engine == LEGACY and options.get('memory_efficient_raft'):
+            components['alt_cuda_corr'] = runtime_component('alt_cuda_corr')
     import importlib.metadata
     versions = {}
-    for name in ('torch', 'torchvision', 'numpy', 'opencv-python', 'pydantic', 'scipy', 'einops', 'pyamg'):
+    for name in ('torch', 'torchvision', 'numpy', 'opencv-python', 'pydantic', 'scipy', 'einops', 'pyamg',
+                 'reezsynth-alt-cuda-corr', 'timm', 'cupy', 'cupy-cuda12x', 'cupy-cuda13x'):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             pass
     from reezsynth_config import atomic_json
-    manifest = dict(version=1, **runtime, source_sha256=hashes, package_versions=versions,
-                    adapter_sha256={name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
+    manifest = dict(version=2, **runtime, source_sha256=hashes, package_versions=versions,
+                    runtime_components=components, effective_settings=effective,
+                    adapter_sha256={name: file_sha256(ROOT / name)
                                     for name in ('reezsynth_jobs.py', 'reezsynth_image.py', 'reezsynth_fuoum.py',
-                                                 'reezsynth_fuoum_pipeline.py')},
+                                                 'reezsynth_fuoum_pipeline.py', 'reezsynth_raft.py',
+                                                 'reezsynth_engines.py', 'reezsynth_provenance.py',
+                                                 'reezsynth_config.py', 'reezsynth_video_plan.py',
+                                                 'reezsynth_artifacts.py', 'reezsynth_preview_transport.py')},
                     render_options=job.get('render_options', {}), guide_weights=job.get('guide_weights', {}),
                     blend_options=job.get('blend_options', {}))
     atomic_json(Path(job['output']) / 'engine_manifest.json', manifest)

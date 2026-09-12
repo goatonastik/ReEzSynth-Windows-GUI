@@ -194,7 +194,91 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('Plan only', result.stdout)
         self.assertIn('requirements-raft-extension.txt', result.stdout)
+        self.assertIn('setup_fuoum.py', result.stdout)
+        self.assertIn('--preflight', result.stdout)
+        self.assertIn('--neuflow', result.stdout)
         self.assertEqual(list(self.root.iterdir()), [self.root / 'setup_reezsynth.ps1'])
+
+
+@unittest.skipUnless(sys.platform == 'win32', 'Windows setup orchestration')
+class DualEngineSetupTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='reezsynth dual setup ')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        shutil.copy2(ROOT / 'setup_reezsynth.ps1', self.root)
+
+    def run_setup(self, *, check=False, fail_flag=''):
+        # Replace Conda at its process boundary; no actual environment/package install.
+        conda = self.root / 'fake conda.ps1'
+        conda.write_text('''$arguments = @($args | ForEach-Object { [string]$_ })
+$record = ConvertTo-Json -InputObject $arguments -Compress
+[IO.File]::AppendAllText((Join-Path $PSScriptRoot 'calls.jsonl'), $record + [Environment]::NewLine)
+$global:LASTEXITCODE = 0
+if ($arguments[0] -eq 'env') { Write-Output '{"envs":[]}' }
+if ('__FAIL_FLAG__' -and $arguments -contains '__FAIL_FLAG__') { $global:LASTEXITCODE = 9 }
+'''.replace('__FAIL_FLAG__', fail_flag), encoding='utf-8')
+        args = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                str(self.root / 'setup_reezsynth.ps1'), '-CondaExe', str(conda)]
+        if check:
+            args.append('-CheckOnly')
+        result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        calls = [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
+        return result, calls
+
+    def test_default_installs_both_and_only_then_writes_launcher_configuration(self):
+        result, calls = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        preflight = next(i for i, call in enumerate(calls) if '--preflight' in call)
+        packages = next(i for i, call in enumerate(calls) if 'pip' in call and 'install' in call)
+        fuoum = next(i for i, call in enumerate(calls) if '--neuflow' in call)
+        base_check = next(i for i, call in enumerate(calls) if '--gui-smoke' in call)
+        self.assertLess(preflight, packages)
+        self.assertLess(base_check, fuoum)
+        self.assertEqual(fuoum, len(calls) - 1)
+        self.assertIn('Both synthesis engines are installed and checked', result.stdout)
+        self.assertTrue((self.root / '.reezsynth-conda-path.txt').is_file())
+        self.assertTrue((self.root / '.reezsynth-env-name.txt').is_file())
+
+    def test_fuoum_failure_does_not_report_success_or_write_launcher_configuration(self):
+        result, calls = self.run_setup(fail_flag='--neuflow')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--neuflow', calls[-1])
+        self.assertNotIn('Both synthesis engines are installed and checked', result.stdout)
+        self.assertFalse(list(self.root.glob('.reezsynth-*.txt')))
+
+    def test_missing_prerequisites_stop_before_package_downloads(self):
+        result, calls = self.run_setup(fail_flag='--preflight')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--preflight', calls[-1])
+        self.assertFalse(any('pip' in call and 'install' in call for call in calls))
+        self.assertFalse(list(self.root.glob('.reezsynth-*.txt')))
+
+    def test_check_only_verifies_both_engines_without_installing(self):
+        result, calls = self.run_setup(check=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(calls), 2)
+        self.assertIn('--gui-smoke', calls[0])
+        self.assertIn('--check-only', calls[1])
+        self.assertIn('--neuflow', calls[1])
+        self.assertTrue(Path(calls[1][-3]).is_absolute())
+        self.assertFalse(list(self.root.glob('.reezsynth-*.txt')))
+
+    def test_check_only_rejects_an_incomplete_fuoum_installation(self):
+        result, calls = self.run_setup(check=True, fail_flag='--neuflow')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn('Both synthesis engines passed', result.stdout)
+
+    def test_existing_fuoum_environment_stops_before_creating_a_conda_environment(self):
+        existing = self.root / '.engine_envs/fuoum'
+        existing.mkdir(parents=True)
+        marker = existing / 'keep.txt'
+        marker.write_text('existing installation')
+        result, calls = self.run_setup()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [['env', 'list', '--json']])
+        self.assertEqual(marker.read_text(), 'existing installation')
 
 
 if __name__ == '__main__':

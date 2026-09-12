@@ -6,7 +6,20 @@ This computes RAFT's existing neighborhoods without retaining an all-pairs
 volume. Floating-point operation order differs from upstream CorrBlock.
 """
 from contextlib import contextmanager
+from functools import lru_cache
 import math
+
+
+@lru_cache(maxsize=8)
+def _verify_corr_kernel(extension, device):
+    """Probe the loaded build once per worker/device, including custom and PTX builds."""
+    import torch
+    with torch.cuda.device(device), torch.no_grad():
+        features = torch.ones((1, 1, 1, 32), device='cuda', dtype=torch.float32)
+        coords = torch.zeros((1, 1, 1, 1, 2), device='cuda', dtype=torch.float32)
+        result, = extension.forward(features, features, coords, 0)
+        if result.numel() != 1 or result.item() != 32.0:
+            raise RuntimeError('The correlation kernel returned an unexpected result.')
 
 
 def require_alt_cuda_corr():
@@ -21,14 +34,16 @@ def require_alt_cuda_corr():
         ) from exc
     if getattr(alt_cuda_corr, 'reezsynth_build', None) != '0.2.0':
         raise RuntimeError('Rebuild alt_cuda_corr using build_reezsynth_corr.py --install for the tested ReEzSynth interface.')
-    supported = {(7, 5), (8, 0), (8, 6), (8, 9), (12, 0)}
-    capability = torch.cuda.get_device_capability()
-    if capability not in supported:
-        formatted = '.'.join(map(str, capability))
-        raise RuntimeError(
-            f'Memory-efficient RAFT wheel does not include CUDA architecture {formatted}. '
-            'Use normal RAFT, or rebuild with build_reezsynth_corr.py --install.'
-        )
+    if not torch.cuda.is_available():
+        raise RuntimeError('Memory-efficient RAFT correlation requires CUDA.')
+    device = torch.cuda.current_device()
+    try:
+        _verify_corr_kernel(alt_cuda_corr, device)
+    except RuntimeError as exc:
+        formatted = '.'.join(map(str, torch.cuda.get_device_capability(device)))
+        raise RuntimeError(f'The installed memory-efficient RAFT kernel failed on CUDA architecture {formatted}. '
+                           'Use normal RAFT, or rebuild with build_reezsynth_corr.py --install. '
+                           f'Kernel check: {exc}') from exc
     return alt_cuda_corr
 
 

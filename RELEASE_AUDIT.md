@@ -5,9 +5,11 @@ it is not blanket legal clearance to redistribute all files in this checkout.
 
 ## Packaging decision
 
-Keep the Windows GUI/original engine installation as the base. Install FuouM as
-an optional, separately pinned source checkout and worker venv using
-`setup_fuoum.py`. Do not combine both `ezsynth` packages in one Python process.
+Standard Windows setup installs both engines. FuouM is included through a
+separately pinned source checkout and worker venv using `setup_fuoum.py`, with
+RAFT and checksum-verified NeuFlow checkpoints. Check-only verifies both engines;
+setup does not report success or save launcher configuration if either fails.
+Do not combine both `ezsynth` packages in one Python process.
 The worker venv inherits the base CUDA/PyTorch environment: it is not portable.
 Build native extensions for the target Python/PyTorch/CUDA/GPU combination.
 Do not bundle the development venvs or an architecture-specific build as a
@@ -26,7 +28,7 @@ clean-machine or CPU-only test.
 | Frontend/adapter source, maintained regressions, documented diagnostics | Keep; diagnostics help users validate their own GPU/install. |
 | Requirements, build/setup scripts, compatibility patch, licenses/notices | Keep with source distribution. |
 | `engine_sources/`, `.engine_envs/`, `diagnostic_outputs/`, generated renders, secrets, caches, logs | Already ignored; never stage or distribute them. |
-| `ReEzSynth-source-bundle.txt`, `examples/gui_keyframes_v03.backup-20260908-184704697` | Historical tracked developer material; preserved locally/history, excluded from source archives by `.gitattributes`. |
+| `ReEzSynth-source-bundle.txt`, `examples/gui_keyframes_v03.backup-20260908-184704697`, root `reezsynth_gui_v02.py`, `reezsynth_gui_v03.txt`, `reezsynth_gui_v031.txt`, `reezsynth_gui_v04.py` | Developer snapshots untracked and ignored after dependency review. Useful local copies and Git history are preserved; new commits/clones no longer include them. |
 | Three tracked RAFT checkpoints (`sintel`, `kitti`, `small`) | Existing tracked exceptions despite `*.pth` ignore. Required GUI hashes cover Sintel/Kitti; `small` is not a GUI choice. Do not assume the ignore rule removes them from a commit/archive. Preserve the working installation; resolve distribution provenance before publishing. |
 | `ezsynth/utils/ebsynth.dll` and compiled RAFT wheel | Existing runtime assets. Hashes detect changes; they do not prove source correspondence or redistribution clearance. |
 | Sample photographs, paintings, masks and image-guide assets | Existing tracked examples, not generated test output. Audit their individual sources/permissions before including a public release. |

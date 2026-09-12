@@ -8,9 +8,10 @@ image sequence and styled keyframes, configure frame ranges, queue renders,
 and monitor progress without manually preparing each rendering job.
 
 Rendering now includes a **Synthesis engine** selector for Trentonom0r3/Ezsynth
-and FuouM/ReEzSynth. The original engine remains the default. The optional FuouM
-engine uses a separate Python runtime and supports image synthesis, RAFT/NeuFlow
-video, masks/custom guides, exports, and grouped blending or directional passes.
+and FuouM/ReEzSynth. Standard setup installs both engines. The original engine
+remains the initial selection. FuouM uses a separate Python runtime and supports
+image synthesis, RAFT/NeuFlow video, masks/custom guides, exports, and grouped
+blending or directional passes.
 Engine-specific controls are labelled and greyed out when inapplicable. See
 [dual-engine setup and capabilities](DUAL_ENGINE.md), the
 [remaining-work checklist](WORK_REMAINING.md), and [release gates](RELEASE_AUDIT.md).
@@ -36,8 +37,10 @@ change as rendering, queue management, and resource handling are refined.
 ## Using the interface
 
 For a new machine, follow [Windows setup](INSTALL_WINDOWS.md). The setup script
-creates a dedicated environment, installs pinned dependencies, and checks GUI,
-CUDA and native-library availability without rendering.
+creates the GUI environment and the separate FuouM worker environment, installs
+pinned dependencies and FuouM's RAFT/NeuFlow checkpoints, and checks both engines
+without rendering. A fresh FuouM build requires Git, the CUDA 12.8 toolkit and
+Visual Studio 2022 C++ build tools; setup checks these before large package downloads.
 
 Launch `run_reezsynth.bat` with the existing `reezsynth` Conda environment.
 The entry point is `reezsynth_gui.py`.
@@ -82,8 +85,12 @@ from every tab, including while a worker is running.
   completed job in `reezsynth-session.log` into a new sibling output folder and
   invokes `reezsynth_jobs.py job.json` in a fresh process. The resulting
   `cli-benchmark.log` contains the same render timing lines, an automatic
-  per-frame summary, and a direct CLI wall time. You may instead pass an explicit
-    job JSON path to the batch file. Existing outputs are never overwritten.
+  engine-specific summary, and a direct CLI wall time. FuouM call times include
+  preview/progress work and exclude precomputation, grouped reconstruction and
+  output saving; they are not isolated native-kernel timings. A successful exit
+  and `COMPLETE.txt` establish completion, not the presence of timing lines.
+  You may instead pass an explicit job JSON path to the batch file. Existing
+  outputs are never overwritten.
 
 Projects and shareable preset libraries may also be saved or imported as `.yaml`
 or `.yml`. JSON remains the default. YAML uses PyYAML safe loading and the same
@@ -263,7 +270,7 @@ continues while the popup is visible. No automatic resizing or retry occurs.
 Run these explicit modules in the existing environment, without real GPU renders:
 
 ```powershell
-python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations test_reezsynth_image test_reezsynth_setup test_reezsynth_polish test_reezsynth_preview test_reezsynth_raft test_reezsynth_cli_benchmark test_reezsynth_serialization test_reezsynth_engines -v
+python -B -m unittest discover -p "test_reezsynth_*.py" -v
 ```
 
 Tests isolate settings/files, use offscreen Qt, mock workers and a fake engine,
@@ -366,7 +373,7 @@ Its reworked pipeline credits **FuouM**; related earlier work is available at
 
 ### ReEzSynth — FuouM
 
-[FuouM/ReEzSynth](https://github.com/FuouM/ReEzSynth) supplies the optional
+[FuouM/ReEzSynth](https://github.com/FuouM/ReEzSynth) supplies the included
 PyTorch/CUDA synthesis engine. It is a separate project from the original
 Ezsynth pipeline and this Windows GUI. The supported revision, local build
 compatibility patch and adapter limits are documented in DUAL_ENGINE.md.

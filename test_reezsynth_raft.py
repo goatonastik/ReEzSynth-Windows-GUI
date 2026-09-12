@@ -1,4 +1,7 @@
 """CPU numerical comparison; no pretrained models, CUDA or rendering."""
+from contextlib import nullcontext
+import sys
+import types
 import unittest
 from unittest.mock import patch
 from reezsynth_raft import CompiledCorrBlock, MemoryEfficientCorrBlock, correlation_mode, require_alt_cuda_corr
@@ -64,6 +67,56 @@ class CorrelationTests(unittest.TestCase):
         import sys
         with patch.dict(sys.modules, {'alt_cuda_corr': None}), self.assertRaisesRegex(RuntimeError, 'No slow fallback'):
             require_alt_cuda_corr()
+
+
+class ExtensionReadinessTests(unittest.TestCase):
+    def test_custom_architecture_is_accepted_when_kernel_works(self):
+        cuda = types.SimpleNamespace(is_available=lambda: True, current_device=lambda: 2,
+                                     get_device_capability=lambda *args: (9, 0))
+        extension = types.ModuleType('alt_cuda_corr')
+        extension.reezsynth_build = '0.2.0'
+        with patch.dict(sys.modules, {'torch': types.SimpleNamespace(cuda=cuda), 'alt_cuda_corr': extension}), \
+                patch('reezsynth_raft._verify_corr_kernel') as probe:
+            self.assertIs(require_alt_cuda_corr(), extension)
+        probe.assert_called_once_with(extension, 2)
+
+    def test_supported_architecture_with_unusable_binary_is_rejected(self):
+        cuda = types.SimpleNamespace(is_available=lambda: True, current_device=lambda: 0,
+                                     get_device_capability=lambda *args: (12, 0))
+        extension = types.ModuleType('alt_cuda_corr')
+        extension.reezsynth_build = '0.2.0'
+        with patch.dict(sys.modules, {'torch': types.SimpleNamespace(cuda=cuda), 'alt_cuda_corr': extension}), \
+                patch('reezsynth_raft._verify_corr_kernel', side_effect=RuntimeError('no kernel image')):
+            with self.assertRaisesRegex(RuntimeError, '12.0.*no kernel image'):
+                require_alt_cuda_corr()
+
+    def test_probe_is_cached_per_module_and_device(self):
+        from reezsynth_raft import _verify_corr_kernel
+        _verify_corr_kernel.cache_clear()
+        self.addCleanup(_verify_corr_kernel.cache_clear)
+        calls = []
+        extension = types.ModuleType('alt_cuda_corr')
+        result = types.SimpleNamespace(numel=lambda: 1, item=lambda: 32.0)
+        extension.forward = lambda *args: (calls.append(args) or result,)
+        fake_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(device=lambda *args: nullcontext()),
+            no_grad=nullcontext, float32='float32', ones=lambda *args, **kwargs: 'features',
+            zeros=lambda *args, **kwargs: 'coords')
+        with patch.dict(sys.modules, {'torch': fake_torch}):
+            _verify_corr_kernel(extension, 0)
+            _verify_corr_kernel(extension, 0)
+            _verify_corr_kernel(extension, 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], ('features', 'features', 'coords', 0))
+
+    def test_windows_build_environment_merges_path_case_insensitively(self):
+        from build_reezsynth_corr import build_environment
+        result = build_environment({'PATH': 'old', 'Path': 'duplicate', 'Keep': 'value'},
+            'Path=C:\\compiler;C:\\tools\nINCLUDE=a=b\n', '9.0;12.0+PTX', 'C:\\CUDA')
+        self.assertEqual(result['PATH'], 'C:\\compiler;C:\\tools')
+        self.assertEqual(sum(key.lower() == 'path' for key in result), 1)
+        self.assertEqual(result['KEEP'], 'value')
+        self.assertEqual(result['INCLUDE'], 'a=b')
+        self.assertEqual(result['TORCH_CUDA_ARCH_LIST'], '9.0;12.0+PTX')
 
 
 if __name__ == '__main__':
