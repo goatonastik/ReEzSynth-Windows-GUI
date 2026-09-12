@@ -5,6 +5,14 @@ in [README.md](README.md).
 
 ## Local review fixes verified (2026-09-12)
 
+- Legacy CPU and Auto were validated through real frontend jobs in separate
+  CUDA-hidden workers. Each completed 256x144 image synthesis and a two-frame
+  video; video logs confirmed CPU optical flow. Finite output/error data, exact
+  shapes, completion, requested backend provenance and clean worker exits passed.
+  CPU took 4.761 seconds and Auto 4.724 seconds for their two-job workers. Results:
+  `diagnostic_outputs/backend_20260912_140820_787666`. Different output hashes are
+  acceptable because the native patch search is not asserted deterministic.
+  This does not replace a CPU-only installation/portability test.
 - Implementation committed as `d66ad6a`. The requested ChatGPT review handoff
   was refreshed at `Z:\temp\reezsynth_frontend_handoff_d66ad6a`: 48 copied files
   plus a manifest, all source copies hash-verified. The older snapshot is intact.

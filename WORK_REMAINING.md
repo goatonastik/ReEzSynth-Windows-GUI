@@ -74,11 +74,13 @@ installed as part of the standard application setup, not as an optional engine.
 
 ## Validation still needed
 
-- [ ] Validate real legacy CPU/Auto image and video output. Existing coverage
-  checks adapter behavior with mocks. Initial native CPU and CUDA-hidden CPU-flow
-  checks can be performed on this host in isolated processes; separate CPU-only
-  hardware is not required to start that work. A CPU-only installation remains
-  a separate portability check if CPU support is to be advertised.
+- [x] Validate real legacy CPU/Auto image and video output. Both backends completed
+  a 256x144 image-synthesis job and two-frame video job in separate CUDA-hidden
+  workers. Logs confirmed CPU optical flow; output/error shapes and values,
+  completion markers, effective backend/engine provenance and worker exits passed.
+  Retained report: `diagnostic_outputs/backend_20260912_140820_787666`.
+  This is same-host functional evidence; a CPU-only installation remains a
+  separate portability check before broadly advertising hardware compatibility.
 - [ ] Review representative production clips/styles in both engines at the
   intended Standard/Highest settings. Include playback around styled-keyframe
   boundaries, occlusion, fast motion, fine detail and feathered masks. The recent

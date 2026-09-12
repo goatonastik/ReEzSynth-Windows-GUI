@@ -138,8 +138,16 @@ CuPy GPU blending is optional and off by default. It is not part of this baselin
 install. The EbSynth backend control offers CUDA, Auto and CPU; video optical flow
 can still use PyTorch CUDA, so CPU EbSynth is not a complete CPU-only video mode.
 If PyTorch CUDA is unavailable, CPU/Auto permits CPU optical flow with Classic
-edges and GPU blending/correlation disabled. Native CPU/Auto rendering still needs
-validation on actual installations.
+edges and GPU blending/correlation disabled. To check both native backends and CPU
+optical flow through real frontend jobs, run:
+
+```powershell
+python -B diagnose_ebsynth_backend.py both
+```
+
+This starts separate CUDA-hidden workers and validates image/video outputs,
+completion and backend provenance. It passed locally on the bundled samples.
+A CPU-only installation remains a separate portability test.
 The Rendering tab includes the upstream EF-RAFT and FlowDiffuser architecture
 choices, but they are not part of the default installation. Before selecting one,
 run `check_reezsynth.py --flow-extras`; the queue repeats the same preflight before

@@ -1,78 +1,131 @@
+"""Opt-in real Legacy CPU/Auto frontend checks with CUDA hidden from each worker."""
+import argparse
+from datetime import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
 import sys
 import time
-from pathlib import Path
 
 import cv2
 import numpy as np
 
-from ezsynth.utils._ebsynth import ebsynth
+from reezsynth_config import PREVIEW, atomic_json, validate_render
+from reezsynth_engines import LEGACY, LEGACY_REVISION, ROOT
 
 
-def main() -> int:
-    backend = sys.argv[1].lower() if len(sys.argv) > 1 else "cpu"
+def make_jobs(base, backend):
+    options = validate_render(dict(PREVIEW, engine=LEGACY, ebsynth_backend=backend,
+                                   edge_method='Classic', memory_efficient_raft=False))
+    runtime = dict(engine=LEGACY, revision=LEGACY_REVISION,
+                   source=str(ROOT), python=sys.executable)
+    jobs = []
+    for kind in ('image', 'video'):
+        output = base / backend / kind
+        output.mkdir(parents=True)
+        job = dict(output=str(output), quality='Preview', processing_size=[256, 144],
+                   render_options=options, engine_runtime=runtime)
+        if kind == 'image':
+            example = ROOT / 'examples/texbynum'
+            job.update(type='image_synthesis', image_synthesis=dict(
+                style=str(example / 'source_photo.png'),
+                source=str(example / 'source_segment.png'),
+                target=str(example / 'target_segment.png')))
+        else:
+            job.update(key=100, style=str(ROOT / 'examples/styles/style000.jpg'), padding=3,
+                       frames=[[100 + index, str(ROOT / 'examples/input' / f'{index:03d}.jpg')]
+                               for index in range(2)])
+        atomic_json(output / 'job.json', job)
+        jobs.append((kind, job))
+    return jobs
 
-    if backend not in {"cpu", "cuda", "auto"}:
-        print("Usage: python diagnose_ebsynth_backend.py [cpu|cuda|auto]")
-        return 2
 
-    root = Path(__file__).resolve().parent
-    example = root / "examples" / "texbynum"
+def sha256(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
 
-    style = cv2.imread(str(example / "source_photo.png"))
-    source_guide = cv2.imread(str(example / "source_segment.png"))
-    target_guide = cv2.imread(str(example / "target_segment.png"))
 
-    if any(image is None for image in (style, source_guide, target_guide)):
-        raise FileNotFoundError("Could not read the texbynum example images.")
+def verify(kind, job, backend):
+    output = Path(job['output'])
+    if not (output / 'COMPLETE.txt').is_file():
+        raise RuntimeError(f'{backend}/{kind}: missing completion marker')
+    manifest = json.loads((output / 'engine_manifest.json').read_text(encoding='utf-8'))
+    if (manifest.get('engine') != LEGACY or manifest.get('revision') != LEGACY_REVISION or
+            manifest.get('effective_settings', {}).get('render_options', {}).get('ebsynth_backend') != backend):
+        raise RuntimeError(f'{backend}/{kind}: incorrect engine/effective backend provenance')
+    names = ['image.png'] if kind == 'image' else ['100.png', '101.png']
+    hashes = {}
+    for name in names:
+        path = output / name
+        image = cv2.imread(str(path))
+        if image is None or image.shape != (144, 256, 3) or not np.isfinite(image).all() or image.std() == 0:
+            raise RuntimeError(f'{backend}/{kind}: invalid output {path}')
+        hashes[name] = sha256(path)
+    if kind == 'image':
+        error = np.load(output / 'error.npy', allow_pickle=False)
+        image_manifest = json.loads((output / 'image_manifest.json').read_text(encoding='utf-8'))
+        if (error.shape != (144, 256) or not np.isfinite(error).all() or
+                image_manifest.get('backend') != backend or image_manifest.get('engine') != LEGACY):
+            raise RuntimeError(f'{backend}/{kind}: invalid image error/backend metadata')
+    return hashes
 
-    engine = ebsynth(
-        uniformity=1000.0,
-        patchsize=3,
-        pyramidlevels=3,
-        searchvoteiters=2,
-        patchmatchiters=2,
-        extrapass3x3=False,
-        backend=backend,
-    )
 
-    engine.runner.initialize_libebsynth()
-
-    print(f"Requested backend: {backend}")
-    print(f"Style dimensions: {style.shape}")
-    print(f"Target dimensions: {target_guide.shape}")
-
+def run_backend(base, backend, allow_cuda=False):
+    jobs = make_jobs(base, backend)
+    commands = ''.join(json.dumps(dict(action='run', job=str(Path(job['output']) / 'job.json'))) + '\n'
+                       for _, job in jobs) + '{"action":"quit"}\n'
+    environment = dict(os.environ)
+    if not allow_cuda:
+        # Set before torch or the native CUDA runtime is imported in the worker.
+        environment['CUDA_VISIBLE_DEVICES'] = '-1'
     started = time.perf_counter()
-
-    output, error = engine.run(
-        style,
-        guides=[
-            (source_guide, target_guide, 1.0),
-        ],
-    )
-
+    process = subprocess.run([sys.executable, '-B', '-X', 'utf8', '-u',
+                              str(ROOT / 'reezsynth_shared_worker.py')],
+                             input=commands, capture_output=True, text=True,
+                             encoding='utf-8', errors='replace', cwd=ROOT,
+                             env=environment, timeout=600)
     elapsed = time.perf_counter() - started
+    log = process.stdout + '\n' + process.stderr
+    backend_root = base / backend
+    (backend_root / 'worker.log').write_text(log, encoding='utf-8')
+    if process.returncode or log.count('"event": "job_done"') != len(jobs):
+        raise RuntimeError(f'{backend} worker failed; see {backend_root / "worker.log"}')
+    if not allow_cuda and log.count('Optical flow device: CPU') != 1:
+        raise RuntimeError(f'{backend}: video did not confirm CPU optical flow')
+    hashes = {kind: verify(kind, job, backend) for kind, job in jobs}
+    return dict(backend=backend, cuda_hidden=not allow_cuda, seconds=elapsed,
+                jobs=len(jobs), output_hashes=hashes)
 
-    output_path = root / f"diagnostic_{backend}.png"
-    error_path = root / f"diagnostic_{backend}_error.png"
 
-    cv2.imwrite(str(output_path), output)
-
-    error_normalized = cv2.normalize(
-        error,
-        None,
-        0,
-        255,
-        cv2.NORM_MINMAX,
-    ).astype(np.uint8)
-
-    cv2.imwrite(str(error_path), error_normalized)
-
-    print(f"Completed in {elapsed:.3f} seconds")
-    print(f"Output: {output_path}")
-    print(f"Error map: {error_path}")
-
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('backend', nargs='?', choices=('cpu', 'auto', 'cuda', 'both'), default='both')
+    parser.add_argument('--allow-cuda', action='store_true',
+                        help='Expose CUDA to workers (required for the explicit cuda backend).')
+    args = parser.parse_args(argv)
+    if args.backend == 'cuda' and not args.allow_cuda:
+        parser.error('the cuda backend requires --allow-cuda')
+    selected = ('cpu', 'auto') if args.backend == 'both' else (args.backend,)
+    base = ROOT / 'diagnostic_outputs' / ('backend_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    base.mkdir(parents=True)
+    report = dict(interpreter=sys.executable, cases=[], output=str(base), passed=False)
+    try:
+        for backend in selected:
+            case = run_backend(base, backend, allow_cuda=args.allow_cuda)
+            report['cases'].append(case)
+            atomic_json(base / 'report.json', report)
+            print(json.dumps(case, indent=2), flush=True)
+        report['passed'] = True
+        atomic_json(base / 'report.json', report)
+    except Exception as exc:
+        report['error'] = str(exc)
+        atomic_json(base / 'report.json', report)
+        raise
+    print(f'PASS: {len(selected)} backend(s), real image/video outputs, CPU flow and provenance. {base}')
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())

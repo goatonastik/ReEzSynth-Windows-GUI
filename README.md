@@ -148,8 +148,10 @@ to that architecture. EbSynth backend defaults to CUDA; Auto lets the native lib
 CPU avoids its CUDA synthesis backend. Video optical flow can still use PyTorch
 CUDA when it is available, so CPU EbSynth is not a complete CPU-only video mode.
 When PyTorch CUDA is unavailable, CPU/Auto jobs can proceed with CPU optical flow,
-Classic edges, GPU blending off and memory-efficient CUDA correlation off. These
-adapter paths are mock-tested; real native CPU/Auto output still needs validation.
+Classic edges, GPU blending off and memory-efficient CUDA correlation off.
+`diagnose_ebsynth_backend.py` performs bounded real image/video frontend checks in
+fresh CUDA-hidden workers. CPU and Auto passed locally on the bundled samples; this
+is same-host functional evidence, not CPU-only installation portability coverage.
 Single-frame keyframe copies require no flow weights or GPU initialization.
 
 Settings > **Optional flow components** displays each optional model's readiness.
