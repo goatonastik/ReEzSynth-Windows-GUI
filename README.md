@@ -9,9 +9,11 @@ and monitor progress without manually preparing each rendering job.
 
 Rendering now includes a **Synthesis engine** selector for Trentonom0r3/Ezsynth
 and FuouM/ReEzSynth. The original engine remains the default. The optional FuouM
-engine uses a separate Python runtime and supports image synthesis, RAFT video
-and normal grouped blending. See [dual-engine setup and capabilities](DUAL_ENGINE.md)
-and the [remaining-work checklist](WORK_REMAINING.md).
+engine uses a separate Python runtime and supports image synthesis, RAFT/NeuFlow
+video, masks/custom guides, exports, and grouped blending or directional passes.
+Engine-specific controls are labelled and greyed out when inapplicable. See
+[dual-engine setup and capabilities](DUAL_ENGINE.md), the
+[remaining-work checklist](WORK_REMAINING.md), and [release gates](RELEASE_AUDIT.md).
 
 ## Project goals
 

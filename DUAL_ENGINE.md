@@ -12,16 +12,25 @@ cancellation and restart use the same frontend lifecycle. The CLI benchmark uses
 the Python executable recorded in the job.
 
 FuouM's current adapter supports RAFT Sintel/Kitti, Classic/PST/PAGE edges,
-LSQR/LSMR grouped reconstruction, automatic pyramid depth, and its temporal NNF
-propagation and sparse feature guides. The latter two are enabled by default for
-FuouM and appear only when that engine is selected.
+automatic pyramid depth, temporal NNF propagation and sparse feature guides. Its
+engine-specific controls expose weighted/plain voting, SSD/NCC patch cost,
+early-stop and search-pruning thresholds, sparse-guide weight, plus LSQR, LSMR,
+CG, AMG, seamless or disabled grouped reconstruction and its luminance/chroma
+gradient weights. The temporal and sparse options are enabled by default and all
+FuouM-only controls are enabled only when that engine is selected. AMG additionally
+requires `pyamg` in the FuouM environment.
 
-Video masks, custom edge sequences, video auxiliary exports, grouped forward-only
-or reverse-only modes, CuPy blending, EF-RAFT/FlowDiffuser and the legacy compiled
-RAFT correlation option are not yet mapped to FuouM. Incompatible requests fail
-before queue outputs are created. Existing saved values are preserved, so selected
-incompatible controls stay editable until cleared. Image jobs ignore video-only
-settings. CUDA is the supported FuouM synthesis backend in this integration.
+Both engines now support masks, optional premasking/feathered compositing, mask
+guides, custom edge sequences, auxiliary exports, and grouped forward-only or
+reverse-only rendering. FuouM additionally supports NeuFlow v2 with Sintel, Mixed
+and Things checkpoints. Its RAFT checkpoint is stored separately from the legacy
+flow model, so switching engines or flow algorithms preserves both selections.
+
+CuPy blending, EF-RAFT/FlowDiffuser and compiled memory-efficient RAFT remain
+Trentonom0r3-only. Inapplicable controls are greyed out and labelled by engine.
+Saved values are retained but excluded from effective FuouM jobs. Direct CLI jobs
+that explicitly request incompatible capabilities are rejected. Image jobs ignore
+video-only settings. CUDA is the supported FuouM synthesis backend.
 
 ## Source and runtime isolation
 
@@ -48,6 +57,25 @@ revision use the selected engine's current supported baseline.
 ## Setup on another Windows machine
 
 First complete the normal GUI setup and activate its Python 3.11 environment.
+The guarded installer is the recommended entry point:
+
+```powershell
+python -B setup_fuoum.py --plan --neuflow
+python -B setup_fuoum.py --neuflow
+python -B setup_fuoum.py --check-only --neuflow
+```
+
+`--neuflow` explicitly enables download/checking of three official, revision-pinned,
+SHA-256-verified checkpoints. Without it only existing local RAFT checkpoints are
+copied. Existing environments and changed checkpoints are never overwritten.
+Existing native binaries are reused and import-checked; rebuild explicitly with
+`build_fuoum_engine.py` only after stopping render workers. Custom paths are
+available through `--source` and `--venv`. Failed installations are retained for
+inspection; `--check-only` does not repair them. A fresh source/environment install
+passed on the development host; another-machine validation is still required.
+
+Manual equivalent (without the optional NeuFlow download):
+
 The following commands create a worker virtual environment which reuses that
 environment's PyTorch and other installed packages. FuouM's NumPy/OpenCV overrides
 are installed only into the new virtual environment. It remains dependent on the
@@ -90,6 +118,31 @@ The normal setup script still installs only the original engine.
 
 ## Validation
 
+The adapter aligns forward/reverse errors by target frame before blending and
+preserves every supplied styled keyframe exactly before optional masking. Its
+Poisson gradient matrix has explicit zero right/bottom boundaries, and histogram
+normalization handles flat-color styles. These are frontend corrections to the
+pinned FuouM pipeline, not claims of identical upstream output. Reverse warping
+still follows the pinned engine's negative-forward-flow approximation.
+
+FuouM auxiliary maps are raw per-pass synthesis errors, before keyframe preservation,
+blending and compositing. Each record names its error frame and pass direction.
+Legacy grouped exports retain their existing offset-error selection-mask semantics.
+Flow exports in both engines are color visualizations, not numerical vector fields.
+Do not compare differently scoped error maps as a common quality score.
+
+`diagnose_reezsynth_release.py` exercises repeated real sequence jobs with
+`--engine legacy|fuoum`, `--frames`, `--repeats`, `--extended`,
+`--style poster|painting|flat`, `--images`, and `--size WIDTH HEIGHT`.
+It checks exact FuouM keyframes, unmasked backgrounds, finite auxiliary arrays,
+retargeted image dimensions, orderly shared-worker exit, and records process-tree
+RSS and sampled aggregate GPU memory. Adjacent-frame differences include motion;
+they are not flicker scores or proof of general visual parity.
+
+`diagnose_reezsynth_gui.py --fuoum --parallel --frames 60 --cycles 3` repeats real
+GUI lifecycle checks. Substitute `--cancel-restart` or `--close` for those paths.
+
+
 `diagnose_reezsynth_engines.py` runs real image, video and grouped jobs through one
 persistent worker, checks output dimensions/content, lossless image error maps,
 original numbering, previews, attribution and orderly exit. It records logs and
@@ -107,5 +160,6 @@ python -B diagnose_reezsynth_engines.py --engine legacy --memory-efficient --fou
 ```
 
 This is a short, three-frame test with Preview settings, not a long-production
-benchmark. Broader visual quality, long-sequence stability, other GPUs and the
-unsupported FuouM capabilities remain on WORK_REMAINING.md.
+benchmark. Repeated local checks are recorded in PROJECT_STATUS.md. Broader visual
+acceptance, other GPUs, optional legacy components and release gates remain on
+WORK_REMAINING.md; current deliberate capability limits are described above.

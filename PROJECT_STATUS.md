@@ -3,6 +3,78 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## High-reasoning follow-through (2026-09-12)
+
+Current checklist: [WORK_REMAINING.md](WORK_REMAINING.md). This section supersedes
+older limitations/results below without deleting the historical record.
+
+- Added FuouM masks/custom guides/exports/directional modes/NeuFlow and independent
+  engine checkpoint controls. Saved disabled settings stay saved but are normalized
+  out of effective jobs. Older LSMR presets retain LSMR rather than silently moving
+  to LSQR. Effective solver/guide options and pyamg/einops versions enter manifests.
+- Fixed two numerical/indexing bugs: forward/reverse synthesis errors must refer
+  to the same output frame, and horizontal Poisson differences must not wrap rows.
+  Supplied styled keyframes are retained before optional mask compositing; flat
+  style histogram normalization is guarded against zero standard deviation.
+- Fixed `git apply --unidiff-zero` and case-insensitive Windows Path/PATH handling
+  in the build helper. A new upstream sparse checkout plus new worker venv at
+  `diagnostic_outputs/install_verify_20260912/` passed dependency installation,
+  pinned checkpoint downloads/checksums, full native compilation and import checks.
+  This was a same-host install, not a clean-machine certification.
+- Final full suite: **197 tests passed in 26.871 seconds**. Includes installer no-write
+  plan/no-overwrite/checksum/patch tests, engine state/preset checks, and mathematical
+  frame/gradient regressions. Original setup tests are preserved in their own file.
+- Real FuouM settings run: `release_fuoum_20260912_112014_540827`, **42 jobs x 33
+  frames** across three repeats. Includes every Poisson solver, SSD/NCC, masks,
+  exports, directions and three NeuFlow checkpoints. Process-tree RSS settled
+  around 1,753–1,790 MiB after warm-up; aggregate GPU memory before/after worker
+  exit was 2,456/2,397 MiB. This is bounded plateau evidence, not proof of no leak.
+- Painted comparison: `release_legacy_20260912_112513_463272` (18 video jobs x 33
+  frames plus three retargeted images) and `release_fuoum_20260912_112731_611609`
+  (six video jobs x 33 frames plus three retargeted images), at 384x216 video.
+  All passed. Sampled aggregate GPU peaks: 3,276 MiB legacy / 3,140 MiB FuouM;
+  before/after: 2,476/2,523 and 2,524/2,441 MiB respectively. Other desktop GPU
+  users are included; these are not comparable isolated allocation benchmarks.
+- Original versus compiled RAFT output mean absolute difference averaged 0.364
+  byte levels (maximum per-frame mean 0.525) over the first 33-frame painted video
+  pair. Native synthesis is nondeterministic: this is a descriptive output
+  comparison, not a flow ground-truth accuracy test.
+- Inspected `comparison.png` in the painted FuouM run at frames 105,106,107,110,111.
+  Both retained the intended painted appearance in these samples; no obvious
+  boundary break was seen. Temporal playback/user footage still needs artistic
+  acceptance; adjacent-frame differences include real motion and are not flicker scores.
+- Flat-color FuouM matrix: `release_fuoum_20260912_113146_066804`, 14 jobs x 11
+  frames, all finite/valid across the solver and flow-model paths.
+- Odd-sized FuouM matrix: `release_fuoum_20260912_113537_625894`, **19 jobs x 11
+  frames at 257x145**. Also covers NeuFlow padding/cropping, PST/PAGE, RAFT Kitti,
+  disabled temporal/sparse guides, and feathered masks without premasking. All passed.
+- Higher-resolution FuouM check: `release_fuoum_20260912_113855_626280`, independent
+  and grouped five-frame jobs at **1280x720**. Both passed; sampled aggregate GPU
+  peak 5,198 MiB, before/after worker exit 2,477/2,477 MiB.
+- Fresh-install render validation: `engines_fuoum_20260912_113708_726873` used the
+  new source and new Python interpreter under `install_verify_20260912`, not the
+  default installed engine. Image/video/grouped outputs, numbering, live previews,
+  provenance and orderly shared-worker exit passed in 5.983 seconds.
+- FuouM real GUI checks: three 60-frame parallel cycles, then three cancel/restart
+  and three close cycles. Cancellation/close checks were strengthened and repeated
+  to wait for a completed native synthesis call, not merely a stage label. Final
+  runs begin at `gui_controller_20260912_113256_757423` through the close cycle at
+  `gui_controller_20260912_113429_848927`. No stopped-job completion marker or
+  retained controller worker; completed restart/parallel jobs produced outputs.
+- Original-engine GUI validation also passed two 60-frame cycles each of parallel,
+  cancel/restart and close, from `gui_controller_20260912_113748_717075` through
+  `gui_controller_20260912_113850_256013`. Cancellation waited for a native result.
+- Deleted only the redundant `.engine_envs/fuoum_install_check` environment created
+  during installer debugging. It can be recreated; working engines and the final
+  fresh-install evidence remain untouched and ignored.
+- Runtime environments, checkpoints downloaded for diagnostics, generated renders
+  and logs remain ignored. `.gitattributes` archive exclusions were tested in
+  memory with `git archive --worktree-attributes`: developer snapshot/backup absent,
+  frontend source and base license retained. No public release was made.
+
+See [RELEASE_AUDIT.md](RELEASE_AUDIT.md) for asset/license findings, the optional
+engine installation architecture, and the unresolved external release gates.
+
 ## Dual-engine integration and highest-risk validation (2026-09-12)
 
 The current completion checklist is [WORK_REMAINING.md](WORK_REMAINING.md).

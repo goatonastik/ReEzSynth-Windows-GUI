@@ -3,6 +3,8 @@
 This guide installs the original Trentonom0r3/Ezsynth engine. To add the optional
 FuouM/ReEzSynth runtime and native extension, follow [DUAL_ENGINE.md](DUAL_ENGINE.md)
 after completing this setup.
+The optional helper supports `python -B setup_fuoum.py --plan --neuflow` and
+`--check-only`; it does not overwrite an existing worker environment.
 
 ReEzSynth uses its own Conda environment. Do not install its packages into base
 Conda, ComfyUI, or another application's environment. The setup below targets

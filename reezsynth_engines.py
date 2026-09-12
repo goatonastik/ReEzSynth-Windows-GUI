@@ -72,16 +72,11 @@ def validate_capabilities(options, *, image=False, blend=None, exports=None):
     if image:
         return
     unsupported = []
-    for key, label in (('do_mask', 'video masks'), ('custom_edge_guides', 'custom edge guides'),
-                       ('memory_efficient_raft', 'the legacy memory-efficient RAFT extension')):
+    for key, label in (('memory_efficient_raft', 'the legacy memory-efficient RAFT extension'),):
         if options.get(key):
             unsupported.append(label)
     if options.get('flow_arch', 'RAFT') != 'RAFT':
         unsupported.append('EF-RAFT/FlowDiffuser')
-    if any((exports or {}).values()):
-        unsupported.append('video auxiliary exports')
-    if (blend or {}).get('only_mode', 'none') != 'none':
-        unsupported.append('grouped forward-only/reverse-only modes')
     if (blend or {}).get('use_gpu') or (blend or {}).get('use_poisson_cupy'):
         unsupported.append('CuPy blending')
     if unsupported:
@@ -89,13 +84,19 @@ def validate_capabilities(options, *, image=False, blend=None, exports=None):
                          + ', '.join(unsupported) + '. Disable them or select Trentonom0r3/Ezsynth.')
 
 
+def fuoum_checkpoint(options, source):
+    if options.get('fuoum_flow_engine', 'RAFT') == 'NeuFlow':
+        return Path(source) / 'models/neuflow' / (options.get('fuoum_neuflow_model', 'neuflow_sintel') + '.pth')
+    return Path(source) / 'models/raft' / ('raft-' + options.get('fuoum_raft_model', options.get('flow_model', 'sintel')) + '.pth')
+
+
 def preflight_flow(options, runtime):
     if options.get('engine', LEGACY) == LEGACY:
         from reezsynth_config import validate_flow_model_available
         return validate_flow_model_available(options['flow_model'], options['flow_arch'])
-    model = Path(runtime['source']) / 'models' / 'raft' / ('raft-' + options['flow_model'] + '.pth')
+    model = fuoum_checkpoint(options, runtime['source'])
     if not model.is_file() or not model.stat().st_size:
-        raise ValueError(f'FuouM RAFT checkpoint is missing: {model}. See DUAL_ENGINE.md.')
+        raise ValueError(f'FuouM optical-flow checkpoint is missing: {model}. See DUAL_ENGINE.md.')
     return model
 
 
@@ -142,14 +143,14 @@ def write_engine_manifest(job):
     if job.get('type') != 'image_synthesis' and len(job.get('frames', [])) > 1:
         options = job.get('render_options', {})
         if engine == FUOUM:
-            checkpoint = source / 'models' / 'raft' / ('raft-' + options.get('flow_model', 'sintel') + '.pth')
+            checkpoint = fuoum_checkpoint(options, source)
         else:
             checkpoint = source / 'ezsynth/utils/flow_utils/models' / ('raft-' + options.get('flow_model', 'sintel') + '.pth')
         if checkpoint.is_file():
             hashes[checkpoint.relative_to(source).as_posix()] = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
     import importlib.metadata
     versions = {}
-    for name in ('torch', 'torchvision', 'numpy', 'opencv-python', 'pydantic', 'scipy'):
+    for name in ('torch', 'torchvision', 'numpy', 'opencv-python', 'pydantic', 'scipy', 'einops', 'pyamg'):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -157,8 +158,10 @@ def write_engine_manifest(job):
     from reezsynth_config import atomic_json
     manifest = dict(version=1, **runtime, source_sha256=hashes, package_versions=versions,
                     adapter_sha256={name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
-                                    for name in ('reezsynth_jobs.py', 'reezsynth_image.py', 'reezsynth_fuoum.py')},
-                    render_options=job.get('render_options', {}))
+                                    for name in ('reezsynth_jobs.py', 'reezsynth_image.py', 'reezsynth_fuoum.py',
+                                                 'reezsynth_fuoum_pipeline.py')},
+                    render_options=job.get('render_options', {}), guide_weights=job.get('guide_weights', {}),
+                    blend_options=job.get('blend_options', {}))
     atomic_json(Path(job['output']) / 'engine_manifest.json', manifest)
     print('[Engine] ' + json.dumps(dict(engine=engine, revision=runtime['revision'], python=sys.executable)), flush=True)
     return manifest

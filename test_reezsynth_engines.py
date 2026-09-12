@@ -42,39 +42,54 @@ class EngineTests(unittest.TestCase):
     def test_unsupported_requests_fail_before_rendering(self):
         options = dict(RENDER, engine=FUOUM)
         validate_capabilities(options)
-        for field, value in (('ebsynth_backend', 'cpu'), ('do_mask', True),
-                              ('custom_edge_guides', True), ('memory_efficient_raft', True),
+        for field, value in (('ebsynth_backend', 'cpu'), ('memory_efficient_raft', True),
                               ('flow_arch', 'EF_RAFT')):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_capabilities(dict(options, **{field: value}))
-        for extras in ({'exports': {'maps': True}}, {'blend': {'use_gpu': True}},
-                       {'blend': {'only_mode': 'forward'}}):
+        for extras in ({'blend': {'use_gpu': True}}, {'blend': {'use_poisson_cupy': True}}):
             with self.subTest(extras=extras), self.assertRaises(ValueError):
                 validate_capabilities(options, **extras)
         validate_capabilities(dict(options, do_mask=True), image=True)
+        validate_capabilities(dict(options, do_mask=True, custom_edge_guides=True),
+                              exports={'maps': True, 'flow': True}, blend={'only_mode': 'reverse'})
 
     def test_native_mapping_uses_actual_solver_and_positive_pyramid_depth(self):
         class StrictNative:
             def __init__(self, uniformity, patch_size, search_vote_iters, patch_match_iters,
-                         extra_pass_3x3, backend, edge_weight, image_weight, pos_weight, warp_weight):
+                         extra_pass_3x3, backend, vote_mode, cost_function, stop_threshold,
+                         search_pruning_threshold, edge_weight, image_weight, pos_weight, warp_weight,
+                         sparse_anchor_weight):
                 self.__dict__.update(locals())
         class StrictPipeline:
             def __init__(self, pyramid_levels, use_temporal_nnf_propagation, use_sparse_feature_guide):
                 self.__dict__.update(locals())
         class StrictBlend:
-            def __init__(self, poisson_solver, poisson_maxiter):
+            def __init__(self, poisson_solver, poisson_maxiter, poisson_grad_weight_l, poisson_grad_weight_ab):
                 self.__dict__.update(locals())
         schema = types.SimpleNamespace(EbsynthParamsConfig=StrictNative,
                                        PipelineConfig=StrictPipeline, BlendingConfig=StrictBlend)
         with patch.dict(sys.modules, {'ezsynth.config': schema}):
-            native, pipeline, blend = build_configs(dict(RENDER, engine=FUOUM, pyramidlevels=-1),
+            native, pipeline, blend = build_configs(dict(RENDER, engine=FUOUM, pyramidlevels=-1,
+                                                        fuoum_vote_mode='plain', fuoum_cost_function='ncc',
+                                                        fuoum_stop_threshold=7, fuoum_search_pruning_threshold=9,
+                                                        fuoum_sparse_anchor_weight=12),
                                                     {'key_wgt': 2, 'img_wgt': 8},
-                                                    {'use_lsqr': False, 'poisson_maxiter': 17})
+                                                    {'use_lsqr': False, 'poisson_maxiter': 17,
+                                                     'fuoum_poisson_solver': 'cg',
+                                                     'fuoum_poisson_grad_weight_l': 3,
+                                                     'fuoum_poisson_grad_weight_ab': .25})
         self.assertEqual(native.image_weight, 4)
         self.assertEqual(native.backend, 'cuda')
+        self.assertEqual(native.vote_mode, 'plain')
+        self.assertEqual(native.cost_function, 'ncc')
+        self.assertEqual(native.stop_threshold, 7)
+        self.assertEqual(native.search_pruning_threshold, 9)
+        self.assertEqual(native.sparse_anchor_weight, 6)
         self.assertEqual(pipeline.pyramid_levels, 32)
-        self.assertEqual(blend.poisson_solver, 'lsmr')
+        self.assertEqual(blend.poisson_solver, 'cg')
         self.assertEqual(blend.poisson_maxiter, 17)
+        self.assertEqual(blend.poisson_grad_weight_l, 3)
+        self.assertEqual(blend.poisson_grad_weight_ab, .25)
 
     def test_grayscale_guides_gain_channel_axis_without_changing_values(self):
         gray = np.arange(20, dtype=np.uint8).reshape(4, 5)
@@ -93,6 +108,28 @@ class EngineTests(unittest.TestCase):
 
 
 class EngineGuiTests(GuiFixture):
+    def test_flow_models_and_grouped_gpu_controls_follow_the_selected_engine(self):
+        w = self.window()
+        o = w.options
+        controls = o.widgets['render']
+        controls['flow_model'].setCurrentText('kitti')
+        controls['engine'].setCurrentText(FUOUM)
+        controls['fuoum_raft_model'].setCurrentText('sintel')
+        self.assertFalse(controls['flow_model'].isEnabled())
+        self.assertTrue(controls['fuoum_raft_model'].isEnabled())
+        self.assertFalse(w.grouped.poisson_gpu.isEnabled())
+        controls['fuoum_flow_engine'].setCurrentText('NeuFlow')
+        self.assertFalse(controls['fuoum_raft_model'].isEnabled())
+        self.assertTrue(controls['fuoum_neuflow_model'].isEnabled())
+        o.store.save('render', 'Flow split', o.snapshot('render'))
+        controls['engine'].setCurrentText(LEGACY)
+        self.assertEqual(controls['flow_model'].currentText(), 'kitti')
+        self.assertFalse(controls['fuoum_neuflow_model'].isEnabled())
+        o.apply('render', o.store.groups['render']['Flow split'])
+        self.assertEqual(o.render()['fuoum_flow_engine'], 'NeuFlow')
+        self.assertEqual(o.render()['fuoum_raft_model'], 'sintel')
+        self.assertFalse(w.grouped.poisson_gpu.isEnabled())
+
     def test_engine_and_options_round_trip_in_presets(self):
         w = self.window()
         o = w.options
@@ -105,8 +142,16 @@ class EngineGuiTests(GuiFixture):
         self.assertEqual(o.render()['engine'], FUOUM)
         self.assertFalse(o.render()['temporal_nnf'])
         self.assertFalse(o.widgets['render']['memory_efficient_raft'].isEnabled())
+        self.assertFalse(o.widgets['render']['fuoum_vote_mode'].isHidden())
+        self.assertTrue(o.widgets['application']['fuoum_source'].isEnabled())
+        self.assertTrue(o.widgets['application']['fuoum_python'].isEnabled())
+        self.assertTrue(all(not button.isEnabled() for button in o.optional_flow_buttons))
         o.widgets['render']['engine'].setCurrentText(LEGACY)
         self.assertTrue(o.widgets['render']['memory_efficient_raft'].isEnabled())
+        self.assertFalse(o.widgets['render']['fuoum_vote_mode'].isEnabled())
+        self.assertFalse(o.widgets['application']['fuoum_source'].isEnabled())
+        self.assertFalse(o.widgets['application']['fuoum_python'].isEnabled())
+        self.assertTrue(all(button.isEnabled() for button in o.optional_flow_buttons))
 
     def test_engine_selector_locks_during_render(self):
         w = self.window()
@@ -146,15 +191,59 @@ class EngineRoutingTests(LifecycleFixture):
         self.assertEqual(len(list(self.w.batch.rglob('COMPLETE.txt'))), 2)
         self.assertIsNone(self.w.parallel_queue)
 
-    def test_incompatible_engine_settings_create_no_outputs(self):
+    def test_disabled_legacy_settings_are_retained_but_excluded_from_fuoum_jobs(self):
         self.fuoum()
         self.w.options.widgets['render']['memory_efficient_raft'].setChecked(True)
         from test_reezsynth_gui import gui
-        with patch.object(gui.QMessageBox, 'warning') as warning:
-            self.run_queue()
-        self.assertIn('legacy memory-efficient', warning.call_args.args[2])
-        self.assertFalse(self.w.busy)
-        self.assertFalse(list(self.root.rglob('job.json')))
+        self.run_queue()
+        self.until(lambda: not self.w.busy, 10)
+        jobs = list(self.w.batch.rglob('job.json'))
+        self.assertTrue(jobs)
+        self.assertTrue(self.w.options.widgets['render']['memory_efficient_raft'].isChecked())
+        self.assertTrue(all(not json.loads(p.read_text())['render_options']['memory_efficient_raft'] for p in jobs))
+
+
+class FrameCorrespondenceTests(unittest.TestCase):
+    def test_poisson_matrix_matches_pixel_differences_without_wrapping_rows(self):
+        from reezsynth_fuoum_pipeline import poisson_matrices
+        for h, w in ((3, 5), (5, 3), (1, 4), (4, 1)):
+            pixels = np.arange(h * w, dtype=float).reshape(h, w) ** 2
+            gx, gy = np.zeros_like(pixels), np.zeros_like(pixels)
+            gx[:-1] = pixels[:-1] - pixels[1:]
+            gy[:, :-1] = pixels[:, :-1] - pixels[:, 1:]
+            for weight, matrix in zip((2.5, .5, 0), poisson_matrices(h, w, (2.5, .5, 0))):
+                expected = np.concatenate((gx.ravel() * weight, gy.ravel() * weight, pixels.ravel()))
+                np.testing.assert_allclose(matrix @ pixels.ravel(), expected)
+
+    def test_old_raft_model_migrates_and_separate_fuoum_selection_is_preserved(self):
+        self.assertEqual(validate_render({'flow_model': 'kitti'})['fuoum_raft_model'], 'kitti')
+        self.assertEqual(validate_render({'flow_model': 'kitti', 'fuoum_raft_model': 'sintel'})['fuoum_raft_model'], 'sintel')
+
+    def test_all_direction_modes_preserve_keys_and_cover_frames_with_aligned_errors(self):
+        from reezsynth_fuoum_pipeline import run_sequences, work_count
+        for count, keys in ((9, [2, 4, 6]), (4, [0, 1, 3]), (6, [3]), (3, [0, 2])):
+            for mode in ('none', 'forward', 'reverse'):
+                calls = []
+                class Pipeline:
+                    _fwd_flows = list(range(count - 1))
+                    def _run_a_pass(self, seq, style_img, is_forward, content_frames):
+                        a, b = seq.start_frame, seq.end_frame
+                        targets = list(range(a + 1, b + 1) if is_forward else range(a, b))
+                        calls.extend(targets)
+                        return list(range(a, b + 1)), targets, list(range(a, b)), []
+                def blend(fwd, rev, ea, eb, flows):
+                    self.assertEqual(fwd, rev)
+                    self.assertEqual(ea, fwd)
+                    self.assertEqual(eb, fwd)
+                    return fwd
+                result = run_sequences(Pipeline(), list(range(count)), [100 + k for k in keys], keys,
+                                       mode, blend, lambda *a: None)
+                self.assertEqual(result, [100 + n if n in keys else n for n in range(count)])
+                self.assertEqual(len(calls), work_count(count, keys, mode))
+
+    def test_older_lsmr_preset_migrates_without_changing_fuoum_solver(self):
+        from reezsynth_video_plan import validate_blend_options
+        self.assertEqual(validate_blend_options({'use_lsqr': False})['fuoum_poisson_solver'], 'lsmr')
 
 
 if __name__ == '__main__':

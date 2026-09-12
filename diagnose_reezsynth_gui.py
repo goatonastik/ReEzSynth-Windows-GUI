@@ -31,14 +31,14 @@ def until(app, predicate, seconds, failure):
     raise RuntimeError(failure)
 
 
-def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=False, fuoum=False):
+def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=False, fuoum=False, frames=None):
     root = Path(__file__).resolve().parent
     base = root / 'diagnostic_outputs' / ('gui_controller_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     video, keys, project = base / 'video', base / 'keys', base / 'project'
     video.mkdir(parents=True)
     keys.mkdir()
     project.mkdir()
-    for number in range(24 if cancel or close_window or restart_after_cancel else 3):
+    for number in range(frames or (24 if cancel or close_window or restart_after_cancel else 3)):
         shutil.copy2(root / 'examples' / 'input' / f'{number % 3:03d}.jpg', video / f'frame{number:03d}.jpg')
     shutil.copy2(root / 'examples' / 'styles' / 'style000.jpg', keys / 'style000.jpg')
     if parallel:
@@ -72,8 +72,9 @@ def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=
             window.run_rows(list(window.rows))
             until(app, lambda: window.busy, 10, 'GUI queue did not start.')
             if cancel or close_window or restart_after_cancel:
-                until(app, lambda: 'synthesis' in window.rows[0]['state'].text().lower(),
-                      90, 'GUI queue did not begin synthesis.')
+                timing = '[Timing] FuouM frame ' if fuoum else '[Timing] Frame '
+                until(app, lambda: timing in window.log.toPlainText(),
+                      90, 'GUI queue did not complete its first native synthesis call.')
                 if close_window:
                     with patch.object(gui.QMessageBox, 'question',
                                       return_value=gui.QMessageBox.StandardButton.Yes):
@@ -132,6 +133,8 @@ def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fuoum', action='store_true', help='Exercise the dedicated FuouM engine worker.')
+    parser.add_argument('--frames', type=int, help='Override input length for stress checks (at least 3).')
+    parser.add_argument('--cycles', type=int, default=1, help='Repeat the full create/run/close lifecycle.')
     parser.add_argument('--parallel', action='store_true',
                         help='Run two independent jobs through the GUI ParallelQueue.')
     parser.add_argument('--cancel', action='store_true',
@@ -144,7 +147,13 @@ if __name__ == '__main__':
     try:
         if sum(bool(option) for option in (args.parallel, args.cancel, args.close, args.cancel_restart)) > 1:
             raise SystemExit('Choose only one of --parallel, --cancel, --close, or --cancel-restart.')
-        main(args.parallel, args.cancel, args.close, args.cancel_restart, args.fuoum)
+        if args.cycles < 1 or (args.frames is not None and args.frames < 3):
+            parser.error('Use at least one cycle and three frames.')
+        from diagnose_reezsynth_engines import gpu_memory
+        print('Aggregate GPU memory before cycles:', gpu_memory(), flush=True)
+        for cycle in range(args.cycles):
+            main(args.parallel, args.cancel, args.close, args.cancel_restart, args.fuoum, args.frames)
+            print(f'Cycle {cycle + 1}/{args.cycles}; aggregate GPU memory: {gpu_memory()}', flush=True)
     except Exception as exc:
         print(f'GUI controller diagnostic failed: {exc}', file=sys.stderr)
         raise

@@ -1090,12 +1090,12 @@ class MainWindow(QMainWindow):
                 self.path_value(self.keyframe_dir),
             )
 
-            render_options = self.options.render()
+            render_options = self.options.render(effective=True)
             guide_weights = self.options.weights()
             application = validate_application(self.options.application())
             from reezsynth_engines import prepare_runtime, validate_capabilities, preflight_flow
             engine_runtime = prepare_runtime(render_options, application)
-            validate_capabilities(render_options, blend=self.grouped.blend_options() if grouped else None,
+            validate_capabilities(render_options, blend=self.grouped.blend_options(effective=True) if grouped else None,
                                   exports=self.options.snapshot('render')['exports'])
             masks = validate_masks(self.mask_dir.text(), video) if render_options["do_mask"] else {}
             edge_guides = validate_edge_guides(self.edge_dir.text(), video) if render_options['custom_edge_guides'] else {}
@@ -1104,7 +1104,12 @@ class MainWindow(QMainWindow):
             group_plan = None
             if grouped:
                 selection = self.grouped.selection()
-                group_plan = plan_grouped_video(video, keys, selection, self.grouped.blend_options())
+                group_plan = plan_grouped_video(video, keys, selection, self.grouped.blend_options(effective=True))
+                if engine_runtime['engine'] == 'FuouM/ReEzSynth':
+                    from reezsynth_fuoum_pipeline import work_count
+                    numbers = [n for n, _ in group_plan['frames']]
+                    group_plan['synthesis_work'] = work_count(len(numbers),
+                        [numbers.index(n) for n, _ in group_plan['styles']], group_plan['blend_options']['only_mode'])
                 check_blend_dependencies(group_plan["blend_options"])
                 planned.append((self.grouped.row, dict(key=group_plan["key"], folder=selection["folder"]),
                                 group_plan["frames"], group_plan["style"]))
@@ -1234,7 +1239,7 @@ class MainWindow(QMainWindow):
             naming = project_naming(self)
             root = output_root(naming, self.path_value(self.project_dir),
                                str(Path(settings['style']).parent), str(Path(settings['target']).parent))
-            options = self.options.render()
+            options = self.options.render(effective=True)
             application = validate_application(self.options.application())
             from reezsynth_engines import prepare_runtime, validate_capabilities
             engine_runtime = prepare_runtime(options, application)

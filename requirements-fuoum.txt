@@ -4,4 +4,5 @@ numpy==1.26.4
 opencv-python==4.11.0.86
 pydantic==2.11.7
 einops==0.8.1
+pyamg==5.3.0
 ninja==1.11.1.4

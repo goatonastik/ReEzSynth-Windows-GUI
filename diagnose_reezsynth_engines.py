@@ -24,6 +24,8 @@ def gpu_memory():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--engine', choices=('legacy', 'fuoum'), default='fuoum')
+    parser.add_argument('--fuoum-source', default='', help='Test a custom pinned source checkout.')
+    parser.add_argument('--fuoum-python', default='', help='Test a custom FuouM worker interpreter.')
     parser.add_argument('--memory-efficient', action='store_true', help='Legacy RAFT only.')
     parser.add_argument('--four-k', action='store_true', help='Legacy video at 3840x2160; requires --memory-efficient.')
     args = parser.parse_args()
@@ -33,7 +35,7 @@ def main():
         parser.error('--memory-efficient is for the legacy engine')
     engine = FUOUM if args.engine == 'fuoum' else LEGACY
     options = validate_render(dict(PREVIEW, engine=engine, memory_efficient_raft=args.memory_efficient))
-    runtime = prepare_runtime(options, {})
+    runtime = prepare_runtime(options, dict(fuoum_source=args.fuoum_source, fuoum_python=args.fuoum_python))
     base = ROOT / 'diagnostic_outputs' / ('engines_' + args.engine + '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
     size = [3840, 2160] if args.four_k else [256, 144]

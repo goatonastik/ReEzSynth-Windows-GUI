@@ -56,7 +56,7 @@ def artifact_records(numbers, keys, mode='none'):
     return records
 
 
-def save_artifacts(output, options, records, maps, flows):
+def save_artifacts(output, options, records, maps, flows, *, scope='engine results after sequence boundary trimming'):
     """Save requested results before COMPLETE; never quantize numerical maps."""
     import cv2
     import numpy as np
@@ -68,7 +68,7 @@ def save_artifacts(output, options, records, maps, flows):
             raise RuntimeError(f'Expected {len(records)} auxiliary {label}, received {len(values)}.')
     root = Path(output) / 'auxiliary'
     root.mkdir(exist_ok=True)
-    manifest = dict(version=1, scope='engine results after sequence boundary trimming',
+    manifest = dict(version=1, scope=scope,
         flow_format='BGR color visualization; not numerical optical flow',
         map_format='NumPy array, original dtype and values; selection masks are not synthesis errors',
         requested=options, artifacts=[])

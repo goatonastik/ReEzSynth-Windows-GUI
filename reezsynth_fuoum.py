@@ -15,17 +15,24 @@ def build_configs(options, weights=None, blend=None):
         uniformity=options['uniformity'], patch_size=options['patchsize'],
         search_vote_iters=options['searchvoteiters'], patch_match_iters=options['patchmatchiters'],
         extra_pass_3x3=options['extrapass3x3'], backend='cuda',
+        vote_mode=options['fuoum_vote_mode'], cost_function=options['fuoum_cost_function'],
+        stop_threshold=options['fuoum_stop_threshold'],
+        search_pruning_threshold=options['fuoum_search_pruning_threshold'],
         edge_weight=weights.get('edg_wgt', 1.0) / ratio,
         image_weight=weights.get('img_wgt', 6.0) / ratio,
         pos_weight=weights.get('pos_wgt', 2.0) / ratio,
-        warp_weight=weights.get('wrp_wgt', .5) / ratio)
+        warp_weight=weights.get('wrp_wgt', .5) / ratio,
+        sparse_anchor_weight=options['fuoum_sparse_anchor_weight'] / ratio)
     # FuouM clamps positive depth itself but does not implement the legacy -1 sentinel.
     pipeline = PipelineConfig(pyramid_levels=32 if options['pyramidlevels'] == -1 else options['pyramidlevels'],
                               use_temporal_nnf_propagation=options['temporal_nnf'],
                               use_sparse_feature_guide=options['sparse_features'])
     # The convenience API's use_lsqr argument is ignored by this pinned schema.
-    blending = BlendingConfig(poisson_solver='lsqr' if blend.get('use_lsqr', True) else 'lsmr',
-                             poisson_maxiter=blend.get('poisson_maxiter'))
+    blending = BlendingConfig(poisson_solver=blend.get('fuoum_poisson_solver',
+                                                       'lsqr' if blend.get('use_lsqr', True) else 'lsmr'),
+                             poisson_maxiter=blend.get('poisson_maxiter'),
+                             poisson_grad_weight_l=blend.get('fuoum_poisson_grad_weight_l', 2.5),
+                             poisson_grad_weight_ab=blend.get('fuoum_poisson_grad_weight_ab', .5))
     return native, pipeline, blending
 
 
@@ -46,7 +53,11 @@ def synthesize_image(style, pairs, options):
 def render_fuoum_job(job, progress):
     from reezsynth_config import (validate_render, quality_profile, validate_processing_settings,
                                   validate_weights, validate_synthesis_dimensions)
+    from reezsynth_video_plan import validate_blend_options
+    from reezsynth_artifacts import validate_exports, save_artifacts
     options = validate_render(dict(quality_profile(job['quality']), **job.get('render_options', {})))
+    blend = validate_blend_options(job.get('blend_options'))
+    exports = validate_exports(job.get('exports'))
     image_job = job.get('type') == 'image_synthesis'
     validate_capabilities(options, image=image_job, blend=job.get('blend_options'), exports=job.get('exports'))
     if options['engine'] != FUOUM:
@@ -92,6 +103,29 @@ def render_fuoum_job(job, progress):
     size = tuple(processing['processing_size'] or (max(1, round(width * scale)), max(1, round(height * scale))))
     frames = [cv2.resize(frame, size, interpolation=cv2.INTER_AREA) for frame in frames]
     styles = [cv2.resize(frame, size, interpolation=cv2.INTER_AREA) for frame in styles]
+    def load_guides(field, enabled, interpolation):
+        if not enabled:
+            return []
+        entries = job.get(field, [])
+        if [entry[0] for entry in entries] != numbers:
+            raise ValueError(f'Job {field} frame numbers must match source frames.')
+        values = []
+        for number, path in entries:
+            gray = cv2.cvtColor(read(path), cv2.COLOR_BGR2GRAY)
+            if gray.shape != original_shape[:2]:
+                raise ValueError(f'{field} dimensions differ at frame {number}.')
+            values.append(cv2.resize(gray, size, interpolation=interpolation))
+        return values
+    masks = load_guides('masks', options['do_mask'], cv2.INTER_NEAREST)
+    edges = load_guides('edge_guides', options['custom_edge_guides'], cv2.INTER_AREA)
+    weights = validate_weights(job.get('guide_weights'))
+    originals = frames
+    if masks and options['pre_mask']:
+        frames = [(frame * (mask[..., None].astype(np.float32) / 255)).astype(np.uint8)
+                  for frame, mask in zip(frames, masks)]
+        styles = [(style * (masks[numbers.index(key)][..., None].astype(np.float32) / 255)).astype(np.uint8)
+                  for key, style in zip(key_numbers, styles)]
+    records, error_maps, flow_images = [], [], []
     if len(frames) > 1:
         if min(size) < 128:
             raise ValueError('RAFT video dimensions must both be at least 128 pixels.')
@@ -104,11 +138,10 @@ def render_fuoum_job(job, progress):
     else:
         from ezsynth.config import MainConfig, ProjectConfig, PrecomputationConfig, DebugConfig
         from ezsynth.data import ProjectData
-        from ezsynth.pipeline import SynthesisPipeline
-        weights = validate_weights(job.get('guide_weights'))
-        native, pipeline_config, blending = build_configs(options, weights, job.get('blend_options'))
+        from reezsynth_fuoum_pipeline import extend_pipeline, work_count
+        native, pipeline_config, blending = build_configs(options, weights, blend)
         positions = [numbers.index(number) for number in key_numbers]
-        expected = len(frames) - 1 + positions[-1] - positions[0]
+        expected = work_count(len(frames), positions, blend['only_mode'])
         completed = 0
         lookup = {id(frame): number for frame, number in zip(frames, numbers)}
         origins = {id(style): number for style, number in zip(styles, key_numbers)}
@@ -117,13 +150,36 @@ def render_fuoum_job(job, progress):
             config = MainConfig(
                 project=ProjectConfig(content_dir=str(output), style_path=[path for _, path in style_entries],
                                       style_indices=positions, output_dir=str(output), cache_dir=cache),
-                precomputation=PrecomputationConfig(flow_engine='RAFT', flow_model=options['flow_model'],
+                precomputation=PrecomputationConfig(flow_engine=options['fuoum_flow_engine'],
+                                                     flow_model=(options['fuoum_raft_model'] if options['fuoum_flow_engine'] == 'RAFT'
+                                                                 else options['fuoum_neuflow_model']),
                                                      edge_method=options['edge_method']),
                 pipeline=pipeline_config, blending=blending, ebsynth_params=native, debug=DebugConfig())
             data = ProjectData(config.project)
             # Data has already been validated/resized; bypass its directory scanning and implicit resize.
             data._content_frames, data._style_frames = frames, styles
-            pipeline = SynthesisPipeline(config, data)
+            def capture_pass(sequence, start, end, forward, result):
+                if not any(exports.values()):
+                    return
+                for i, error in enumerate(result[1]):
+                    target = start + i + (1 if forward else 0)
+                    lower = start + i
+                    records.append(dict(sequence=sequence, synthesis_direction='forward' if forward else 'reverse',
+                        error_frame=numbers[target], map_kind='synthesis_error',
+                        flow_from=numbers[lower], flow_to=numbers[lower + 1],
+                        scope='raw pass output before keyframe preservation and grouped reconstruction'))
+                    if exports['maps']:
+                        error_maps.append(error)
+                    if exports['flow']:
+                        flow = np.asarray(result[2][i], dtype=np.float32)
+                        magnitude, angle = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+                        hsv = np.zeros((*flow.shape[:2], 3), np.uint8)
+                        hsv[..., 0] = np.mod(angle * (90 / np.pi), 180).astype(np.uint8)
+                        hsv[..., 1] = 255
+                        hsv[..., 2] = np.clip(magnitude * 255 / max(float(magnitude.max()), 1e-6), 0, 255).astype(np.uint8)
+                        flow_images.append(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
+            pipeline = extend_pipeline(config, data, masks, edges, weights['mask_wgt'] / weights['key_wgt'],
+                                       blend['only_mode'], capture_pass)
             original = pipeline.synthesis_engine.run
             def tracked(style, guides, **kwargs):
                 nonlocal completed
@@ -149,6 +205,13 @@ def render_fuoum_job(job, progress):
     if len(results) != len(frames):
         raise RuntimeError(f'FuouM returned {len(results)} frames; expected {len(frames)}.')
     for index, (number, image) in enumerate(zip(numbers, results)):
+        if masks:
+            mask = masks[index]
+            if options['feather']:
+                radius = options['feather']
+                mask = cv2.GaussianBlur(mask, (radius, radius), 0)
+            alpha = mask[..., None].astype(np.float32) / 255
+            image = (image * alpha + originals[index] * (1 - alpha)).astype(np.uint8)
         if not isinstance(image, np.ndarray) or image.shape != frames[index].shape or not np.isfinite(image).all():
             raise RuntimeError(f'Invalid FuouM output at frame {number}.')
         ok, encoded = cv2.imencode('.png', np.clip(image, 0, 255).astype(np.uint8))
@@ -160,5 +223,7 @@ def render_fuoum_job(job, progress):
         temporary.replace(output / name)
         preview = publisher.publish(key_numbers[0], 'Keyframe', number, image, stage='final') if len(frames) == 1 else None
         progress(90 + 9 * (index + 1) / len(frames), f'Saving {index + 1}/{len(frames)}', preview=preview)
+    save_artifacts(output, exports, records, error_maps, flow_images,
+                   scope='FuouM raw synthesis passes; frame-aligned errors before blending/compositing')
     (output / 'COMPLETE.txt').write_text(f'Engine: {FUOUM}\nSaved frames: {len(frames)}\n', encoding='utf-8')
     progress(99, 'Finishing FuouM synthesis')

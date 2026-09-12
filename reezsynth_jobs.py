@@ -418,9 +418,9 @@ def _render_legacy_job(job_path):
             **{name: value for name, value in options.items()
                if name not in ("edge_method", "custom_edge_guides", "memory_efficient_raft",
                                "flow_arch", "flow_model", "ebsynth_backend", "engine",
-                               "temporal_nnf", "sparse_features")},
+                               "temporal_nnf", "sparse_features") and not name.startswith('fuoum_')},
             **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
-            **blend_options,
+            **{name: value for name, value in blend_options.items() if not name.startswith('fuoum_')},
         )
 
         runner = EzsynthBase(

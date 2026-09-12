@@ -21,25 +21,34 @@ from reezsynth_video_plan import validate_blend_options, validate_grouped_select
 from reezsynth_engines import LEGACY, FUOUM, default_runtime, engine_revision
 
 LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (position guide)",
-    memory_efficient_raft="Memory-efficient RAFT correlation (CUDA)",
-    key_wgt="Key weight", mask_wgt="Mask guide weight",
+    memory_efficient_raft="Memory-efficient RAFT correlation (CUDA) [Trentonom0r3 only]",
+    key_wgt="Key weight", mask_wgt="Mask guide weight [Trentonom0r3 only]",
     wrp_wgt="Deflicker (warped-style guide)", uniformity="Diversity (uniformity)", patchsize="Patch size (odd)",
     pyramidlevels="Pyramid levels", searchvoteiters="Search/vote iterations",
     patchmatchiters="Patch-match iterations", extrapass3x3="Extra 3x3 polishing pass",
-    edge_method="Edge method", do_mask="Use masks", pre_mask="Mask inputs before synthesis",
-    custom_edge_guides="Use custom edge-guide frames",
-    flow_arch="Flow architecture (video only)", flow_model="Flow model (video only)", ebsynth_backend="EbSynth backend",
-    feather="Mask feather size (zero or odd)", discover="Discover matching input subfolders",
+    edge_method="Edge method", do_mask="Use masks [Trentonom0r3 only]", pre_mask="Mask inputs before synthesis [Trentonom0r3 only]",
+    custom_edge_guides="Use custom edge-guide frames [Trentonom0r3 only]",
+    flow_arch="Alternative flow architecture [Trentonom0r3 only]", flow_model="Flow model (Trentonom0r3 only; video)", ebsynth_backend="EbSynth backend selection [Trentonom0r3 only]",
+    feather="Mask feather size (zero or odd) [Trentonom0r3 only]", discover="Discover matching input subfolders",
     keys_prefix="Keyframe folder prefix", video_prefix="Video folder prefix",
     auto_start="Start automatically when inputs are ready", wait_for_mask="Wait for masks before automatic start",
     parallel="Enable parallel rendering", parallel_limit="Maximum simultaneous renders (0 = unlimited)",
     sound_enabled="Enable completion sounds", sound_each="Play after each render",
     sound_queue="Play when the queue completes", sound_file="Custom WAV sound (blank = bundled sound)")
 LABELS["preview_limit"] = "Maximum live previews"
-LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation (FuouM)',
-              sparse_features='Sparse feature guides (FuouM)',
-              fuoum_source='FuouM source folder (blank = project default)',
-              fuoum_python='FuouM Python executable (blank = project default)')
+LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
+              fuoum_flow_engine='Optical flow engine (FuouM only)',
+              fuoum_raft_model='RAFT checkpoint (FuouM only)',
+              fuoum_neuflow_model='NeuFlow checkpoint (FuouM only)',
+              sparse_features='Sparse feature guides [FuouM only]',
+              fuoum_vote_mode='Voting mode [FuouM only]', fuoum_cost_function='Patch cost [FuouM only]',
+              fuoum_stop_threshold='Early-stop threshold [FuouM only]',
+              fuoum_search_pruning_threshold='Search-pruning threshold [FuouM only]',
+              fuoum_sparse_anchor_weight='Sparse-guide weight [FuouM only]',
+              fuoum_source='FuouM source folder (blank = project default) [FuouM only]',
+              fuoum_python='FuouM Python executable (blank = project default) [FuouM only]')
+for _shared in ('do_mask', 'pre_mask', 'feather', 'mask_wgt', 'custom_edge_guides'):
+    LABELS[_shared] = LABELS[_shared].replace(' [Trentonom0r3 only]', '')
 
 
 def control_value(widget):
@@ -109,9 +118,9 @@ class Options(QObject):
         window.grouped.layout().insertLayout(1, self.preset_bar('grouped', 'Blend / Flow presets'))
         advanced = QGroupBox("Rendering controls")
         advanced_layout = QVBoxLayout(advanced)
-        self.engine_note = QLabel('FuouM supports image synthesis and RAFT video with normal grouped blending. '
-                                 'Masks, custom edge sequences, video auxiliary exports and CuPy blending '
-                                 'are currently available with Trentonom0r3/Ezsynth. Engine selection applies to the next queue.')
+        self.engine_note = QLabel('FuouM supports masks, custom edges, raw pass exports, grouped direction modes, '
+                                 'and RAFT/NeuFlow video. CuPy blending and compiled memory-efficient RAFT '
+                                 'are Trentonom0r3-only. Disabled settings are retained for that engine and excluded from FuouM jobs.')
         self.engine_note.setWordWrap(True)
         self.engine_note.hide()
         advanced_layout.addWidget(self.engine_note)
@@ -299,6 +308,20 @@ class Options(QObject):
             widget = QComboBox()
             widget.addItems(["cuda", "auto", "cpu"])
             widget.currentTextChanged.connect(self.changed)
+        elif name == 'fuoum_vote_mode':
+            widget = QComboBox()
+            widget.addItems(['weighted', 'plain'])
+            widget.currentTextChanged.connect(self.changed)
+        elif name in ('fuoum_flow_engine', 'fuoum_neuflow_model', 'fuoum_raft_model'):
+            widget = QComboBox()
+            widget.addItems({'fuoum_flow_engine': ['RAFT', 'NeuFlow'],
+                            'fuoum_raft_model': ['sintel', 'kitti'],
+                            'fuoum_neuflow_model': ['neuflow_sintel', 'neuflow_mixed', 'neuflow_things']}[name])
+            widget.currentTextChanged.connect(self.changed)
+        elif name == 'fuoum_cost_function':
+            widget = QComboBox()
+            widget.addItems(['ssd', 'ncc'])
+            widget.currentTextChanged.connect(self.changed)
         elif isinstance(default, (int, float)):
             widget = (PyramidLevelsSpinBox() if name == 'pyramidlevels' else
                       QueueSpinBox() if isinstance(default, int) else QueueDoubleSpinBox())
@@ -373,7 +396,7 @@ class Options(QObject):
             f'{detail}\n\nUse Settings > Optional flow components to install the required files, then select this architecture again.')
 
     def add_optional_flow_controls(self, layout):
-        box = QGroupBox('Optional flow components')
+        box = QGroupBox('Optional flow components [Trentonom0r3 only]')
         form = QFormLayout(box)
         self.ef_flow_status = QLabel()
         self.flow_diff_status = QLabel()
@@ -442,8 +465,7 @@ class Options(QObject):
         if not getattr(self, 'timm_install_pending', False):
             return
         self.timm_install_pending = False
-        for button in self.optional_flow_buttons:
-            button.setEnabled(True)
+        self.refresh_engine_controls()
         self.refresh_optional_flow_status()
         message = ('timm was installed successfully.' if code == 0 and optional_flow_status()['FLOW_DIFF']['timm']
                    else 'timm installation failed. See Diagnostics for pip output.')
@@ -644,20 +666,33 @@ class Options(QObject):
         self.engine_note.setVisible(fuoum)
         editable = not self.w.busy and not self.w.close_when_idle
         for name in ('temporal_nnf', 'sparse_features'):
-            self.render_fields.setRowVisible(widgets[name], fuoum)
             widgets[name].setEnabled(editable and fuoum)
-        # Keep selected unsupported values editable so they can be cleared. Loading a
-        # project never silently changes its settings; preflight reports incompatibility.
-        for name in ('do_mask', 'pre_mask', 'custom_edge_guides', 'memory_efficient_raft'):
-            widgets[name].setEnabled(editable and (not fuoum or widgets[name].isChecked()))
+        for name in ('fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
+                     'fuoum_search_pruning_threshold', 'fuoum_sparse_anchor_weight',
+                     'fuoum_flow_engine', 'fuoum_neuflow_model'):
+            widgets[name].setEnabled(editable and fuoum)
+        widgets['fuoum_neuflow_model'].setEnabled(editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'NeuFlow')
+        widgets['fuoum_raft_model'].setEnabled(editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'RAFT')
+        widgets['flow_model'].setEnabled(editable and not fuoum and widgets['flow_model'].count() > 1)
+        widgets['fuoum_sparse_anchor_weight'].setEnabled(editable and fuoum and widgets['sparse_features'].isChecked())
+        widgets['memory_efficient_raft'].setEnabled(editable and not fuoum)
+        for name in ('do_mask', 'pre_mask', 'feather', 'custom_edge_guides'):
+            widgets[name].setEnabled(editable)
         for name in ('flow_arch', 'ebsynth_backend'):
-            default = 'RAFT' if name == 'flow_arch' else 'cuda'
-            widgets[name].setEnabled(editable and (not fuoum or widgets[name].currentText() != default))
+            widgets[name].setEnabled(editable and not fuoum)
+        self.widgets['weights']['mask_wgt'].setEnabled(editable)
+        for field in (self.w.mask_dir, self.w.edge_dir):
+            field.setEnabled(editable)
         for widget in self.export_widgets.values():
-            widget.setEnabled(editable and (not fuoum or widget.isChecked()))
+            widget.setEnabled(editable)
         for name, path in default_runtime().items():
             if name in self.widgets.get('application', {}):
                 self.widgets['application'][name].setPlaceholderText(path)
+                self.widgets['application'][name].setEnabled(editable and fuoum)
+        for button in getattr(self, 'optional_flow_buttons', ()):
+            button.setEnabled(editable and not fuoum and not getattr(self, 'timm_install_pending', False))
+        if hasattr(self.w, 'grouped'):
+            self.w.grouped.refresh_engine_controls(fuoum)
 
     def persist(self):
         if self.loading:
@@ -848,8 +883,12 @@ class Options(QObject):
     def application(self):
         return self.snapshot("application")
 
-    def render(self):
-        return validate_render(self.snapshot("render")["options"])
+    def render(self, effective=False):
+        options = self.snapshot('render')['options']
+        if effective and options['engine'] == FUOUM:
+            options = dict(options, memory_efficient_raft=False, flow_arch='RAFT', ebsynth_backend='cuda')
+            options['flow_model'] = options['fuoum_raft_model']
+        return validate_render(options)
 
     def weights(self):
         return validate_weights(self.snapshot("weights"))

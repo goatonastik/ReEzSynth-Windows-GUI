@@ -20,7 +20,10 @@ STANDARD = dict(uniformity=3500.0, patchsize=7, pyramidlevels=6,
 HIGHEST = dict(STANDARD, pyramidlevels=-1)
 RENDER = dict(engine=LEGACY, **STANDARD, edge_method="Classic", do_mask=False, pre_mask=False, feather=0,
               custom_edge_guides=False, memory_efficient_raft=False, flow_arch="RAFT",
-              flow_model="sintel", ebsynth_backend="cuda", temporal_nnf=True, sparse_features=True)
+              flow_model="sintel", ebsynth_backend="cuda", temporal_nnf=True, sparse_features=True,
+              fuoum_vote_mode="weighted", fuoum_cost_function="ssd", fuoum_stop_threshold=5,
+              fuoum_search_pruning_threshold=50.0, fuoum_sparse_anchor_weight=10.0,
+              fuoum_flow_engine='RAFT', fuoum_neuflow_model='neuflow_sintel', fuoum_raft_model='sintel')
 APPLICATION = dict(discover=False, keys_prefix="keys", video_prefix="video",
     auto_start=False, wait_for_mask=False, parallel=False, parallel_limit=2,
     sound_enabled=True, sound_each=False, sound_queue=True, sound_file="",
@@ -28,7 +31,8 @@ APPLICATION = dict(discover=False, keys_prefix="keys", video_prefix="video",
 GROUPS = ("directories", "output", "weights", "render", "grouped", "application", "image")
 LIMITS = {"uniformity": (0, 100000), "patchsize": (3, 99), "pyramidlevels": (-1, 32),
     "searchvoteiters": (1, 1000), "patchmatchiters": (1, 1000), "feather": (0, 999),
-    "parallel_limit": (0, 64), "preview_limit": (1, 64)}
+    "fuoum_stop_threshold": (0, 100000), "fuoum_search_pruning_threshold": (0, 100000),
+    "fuoum_sparse_anchor_weight": (0, 10000), "parallel_limit": (0, 64), "preview_limit": (1, 64)}
 
 QUALITY_PROFILES = {
     "Preview": PREVIEW,
@@ -172,6 +176,8 @@ def validate_render(data=None):
     if not isinstance(data, dict) or set(data) - set(RENDER):
         raise ValueError("Unknown or invalid rendering settings.")
     result = dict(RENDER, **data)
+    if 'fuoum_raft_model' not in data and data.get('flow_model') in ('sintel', 'kitti'):
+        result['fuoum_raft_model'] = data['flow_model']
     for name, default in RENDER.items():
         value = result[name]
         if isinstance(default, bool):
@@ -194,6 +200,21 @@ def validate_render(data=None):
         elif name == "ebsynth_backend":
             if value not in ("cuda", "auto", "cpu"):
                 raise ValueError("Unknown EbSynth backend.")
+        elif name == "fuoum_vote_mode":
+            if value not in ("weighted", "plain"):
+                raise ValueError("Unknown FuouM vote mode.")
+        elif name == 'fuoum_flow_engine':
+            if value not in ('RAFT', 'NeuFlow'):
+                raise ValueError('Unknown FuouM flow engine.')
+        elif name == 'fuoum_raft_model':
+            if value not in ('sintel', 'kitti'):
+                raise ValueError('Unknown FuouM RAFT checkpoint.')
+        elif name == 'fuoum_neuflow_model':
+            if value not in ('neuflow_sintel', 'neuflow_mixed', 'neuflow_things'):
+                raise ValueError('Unknown NeuFlow checkpoint.')
+        elif name == "fuoum_cost_function":
+            if value not in ("ssd", "ncc"):
+                raise ValueError("Unknown FuouM cost function.")
         else:
             if type(value) not in (int, float) or not math.isfinite(value):
                 raise ValueError(f"{name} must be a finite number.")

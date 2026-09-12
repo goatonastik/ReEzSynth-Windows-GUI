@@ -15,7 +15,7 @@ has been exposed or tested with the native renderer.
 | Video key / image style weight | 0.001–10,000 | Frontend ratio control: guide weights are divided by this value; native style weight stays fixed. This is not a direct upstream RunConfig key weight. |
 | Image primary/additional guide weights | 0–10,000 | Six-decimal editors and style-ratio normalization. Image validation checks the 24-channel native guide limit separately. |
 | Mask feather | 0 or odd integers 1–999 | Zero disables feathering; nonzero values are Gaussian kernel sizes. The maximum is frontend policy. |
-| LSMR iteration limit | Automatic (UI 0, saved null), or 1–2,147,483,647 | Passed as Poisson maxiter; applies to LSMR, not LSQR. GPU reconstruction has its separate solver path. |
+| Reconstruction iteration limit | Automatic (UI 0, saved null), or 1–2,147,483,647 | Legacy LSMR only; FuouM LSQR/LSMR/CG/AMG. FuouM AMG uses 100 for automatic. Disabled for seamless/disabled reconstruction. |
 | Custom processing size | Integer width/height 128–16,384 | Frontend bounds; not universal native limits. Multi-frame RAFT also requires at least 128 pixels per dimension. Original-size still images may be smaller if the patch constraint is satisfied. |
 | Parallel limit | 0–64; default 2 when enabled | Application setting: zero means all queued jobs. Parallel rendering remains off by default. |
 | Preview limit | 1–64; default 8 | Application setting. The editor and validator now agree; previously the editor allowed 0–10,000. |
@@ -40,8 +40,26 @@ native integer/float conversion checks, normalization checks and appropriate
 render validation rather than only widening spin boxes. Numeric editors preserve
 six decimal places; arbitrary higher-precision imported values are still not
 guaranteed to survive a GUI round trip unchanged. Advanced low-level inputs such
-as per-level arrays and stop thresholds need a deliberate adapter/API design.
+as per-level arrays and detector-internal tuning need a deliberate adapter/API design.
 No render defaults were changed by this audit.
+
+## Dual-engine decisions (2026-09-12)
+
+- Keep scalar iteration controls and existing six-decimal policy caps; do not
+  silently round-trip arrays or advertise arbitrary-precision/API-complete parity.
+  Guides remain normalized by style/key weight, not a second native style-weight
+  parameter. Existing finite/range/channel validation applies to both adapters.
+- FuouM exposes early-stop (integer 0–100,000), search-pruning (0–100,000), voting,
+  SSD/NCC cost, and sparse-anchor weight (0–10,000). These are FuouM-only settings;
+  they are filtered out of the original engine configuration. A fixed pruning
+  threshold is not equivalent across SSD and NCC cost scales.
+- FuouM Poisson luminance/chroma weights are separate 0–10,000 controls. They and
+  maxiter are greyed out for seamless/disabled reconstruction. Its solver choice
+  is separate from the legacy LSQR/LSMR selector; old presets migrate explicitly.
+- Keep consecutive source frames and the existing grouped keyframe/range
+  checklist. Gaps are rejected rather than silently treating a multi-frame jump
+  as one adjacent flow step. Arbitrary/gapped file lists need an explicit timing
+  and interpolation design before implementation, not an unchecked file picker.
 
 Local references: [RunConfig](ezsynth/aux_classes.py),
 [native wrapper and pyramid calculation](ezsynth/utils/_eb.py),

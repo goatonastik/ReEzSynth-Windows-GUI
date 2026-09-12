@@ -3,7 +3,9 @@ import importlib.util
 
 
 BLEND_DEFAULTS = dict(only_mode="none", use_gpu=False, use_lsqr=True,
-                      use_poisson_cupy=False, poisson_maxiter=None)
+                      use_poisson_cupy=False, poisson_maxiter=None,
+                      fuoum_poisson_solver='lsqr', fuoum_poisson_grad_weight_l=2.5,
+                      fuoum_poisson_grad_weight_ab=.5)
 GROUPED_DEFAULTS = dict(start=None, end=None, keyframes=None, folder="grouped_video")
 
 
@@ -13,6 +15,8 @@ def validate_blend_options(data=None):
     if not isinstance(data, dict) or set(data) - set(BLEND_DEFAULTS):
         raise ValueError("Invalid blending options.")
     result = dict(BLEND_DEFAULTS, **data)
+    if 'fuoum_poisson_solver' not in data:
+        result['fuoum_poisson_solver'] = 'lsqr' if result['use_lsqr'] else 'lsmr'
     if result["only_mode"] not in ("none", "forward", "reverse"):
         raise ValueError("Video mode must be normal blending, forward only or reverse only.")
     for name in ("use_gpu", "use_lsqr", "use_poisson_cupy"):
@@ -23,6 +27,12 @@ def validate_blend_options(data=None):
         raise ValueError("Poisson iteration limit must be a positive integer or null.")
     if result["use_poisson_cupy"] and not result["use_gpu"]:
         raise ValueError("CuPy Poisson reconstruction requires GPU blending to be enabled.")
+    if result['fuoum_poisson_solver'] not in ('lsqr', 'lsmr', 'cg', 'amg', 'seamless', 'disabled'):
+        raise ValueError('Unknown FuouM Poisson solver.')
+    for name in ('fuoum_poisson_grad_weight_l', 'fuoum_poisson_grad_weight_ab'):
+        value = result[name]
+        if type(value) not in (int, float) or not 0 <= value <= 10000:
+            raise ValueError(f'{name} must be a number between 0 and 10000.')
     return result
 
 
