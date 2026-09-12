@@ -710,6 +710,13 @@ performance and memory returning toward baseline remain unverified.
 
 ### 2026-09-12 follow-up GPU diagnostic
 
+- The opt-in FuouM 1080p diagnostic also passed on this Windows/RTX 5090 host:
+  five bundled frames completed as both an ordinary video pass (7.97 seconds)
+  and a grouped pass (12.28 seconds). Valid output, provenance, error/export
+  checks and normal shared-worker exit were verified. It sampled a 16,151 MiB
+  process-aggregate GPU peak, with aggregate GPU memory at 2,504 MiB before
+  and 2,496 MiB after worker exit. Diagnostics are ignored under
+  `diagnostic_outputs/release_fuoum_20260912_121633_484674`.
 - The opt-in legacy 4K diagnostic passed on this Windows/RTX 5090 host using
   the bundled three-frame sample and memory-efficient RAFT. It completed in
   10.60 seconds, sampled a process-aggregate GPU peak of 11,123 MiB, produced
