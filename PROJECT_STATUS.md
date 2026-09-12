@@ -5,6 +5,15 @@ in [README.md](README.md).
 
 ## Local review fixes verified (2026-09-12)
 
+- Optional GPU blending is now validated on this RTX 5090. A quarantined CuPy
+  14.2.0 environment using pinned CUDA 13.4 components passed the application's
+  readiness kernel, histogram path, sparse construction and three-channel CuPy
+  Poisson solve. A full frontend image/video/grouped queue then passed in 6.069
+  seconds with clean worker exit; its grouped manifest records both GPU blending
+  switches and `cupy-cuda13x 14.2.0`. Retained report:
+  `engines_legacy_cupy_poisson_20260912_142956_596878`. The normal environment
+  remains unchanged; `requirements-cupy-cuda13.txt` is an opt-in host-specific
+  compatibility set, not part of default installation.
 - Optional legacy flow validation is complete on this host. All three official
   EF-RAFT checkpoints from upstream revision `9ad323b` passed direct finite-flow
   checks and full Preview image/video/grouped jobs. FlowDiffuser's official 58.1 MB
@@ -39,7 +48,7 @@ in [README.md](README.md).
   relevant loaded native extensions, and expanded adapter/package provenance.
   Requested settings remain available separately. Native Auto backend decisions
   and geometry-dependent pyramid clamping are not introspected.
-- Full maintained suite: **229 tests passed in 30.091 seconds**. This includes
+- Full maintained suite: **230 tests passed in 29.779 seconds**. This includes
   default dual-engine setup, optional-flow readiness and provenance, new timing/
   completion tests, custom-kernel readiness, and metadata regressions. Expected
   upstream deprecation/offscreen Qt warnings remain; no test failed.

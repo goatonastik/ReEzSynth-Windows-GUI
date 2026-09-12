@@ -82,6 +82,12 @@ class SetupTests(unittest.TestCase):
             self.assertIn(f'{name}=={version}', requirements)
         self.assertEqual(set(BACKBONES), {'twins_svt_large', 'twins_svt_small'})
 
+    def test_cupy_cuda13_requirements_pin_the_validated_quarantine_set(self):
+        requirements = (ROOT / 'requirements-cupy-cuda13.txt').read_text(encoding='utf-8')
+        for requirement in ('cupy-cuda13x[ctk]==14.2.0', 'cuda-toolkit==13.4.1.0',
+                            'nvidia-cuda-nvrtc==13.4.59', 'nvidia-cusolver==12.3.2.15'):
+            self.assertIn(requirement, requirements)
+
     def test_flowdiffuser_setup_never_overwrites_an_unexpected_backbone(self):
         model_dir = self.root / 'flow-models'
         model_dir.mkdir()

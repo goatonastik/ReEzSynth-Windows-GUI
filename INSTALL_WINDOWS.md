@@ -135,7 +135,20 @@ download them. The video controls offer the bundled Sintel default and Kitti RAF
 weights. Image synthesis needs the native library but does not load RAFT models.
 
 CuPy GPU blending is optional and off by default. It is not part of this baseline
-install. The EbSynth backend control offers CUDA, Auto and CPU; video optical flow
+install. The tested RTX 5090 configuration requires a CUDA 13.4-capable driver and
+the isolated pins in `requirements-cupy-cuda13.txt`:
+
+```powershell
+python -m pip install -r requirements-cupy-cuda13.txt -c reezsynth-working-requirements.txt
+python -B diagnose_reezsynth_engines.py --engine legacy --gpu-blending --cupy-poisson
+```
+
+The second command exercises the readiness kernel, GPU histogram blending and
+CuPy Poisson reconstruction through a real grouped frontend job. Do not install a
+CUDA 13 wheel on a system whose NVIDIA driver cannot support it; use the official
+CuPy compatibility guidance for other hosts. The CUDA 12 CuPy 14.2.0 wheel failed
+with `CUDA_ERROR_NO_BINARY_FOR_GPU` on this RTX 5090, while the pinned CUDA 13 set
+passed. The EbSynth backend control offers CUDA, Auto and CPU; video optical flow
 can still use PyTorch CUDA, so CPU EbSynth is not a complete CPU-only video mode.
 If PyTorch CUDA is unavailable, CPU/Auto permits CPU optical flow with Classic
 edges and GPU blending/correlation disabled. To check both native backends and CPU

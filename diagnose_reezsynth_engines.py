@@ -1,4 +1,4 @@
-"""Opt-in real image/video/grouped smoke checks and shared-worker reuse for either engine."""
+"""Opt-in real image/video/grouped smoke checks, including optional CuPy blending."""
 import argparse
 from datetime import datetime
 import json
@@ -31,6 +31,10 @@ def main():
     parser.add_argument('--flow-arch', choices=('RAFT', 'EF_RAFT', 'FLOW_DIFF'), default='RAFT',
                         help='Legacy optical-flow architecture to exercise.')
     parser.add_argument('--flow-model', default='', help='Legacy checkpoint name for the selected architecture.')
+    parser.add_argument('--gpu-blending', action='store_true',
+                        help='Legacy grouped job: use CuPy histogram/matrix acceleration.')
+    parser.add_argument('--cupy-poisson', action='store_true',
+                        help='Legacy grouped job: also solve Poisson reconstruction with CuPy.')
     args = parser.parse_args()
     if args.four_k and (args.engine != 'legacy' or not args.memory_efficient):
         parser.error('--four-k requires legacy --memory-efficient')
@@ -40,6 +44,10 @@ def main():
         parser.error('--flow-arch is for the legacy engine')
     if args.memory_efficient and args.flow_arch != 'RAFT':
         parser.error('--memory-efficient requires --flow-arch RAFT')
+    if args.gpu_blending and args.engine != 'legacy':
+        parser.error('--gpu-blending is for the legacy engine')
+    if args.cupy_poisson and not args.gpu_blending:
+        parser.error('--cupy-poisson requires --gpu-blending')
     engine = FUOUM if args.engine == 'fuoum' else LEGACY
     model = args.flow_model or {'RAFT': 'sintel', 'EF_RAFT': '25000_ours-sintel',
                                 'FLOW_DIFF': 'FlowDiffuser-things'}[args.flow_arch]
@@ -47,7 +55,9 @@ def main():
                                    flow_arch=args.flow_arch, flow_model=model))
     runtime = prepare_runtime(options, dict(fuoum_source=args.fuoum_source, fuoum_python=args.fuoum_python))
     architecture = '' if args.flow_arch == 'RAFT' else '_' + args.flow_arch.lower()
-    base = ROOT / 'diagnostic_outputs' / ('engines_' + args.engine + architecture + '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    blending = '_cupy_poisson' if args.cupy_poisson else ('_cupy_blend' if args.gpu_blending else '')
+    base = ROOT / 'diagnostic_outputs' / ('engines_' + args.engine + architecture + blending + '_'
+                                         + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
     size = [3840, 2160] if args.four_k else [256, 144]
     jobs = []
@@ -65,7 +75,9 @@ def main():
                        frames=[[100 + n, str(ROOT / 'examples/input' / (str(n).zfill(3) + '.jpg'))] for n in range(3)])
             if kind == 'grouped':
                 job.update(type='grouped_video', styles=[[100, job['style']], [102, str(ROOT / 'examples/styles/style002.png')]],
-                           blend_options=dict(use_lsqr=False, poisson_maxiter=10))
+                           blend_options=dict(use_gpu=args.gpu_blending,
+                                              use_poisson_cupy=args.cupy_poisson,
+                                              use_lsqr=False, poisson_maxiter=10))
         atomic_json(output / 'job.json', job)
         jobs.append(job)
     stopped = threading.Event()

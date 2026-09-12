@@ -1,0 +1,13 @@
+# Optional GPU blending set validated on Windows, RTX 5090, and a CUDA 13.4 driver.
+# This is intentionally separate from the normal application installation.
+cupy-cuda13x[ctk]==14.2.0
+cuda-pathfinder==1.8.1
+cuda-toolkit==13.4.1.0
+nvidia-cublas==13.7.0.27
+nvidia-cuda-nvrtc==13.4.59
+nvidia-cuda-runtime==13.4.49
+nvidia-cufft==12.4.0.34
+nvidia-curand==10.4.4.49
+nvidia-cusolver==12.3.2.15
+nvidia-cusparse==12.8.6.49
+nvidia-nvjitlink==13.4.52

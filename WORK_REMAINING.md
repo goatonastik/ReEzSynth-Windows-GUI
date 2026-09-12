@@ -103,10 +103,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    set passed in quarantine and the normal environment. Rendering now loads local
    backbones only. A forced-offline full frontend run passed. Model files remain
    ignored; their licensing/distribution remains a release gate.
-2. [ ] **Optional GPU blending:** investigate a working CuPy configuration on
-   RTX 5090 and test histogram/Poisson blending. The retained CuPy 14.2.0/CUDA 12
-   experiment failed a real kernel; a compatible configuration is not yet
-   demonstrated. The normal installation does not depend on CuPy.
+2. [x] **Optional GPU blending:** CuPy 14.2.0 with its pinned CUDA 13.4 component
+   set passed the real readiness kernel, histogram blending, sparse construction,
+   three-channel Poisson solve, and a full grouped frontend job on RTX 5090. The
+   retained CUDA 12 failure remains useful compatibility evidence. Reproducible
+   pins are separate from standard installation in `requirements-cupy-cuda13.txt`.
 3. [ ] **Rendered-video export:** assemble existing rendered frames into video
    with an explicit frame rate and optional separately selected audio. Direct
    video import/frame extraction is excluded from this workflow.
@@ -162,7 +163,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the fixes: 229 tests passed in 30.091 seconds with normal
+- Full suite after the fixes: 230 tests passed in 29.779 seconds with normal
   temporary-directory/Qt access. The focused new regression selection also passed.
 - Synthetic CUDA correlation checks passed, followed by real 256x144 Preview
   image/video/grouped smoke checks for both engines. Legacy used compiled RAFT.

@@ -61,6 +61,9 @@ release was uploaded. A GitHub source archive is not yet a cleared binary packag
   `timm/twins_svt_large.in1k` revision `9985cdd` and
   `timm/twins_svt_small.in1k` revision `42c9bf4`. Hash enforcement in
   `setup_flowdiffuser.py` establishes integrity, not redistribution rights.
+- Optional CUDA 13 CuPy installation pulls NVIDIA runtime/toolkit component wheels.
+  Review their licenses and redistribution terms separately before bundling them;
+  the repository only records an opt-in requirements set.
 
 ## Gates before publishing
 

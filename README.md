@@ -316,7 +316,10 @@ Blend / Flow now renders one sequence from multiple selected keyframes, with its
 own inclusive range and output subfolder. Choose normal blending, forward-only
 or reverse-only propagation between keyframes. Outer tails propagate from the
 nearest selected keyframe. CPU blending is the default; optional GPU blending
-requires CuPy. Solver controls expose LSQR, LSMR and an automatic or explicit
+requires CuPy. On the RTX 5090 validation host, the CUDA 12 CuPy wheel could not
+execute kernels; the separate `requirements-cupy-cuda13.txt` set passed with a
+CUDA 13.4-capable driver. This optional set is not installed by standard setup.
+Solver controls expose LSQR, LSMR and an automatic or explicit
 LSMR iteration limit. These choices are included in render presets; projects also
 save the grouped range and selection. Independent jobs retain their own ranges.
 Rendering controls include optional numerical error/selection-map exports (.npy)
