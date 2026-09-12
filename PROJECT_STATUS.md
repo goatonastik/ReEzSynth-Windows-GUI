@@ -21,7 +21,7 @@ older limitations/results below without deleting the historical record.
   `diagnostic_outputs/install_verify_20260912/` passed dependency installation,
   pinned checkpoint downloads/checksums, full native compilation and import checks.
   This was a same-host install, not a clean-machine certification.
-- Final full suite: **197 tests passed in 26.871 seconds**. Includes installer no-write
+- Final full suite: **198 tests passed in 27.073 seconds**. Includes installer no-write
   plan/no-overwrite/checksum/patch tests, engine state/preset checks, and mathematical
   frame/gradient regressions. Original setup tests are preserved in their own file.
 - Real FuouM settings run: `release_fuoum_20260912_112014_540827`, **42 jobs x 33
@@ -67,6 +67,17 @@ older limitations/results below without deleting the historical record.
 - Deleted only the redundant `.engine_envs/fuoum_install_check` environment created
   during installer debugging. It can be recreated; working engines and the final
   fresh-install evidence remain untouched and ignored.
+- Optional legacy acceleration check: installed `cupy-cuda12x 14.2.0` only in the
+  ignored `.engine_envs/cupy-validation` environment. Dependency consistency passed,
+  but the first actual histogram-blending `repeat` kernel failed on RTX 5090 with
+  `CUDA_ERROR_NO_BINARY_FOR_GPU`. No CuPy package was installed into the normal GUI
+  environment. `check_blend_dependencies` now executes that minimal kernel before
+  queue creation and turns the failure into a clear disable/update message. Focused
+  grouped/CPU-Auto adapter regressions passed. Revisit when a compatible CuPy build
+  is available; this is not a successful GPU-blending validation.
+- Qt Multimedia loaded the bundled `assets/complete.wav` with `Ready` status. That
+  verifies decoding and the notification routing tests pass, but audible output
+  remains an interactive Windows check.
 - Runtime environments, checkpoints downloaded for diagnostics, generated renders
   and logs remain ignored. `.gitattributes` archive exclusions were tested in
   memory with `git archive --worktree-attributes`: developer snapshot/backup absent,

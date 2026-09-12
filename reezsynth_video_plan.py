@@ -36,10 +36,23 @@ def validate_blend_options(data=None):
     return result
 
 
-def check_blend_dependencies(options):
+def check_blend_dependencies(options, probe=None):
+    """Reject a nominal CuPy install that cannot execute on this GPU."""
     if options["only_mode"] == "none" and options["use_gpu"]:
         if importlib.util.find_spec("cupy") is None:
             raise ValueError("GPU blending requires CuPy, which is not installed. Disable GPU blending to use CPU reconstruction.")
+        if probe is None:
+            def probe():
+                import cupy as cp
+                # Allocation/reduction can succeed on an unsupported CUDA architecture;
+                # force the repeat kernel used by the blending path itself.
+                return cp.repeat(cp.asarray([1], dtype=cp.float32), 2).sum().item()
+        try:
+            probe()
+        except Exception as exc:
+            raise ValueError('GPU blending requires a usable CuPy/CUDA kernel on this GPU. '
+                             'Update or remove CuPy, or disable GPU blending. '
+                             f'CuPy reported: {exc}') from exc
 
 
 def validate_grouped_selection(data=None):

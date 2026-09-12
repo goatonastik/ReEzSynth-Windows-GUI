@@ -14,7 +14,8 @@ from unittest.mock import patch
 import numpy as np
 import test_reezsynth_render_adapter as adapter
 from test_reezsynth_lifecycle import LifecycleFixture, gui
-from reezsynth_video_plan import plan_grouped_video, synthesis_work, validate_blend_options
+from reezsynth_video_plan import (check_blend_dependencies, plan_grouped_video,
+                                  synthesis_work, validate_blend_options)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -66,6 +67,13 @@ def upstream_engine(captured):
 
 
 class PlanningTests(unittest.TestCase):
+    def test_gpu_blending_requires_a_usable_cupy_kernel(self):
+        enabled = {'only_mode': 'none', 'use_gpu': True}
+        with patch('reezsynth_video_plan.importlib.util.find_spec', return_value=object()):
+            check_blend_dependencies(enabled, probe=lambda: 1)
+            with self.assertRaisesRegex(ValueError, 'usable CuPy/CUDA kernel'):
+                check_blend_dependencies(enabled, probe=lambda: (_ for _ in ()).throw(RuntimeError('no kernel image')))
+
     def test_invalid_selection_and_blend_settings(self):
         for selection in ({'keyframes': [0]}, {'keyframes': [0, 0]}, {'start': 1, 'end': 2}):
             with self.subTest(selection=selection), self.assertRaises(ValueError):

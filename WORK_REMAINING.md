@@ -29,15 +29,19 @@ Windows/RTX 5090 host and the stated samples, not universal release certificatio
   unsupported arrays, arbitrary precision or frame gaps.
 - [x] Audit tracked assets/licenses and distribution architecture. Preserve original
   assets; exclude historical developer snapshots/backups from source archives.
-- [x] Pass 197 frontend regression tests, including preserved original setup tests
+- [x] Pass 198 frontend regression tests, including preserved original setup tests
   and new FuouM installer safety/state/mathematical checks.
 
 ## Suitable for an average/turbo model
 
 1. Run the documented CPU/Auto video checks on a CPU-only installation.
 2. Install and verify optional EF-RAFT/FlowDiffuser checkpoints and dependencies
-   in a controlled environment; keep them optional and honor checkpoint terms.
-3. Validate optional legacy CuPy blending/reconstruction in a separate environment.
+   in a controlled environment once an authoritative, versioned checkpoint source
+   with acceptable terms is selected. Their upstream projects use external model
+   downloads; the frontend deliberately imports user-selected files only.
+3. Revisit optional legacy CuPy blending when a CuPy release supports this GPU.
+   An isolated CuPy 14.2.0 / CUDA 12 build was tested and cannot generate a kernel
+   for RTX 5090; the frontend now rejects this condition before a render starts.
 4. Perform interactive Windows UI and audible completion-notification checks.
 5. Help review more user-provided clips/styles at production resolutions; retain
    reproducible job settings and report visual failures without claiming a universal
