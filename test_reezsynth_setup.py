@@ -1,5 +1,6 @@
 """Installation safeguards and launcher checks; no installs or rendering."""
 import hashlib
+import contextlib
 import io
 import json
 import os
@@ -12,6 +13,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import check_reezsynth_engines
+
 from check_reezsynth import EF_RAFT_MODELS, FLOW_DIFFUSION_MODEL, flow_extra_readiness, verify_assets
 from diagnose_reezsynth_adapter import (cancel_worker, render as run_adapter_diagnostic,
                                         render_parallel)
@@ -23,6 +26,18 @@ ROOT = Path(__file__).resolve().parent
 
 
 class SetupTests(unittest.TestCase):
+    def test_combined_engine_checker_runs_both_components_and_combines_failures(self):
+        with contextlib.redirect_stdout(io.StringIO()), \
+             patch.object(check_reezsynth_engines, 'run', side_effect=[1, 0]) as run:
+            result = check_reezsynth_engines.main([
+                '--fuoum-source', 'D:/source',
+                '--fuoum-python', 'D:/venv/Scripts/python.exe'])
+        self.assertEqual(result, 1)
+        self.assertEqual(run.call_count, 2)
+        self.assertIn('--raft-extension', run.call_args_list[0].args[0])
+        self.assertIn('--check-only', run.call_args_list[1].args[0])
+        self.assertIn('--neuflow', run.call_args_list[1].args[0])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='reezsynth setup (test) ')
         self.addCleanup(self.temp.cleanup)

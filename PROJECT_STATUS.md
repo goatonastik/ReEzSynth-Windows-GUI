@@ -3,6 +3,25 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Included-engine GUI setup controls verified (2026-09-12)
+
+- Settings now has an **Included engine setup and maintenance** panel. It reports
+  both supported pinned revisions, the current GUI interpreter and configured
+  FuouM source/worker paths. Its asynchronous readiness action runs the existing
+  Legacy CUDA/native/compiled-RAFT checks and FuouM's check-only path including
+  RAFT and NeuFlow assets, streaming combined output to Diagnostics.
+- Confirmed maintenance buttons target only the Legacy RAFT extension in the GUI
+  environment or the FuouM native extension in its dedicated runtime. FuouM has an
+  explicit forced-recompile mode for this action. Neither button updates, repairs
+  or replaces a pinned source checkout/environment. Runtime selectors, competing
+  component actions and window close are guarded until the child process exits.
+- The full maintained suite passed **257 tests in 34.923 seconds**. The actual
+  combined readiness command then passed in 15.7 seconds on this installation:
+  exact Legacy/FuouM revisions, package consistency, four Legacy runtime hashes,
+  CUDA 12.8, native EbSynth and compiled RAFT imports, FuouM environment/native
+  import and all standard RAFT/NeuFlow checkpoints. It loaded no models, rendered
+  nothing and made no installation changes. No rebuild was needed.
+
 ## GPU-aware parallel scheduling verified (2026-09-12)
 
 - Parallel queues now reserve conservative per-job VRAM estimates derived from

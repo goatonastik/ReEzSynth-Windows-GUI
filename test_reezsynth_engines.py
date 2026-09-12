@@ -15,11 +15,33 @@ import numpy as np
 from reezsynth_config import RENDER, STANDARD, validate_render, validate_group
 from reezsynth_engines import LEGACY, FUOUM, FUOUM_REVISION, ROOT, prepare_runtime, validate_capabilities, activate_fuoum
 from reezsynth_fuoum import build_configs, native_guides
+from reezsynth_engine_setup import (configured_runtime, readiness_command,
+                                    rebuild_command, version_summary)
 from test_reezsynth_gui import GuiFixture
 from test_reezsynth_lifecycle import LifecycleFixture
 
 
 class EngineTests(unittest.TestCase):
+    def test_engine_setup_commands_use_configured_pinned_runtimes(self):
+        application = {'fuoum_source': 'D:/custom/source',
+                       'fuoum_python': 'D:/custom/venv/Scripts/python.exe'}
+        source, worker = configured_runtime(application)
+        self.assertEqual(source, Path('D:/custom/source'))
+        self.assertEqual(worker, Path('D:/custom/venv/Scripts/python.exe'))
+        program, arguments = readiness_command(application)
+        self.assertEqual(program, sys.executable)
+        self.assertIn(str(source), arguments)
+        self.assertIn(str(worker), arguments)
+        legacy_program, legacy_arguments = rebuild_command('legacy', application)
+        self.assertEqual(legacy_program, sys.executable)
+        self.assertIn('--install', legacy_arguments)
+        fuoum_program, fuoum_arguments = rebuild_command('fuoum', application)
+        self.assertEqual(fuoum_program, str(worker))
+        self.assertIn('--force', fuoum_arguments)
+        summary = version_summary(application)
+        self.assertIn(FUOUM_REVISION, summary)
+        self.assertIn(str(source), summary)
+
     def test_revision_mismatch_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'file requests'):
             validate_group('render', dict(options={'engine': FUOUM}, engine_revision='wrong-revision'))

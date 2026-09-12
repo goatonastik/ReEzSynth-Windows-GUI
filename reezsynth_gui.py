@@ -2210,8 +2210,8 @@ class MainWindow(QMainWindow):
             event.ignore()
             QMessageBox.information(
                 self,
-                "Optional dependency installation",
-                "An optional dependency installation is still running. Wait for it to finish before closing ReEzSynth.",
+                "Component maintenance",
+                "A component check, build, or optional dependency installation is still running. Wait for it to finish before closing ReEzSynth.",
             )
             return
 

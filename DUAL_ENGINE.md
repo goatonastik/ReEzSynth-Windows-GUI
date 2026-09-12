@@ -58,6 +58,14 @@ resolved frontend settings, not an introspection of native internals: Auto backe
 selection and geometry-clamped pyramid depths are still decided during rendering.
 These identify the actual local files, including compatibility changes;
 they are not a claim of bit-identical rendering across hardware or engine versions.
+
+The Settings tab includes **Included engine setup and maintenance**. Its readiness
+button runs the same read-only Legacy CUDA/native-extension and FuouM check-only
+paths used by setup, reports both pinned revisions and streams details to
+Diagnostics. Separate rebuild buttons target only the selected native extension
+in its configured runtime and require confirmation. Rebuilds never update or
+replace engine source/environment revisions; use a fresh standard installation
+when a pinned runtime itself must be replaced.
 Preset/project revisions are checked when loading. Existing presets without a
 revision use the selected engine's current supported baseline.
 

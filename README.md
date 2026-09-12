@@ -89,8 +89,12 @@ from every tab, including while a worker is running.
   style and final result frames are still held in memory, so this is not a fully
   streaming renderer. Close all workers before manually deleting the cache to
   reclaim disk space; it will be rebuilt when needed.
-- **Settings:** includes optional
-  discovery, automatic start, parallel rendering, notifications and startup choices.
+- **Settings:** includes optional discovery, automatic start, parallel rendering,
+  notifications and startup choices. **Included engine setup and maintenance**
+  reports pinned versions, runs read-only readiness checks for both standard
+  engines, and provides confirmed native-extension rebuild actions. Checks and
+  builds stream details to Diagnostics; rebuilds do not replace pinned source or
+  environments.
 - **Diagnostics / Log:** retains all queue runs for the open application session.
   Each queue has prominent start/end separators; use **Save Log...** to write the
   complete current session to a `.log` or `.txt` file, including an active run.

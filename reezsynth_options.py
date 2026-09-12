@@ -19,6 +19,8 @@ from reezsynth_project_controls import (project_naming, set_project_naming,
 from reezsynth_preview import LivePreviewWindow
 from reezsynth_video_plan import validate_blend_options, validate_grouped_selection
 from reezsynth_engines import LEGACY, FUOUM, default_runtime, engine_revision
+from reezsynth_engine_setup import (readiness_command, rebuild_command,
+                                    version_summary)
 
 LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (position guide)",
     memory_efficient_raft="Memory-efficient RAFT correlation (CUDA) [Trentonom0r3 only]",
@@ -273,6 +275,7 @@ class Options(QObject):
         reset.clicked.connect(self.reset_all)
         settings_layout.insertWidget(7, reset)
         window.locked.append(reset)
+        self.add_engine_setup_controls(settings_layout)
         self.add_optional_flow_controls(settings_layout)
         # The settings page is already a tab; the toolbar opens live output previews.
         preview_button = QPushButton("Previews")
@@ -450,7 +453,7 @@ class Options(QObject):
         form.addRow('FlowDiffuser', self.flow_diff_status)
         form.addRow('', flow_install)
         form.addRow('', timm_install)
-        layout.insertWidget(8, box)
+        layout.insertWidget(9, box)
         self.optional_flow_buttons = (ef_install, flow_install, timm_install)
         self.w.locked.extend(self.optional_flow_buttons)
         self.refresh_optional_flow_status()
@@ -520,7 +523,114 @@ class Options(QObject):
         self.finished_install_flowdiffuser_timm(-1, None)
 
     def installation_active(self):
-        return bool(getattr(self, 'timm_install_pending', False))
+        return bool(getattr(self, 'timm_install_pending', False) or
+                    getattr(self, 'engine_action_pending', False))
+
+    def add_engine_setup_controls(self, layout):
+        box = QGroupBox('Included engine setup and maintenance')
+        form = QFormLayout(box)
+        self.engine_setup_status = QLabel(version_summary(self.application()) +
+            '\nReadiness: not checked in this session.')
+        self.engine_setup_status.setWordWrap(True)
+        check = QPushButton('Check included engines')
+        legacy = QPushButton('Rebuild Legacy RAFT extension...')
+        fuoum = QPushButton('Rebuild FuouM native extension...')
+        check.clicked.connect(self.check_included_engines)
+        legacy.clicked.connect(lambda: self.rebuild_engine_component('legacy'))
+        fuoum.clicked.connect(lambda: self.rebuild_engine_component('fuoum'))
+        form.addRow(self.engine_setup_status)
+        form.addRow('', check)
+        form.addRow('', legacy)
+        form.addRow('', fuoum)
+        note = QLabel('Both engines are included by standard setup. Checks are read-only. Rebuilds require the matching CUDA toolkit and Visual Studio 2022; pinned source revisions and existing environments are never replaced automatically.')
+        note.setWordWrap(True)
+        form.addRow(note)
+        layout.insertWidget(8, box)
+        self.engine_setup_buttons = (check, legacy, fuoum)
+        self.w.locked.extend(self.engine_setup_buttons)
+
+    def check_included_engines(self):
+        program, arguments = readiness_command(self.application())
+        self.start_engine_action('readiness check', program, arguments)
+
+    def rebuild_engine_component(self, component):
+        if self.installation_active() or self.w.busy:
+            QMessageBox.information(self.w, 'Engine maintenance busy',
+                                    'Wait for the current render or component operation to finish.')
+            return
+        label = 'Legacy RAFT extension' if component == 'legacy' else 'FuouM native extension'
+        program, arguments = rebuild_command(component, self.application())
+        if not Path(program).is_file():
+            QMessageBox.warning(self.w, 'Cannot rebuild engine', f'Python executable not found: {program}')
+            return
+        if QMessageBox.question(self.w, f'Rebuild {label}?',
+                f'Recompile and install the {label} for the currently configured runtime?\n\n'
+                'This can take several minutes and requires the matching CUDA toolkit and Visual Studio 2022. '
+                'It does not update or replace engine source revisions.',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        self.start_engine_action(label + ' rebuild', program, arguments)
+
+    def start_engine_action(self, label, program, arguments):
+        if self.installation_active() or self.w.busy:
+            QMessageBox.information(self.w, 'Engine maintenance busy',
+                                    'Wait for the current render or component operation to finish.')
+            return
+        self.engine_action_pending = True
+        self.engine_action_label = label
+        self.engine_process = QProcess(self)
+        self.engine_process.setWorkingDirectory(str(Path(__file__).parent))
+        self.engine_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.engine_process.readyReadStandardOutput.connect(self.read_engine_action)
+        self.engine_process.finished.connect(self.finished_engine_action)
+        self.engine_process.errorOccurred.connect(self.engine_action_error)
+        for button in (*self.engine_setup_buttons, *self.optional_flow_buttons):
+            button.setEnabled(False)
+        for control in (self.widgets['render']['engine'],
+                        self.widgets['application']['fuoum_source'],
+                        self.widgets['application']['fuoum_python']):
+            control.setEnabled(False)
+        self.engine_setup_status.setText(version_summary(self.application()) + f'\nRunning: {label}...')
+        self.w.log.appendPlainText(f'\n[Engine maintenance] Starting {label}.')
+        self.engine_process.start(str(program), [str(value) for value in arguments])
+
+    def read_engine_action(self):
+        if not getattr(self, 'engine_process', None):
+            return
+        text = bytes(self.engine_process.readAllStandardOutput()).decode('utf-8', 'replace').rstrip()
+        if text:
+            self.w.log.appendPlainText(text)
+
+    def finished_engine_action(self, code, status):
+        if not getattr(self, 'engine_action_pending', False):
+            return
+        self.read_engine_action()
+        self.engine_action_pending = False
+        process = self.engine_process
+        self.engine_process = None
+        normal = status == QProcess.ExitStatus.NormalExit
+        success = code == 0 and normal
+        label = self.engine_action_label
+        self.engine_setup_status.setText(version_summary(self.application()) +
+            f"\nLast operation: {label} {'passed' if success else 'failed'}; see Diagnostics.")
+        self.w.log.appendPlainText(
+            f"[Engine maintenance] {label} {'passed' if success else f'failed (exit {code})'}.")
+        for button in (*self.engine_setup_buttons, *self.optional_flow_buttons):
+            button.setEnabled(not self.w.busy)
+        self.refresh_engine_controls()
+        (QMessageBox.information if success else QMessageBox.warning)(
+            self.w, 'Engine maintenance',
+            f"{label.capitalize()} {'completed successfully.' if success else 'failed. See Diagnostics for details.'}")
+        process.deleteLater()
+
+    def engine_action_error(self, error):
+        if not getattr(self, 'engine_action_pending', False):
+            return
+        self.w.log.appendPlainText('[Engine maintenance] Could not run component command: ' +
+                                   self.engine_process.errorString())
+        if error == QProcess.ProcessError.FailedToStart:
+            self.finished_engine_action(-1, QProcess.ExitStatus.CrashExit)
 
     def preset_bar(self, group, label):
         layout = QHBoxLayout()

@@ -134,9 +134,14 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    caps, and automatic mode serializes safely when telemetry is unavailable. Queue
    logs and job tooltips report the GPU, safety reserve, estimate and worker PID.
    Unit/lifecycle coverage and a real two-job automatic FuouM GUI run passed.
-7. [ ] **Engine setup controls in the GUI:** expose component readiness checks
-   and maintenance/rebuild/version handling. Standard installation now includes
-   FuouM; these controls should describe it as an included engine.
+7. [x] **Engine setup controls in the GUI:** Settings now identifies both engines
+   as standard included components, shows their pinned revisions and configured
+   runtimes, and asynchronously runs the authoritative Legacy and FuouM read-only
+   readiness checks with live Diagnostics output. Confirmed maintenance actions
+   rebuild only the selected Legacy RAFT or FuouM native extension in place; they
+   never imply source/environment repair or replacement. Controls and window close
+   are guarded while an operation runs. Command/UI regressions and the real combined
+   check against this host's installed engines passed; no rebuild was needed.
 8. [ ] **Advanced controls/workflows:** consider per-pyramid-level iterations,
    finer numeric precision, supported modulation guides, numerical flow-vector
    exports, or FuouM's alternate synthesis backend. Each needs explicit mapping
@@ -178,7 +183,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the GPU-aware scheduler: 253 maintained tests passed in 34.995 seconds with
+- Full suite after the engine setup controls: 257 maintained tests passed in 34.923 seconds with
   normal temporary-directory/Qt access. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
 - Automatic GPU-aware admission also passed a real two-job 512x288 FuouM GUI run.
@@ -186,6 +191,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
   3.2 GiB safety reserve; both completed, logged their PIDs/resource snapshots and
   left 28.2 GiB free after exit. Retained diagnostic:
   `gui_controller_20260912_160955_548162`.
+- The new combined read-only readiness command passed on this host in 15.7 seconds.
+  It verified both pinned revisions, Legacy dependency consistency/runtime hashes,
+  CUDA 12.8, the EbSynth entry point and compiled RAFT extension, plus FuouM's
+  dedicated environment, native import, RAFT and NeuFlow assets. It loaded no
+  models and performed no render or rebuild.
 - Synthetic CUDA correlation checks passed, followed by real 256x144 Preview
   image/video/grouped smoke checks for both engines. Legacy used compiled RAFT.
   Completion, previews, image errors, numbering, worker exit and the new component

@@ -289,6 +289,30 @@ class PresetTests(GuiFixture):
 
 
 class IntegrationTests(LifecycleFixture):
+    def test_engine_readiness_action_streams_and_restores_controls(self):
+        options = self.w.options
+        with patch.object(gui.QMessageBox, 'information') as notice:
+            options.start_engine_action('test readiness', sys.executable,
+                                        ['-c', 'print("ENGINE_CHECK_OK")'])
+            self.assertTrue(options.installation_active())
+            self.assertTrue(all(not button.isEnabled() for button in options.engine_setup_buttons))
+            self.until(lambda: not options.installation_active())
+        self.assertIn('ENGINE_CHECK_OK', self.w.log.toPlainText())
+        self.assertIn('passed', options.engine_setup_status.text())
+        self.assertTrue(all(button.isEnabled() for button in options.engine_setup_buttons))
+        notice.assert_called_once()
+
+    def test_engine_rebuild_requires_confirmation_and_uses_force(self):
+        options = self.w.options
+        with patch('reezsynth_options.rebuild_command',
+                   return_value=(sys.executable, ['build_fuoum_engine.py', '--force'])) as command, \
+             patch.object(options, 'start_engine_action') as start, \
+             patch.object(gui.QMessageBox, 'question',
+                          return_value=gui.QMessageBox.StandardButton.Yes):
+            options.rebuild_engine_component('fuoum')
+        command.assert_called_once_with('fuoum', options.application())
+        self.assertIn('--force', start.call_args.args[2])
+
     def test_selected_raft_weights_are_checked_before_queue_start(self):
         self.w.options.widgets['render']['flow_model'].setCurrentText('kitti')
         with patch('reezsynth_gui.validate_flow_model_available', side_effect=ValueError('Kitti weights are missing')), \

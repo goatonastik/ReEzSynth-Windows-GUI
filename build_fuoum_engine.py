@@ -13,6 +13,7 @@ from reezsynth_engines import FUOUM, ROOT, prepare_runtime
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', default='', help='Optional pinned FuouM checkout.')
+    parser.add_argument('--force', action='store_true', help='Force recompilation for maintenance.')
     args = parser.parse_args()
     if sys.platform != 'win32' or sys.prefix == sys.base_prefix:
         raise RuntimeError('Run this helper with the separate FuouM virtual environment on Windows.')
@@ -52,7 +53,11 @@ def main():
     # BuildExtension discovers ninja through PATH, even when Python is invoked by full path.
     environment['PATH'] = str(Path(sys.executable).parent) + os.pathsep + environment.get('PATH', '')
     print(f'Building FuouM {runtime["revision"]} for CUDA architecture {architecture}', flush=True)
-    subprocess.run([sys.executable, 'setup.py', 'build_ext', '--inplace'], cwd=runtime['source'],
+    build = [sys.executable, 'setup.py', 'build_ext']
+    if args.force:
+        build.append('--force')
+    build.append('--inplace')
+    subprocess.run(build, cwd=runtime['source'],
                    env=environment, check=True)
     subprocess.run([sys.executable, '-c', 'import torch, ebsynth_torch; print(ebsynth_torch.__file__)'],
                    cwd=runtime['source'], env=environment, check=True)
