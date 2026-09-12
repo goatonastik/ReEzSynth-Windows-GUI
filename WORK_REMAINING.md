@@ -65,11 +65,12 @@ installed as part of the standard application setup, not as an optional engine.
    exports and did not assert engine manifests. Earlier extended runs cover
    exports. GPU samples are device-wide, not per-process peaks. Historical parity
    statements are now explicitly separated from current status.
-6. [ ] Refresh the requested ChatGPT handoff if it is to represent current code.
-   `Z:\temp\reezsynth_frontend_handoff_f5551c9` exists with 28 copied files and
-   its manifest. It predates the CuPy-kernel preflight fix and the subsequent
-   default dual-engine setup changes. Keep the original snapshot
-   identifiable and supply a new revision-labelled copy when refreshing it.
+6. [x] Refresh the requested ChatGPT source handoff:
+   `Z:\temp\reezsynth_frontend_handoff_d66ad6a` contains 48 source/documentation/
+   dependency files plus `HANDOFF_MANIFEST.txt`, with every copied source file
+   verified by SHA-256. Includes all maintained frontend modules and the new
+   provenance helper. It is a review bundle, not a standalone installation.
+   The older 28-file `reezsynth_frontend_handoff_f5551c9` snapshot is preserved.
 
 ## Validation still needed
 

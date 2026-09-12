@@ -5,6 +5,9 @@ in [README.md](README.md).
 
 ## Local review fixes verified (2026-09-12)
 
+- Implementation committed as `d66ad6a`. The requested ChatGPT review handoff
+  was refreshed at `Z:\temp\reezsynth_frontend_handoff_d66ad6a`: 48 copied files
+  plus a manifest, all source copies hash-verified. The older snapshot is intact.
 - FuouM CLI benchmarks now recognize FuouM timing lines. Completion requires a
   zero process exit and `COMPLETE.txt`; missing timing lines no longer imply failure.
   FuouM call times are explicitly distinguished from end-to-end wall time.
