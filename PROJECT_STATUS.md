@@ -708,6 +708,18 @@ performance and memory returning toward baseline remain unverified.
 
 ## Repository and dependency follow-up
 
+### 2026-09-12 follow-up GPU diagnostic
+
+- The opt-in legacy 4K diagnostic passed on this Windows/RTX 5090 host using
+  the bundled three-frame sample and memory-efficient RAFT. It completed in
+  10.60 seconds, sampled a process-aggregate GPU peak of 11,123 MiB, produced
+  valid numbered output, previews and engine provenance, and exited its shared
+  worker normally. Aggregate GPU memory was 2,529 MiB before and 2,518 MiB
+  after the worker exited. Diagnostics are ignored under
+  `diagnostic_outputs/engines_legacy_20260912_121412_671114`.
+- This is a bounded smoke/stability observation, not an overnight leak test,
+  a universal performance benchmark, or validation of user-provided footage.
+
 - `.gitignore` has the correct filename and ignores common weights, but three
   RAFT .pth files are already tracked (about 46 MB total). No files were untracked.
 - Tracked source bundle, example inputs/keyframes, backup and output_synth PNGs
