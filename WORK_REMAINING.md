@@ -1,6 +1,6 @@
 # Remaining work
 
-Updated 2026-09-12 after the high-reasoning pass. This is the current checklist;
+Updated 2026-09-12 after the high-reasoning pass and follow-up maintenance. This is the current checklist;
 older PROJECT_STATUS.md entries are historical. Results below describe this
 Windows/RTX 5090 host and the stated samples, not universal release certification.
 
@@ -45,7 +45,11 @@ Windows/RTX 5090 host and the stated samples, not universal release certificatio
 4. Review more user-provided clips/styles at production resolutions; retain
    reproducible job settings and report visual failures without claiming a universal
    engine quality ranking. Escalate actual algorithmic failures to high reasoning.
-5. Review final documentation/staged-file inventory and commit when requested.
+
+## Follow-up maintenance completed
+
+- [x] Review final documentation and staged-file inventory; commit the completed
+  dual-engine work and the subsequently verified completion-notification result.
 
 ## Requires external evidence or a user decision, not a model upgrade
 
