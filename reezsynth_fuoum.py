@@ -58,6 +58,9 @@ def render_fuoum_job(job, progress):
     options = validate_render(dict(quality_profile(job['quality']), **job.get('render_options', {})))
     blend = validate_blend_options(job.get('blend_options'))
     exports = validate_exports(job.get('exports'))
+    from reezsynth_video_export import ffmpeg_executable, validate_video_export
+    video_export = validate_video_export(job.get('video_export'), check_audio=True)
+    video_ffmpeg = ffmpeg_executable() if video_export['enabled'] else None
     image_job = job.get('type') == 'image_synthesis'
     validate_capabilities(options, image=image_job, blend=job.get('blend_options'), exports=job.get('exports'))
     if options['engine'] != FUOUM:
@@ -225,5 +228,10 @@ def render_fuoum_job(job, progress):
         progress(90 + 9 * (index + 1) / len(frames), f'Saving {index + 1}/{len(frames)}', preview=preview)
     save_artifacts(output, exports, records, error_maps, flow_images,
                    scope='FuouM raw synthesis passes; frame-aligned errors before blending/compositing')
+    if video_export['enabled']:
+        progress(99, 'Encoding rendered video')
+        from reezsynth_video_export import export_rendered_video
+        export_rendered_video(output, numbers, job['padding'], video_export,
+                              ffmpeg_exe=video_ffmpeg)
     (output / 'COMPLETE.txt').write_text(f'Engine: {FUOUM}\nSaved frames: {len(frames)}\n', encoding='utf-8')
     progress(99, 'Finishing FuouM synthesis')

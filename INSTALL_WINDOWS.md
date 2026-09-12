@@ -126,6 +126,10 @@ The current checkout includes `ezsynth/utils/ebsynth.dll` and RAFT Sintel/Kitti
 weights. `runtime-assets.json` records their working-checkout hashes to detect
 incomplete or changed copies. Hashes do not prove upstream provenance. Keep
 licensing/attribution when distributing runtime files.
+`imageio-ffmpeg 0.6.0` is a direct frontend dependency used only when rendered-
+video export is enabled. The worker invokes its bundled FFmpeg executable after
+PNG saving and before the completion marker; no system FFmpeg installation is
+required for the normal setup.
 Do not replace the working DLL or remove the local CUDA-backend forwarding fixes.
 
 If RAFT weights are absent, obtain them from the

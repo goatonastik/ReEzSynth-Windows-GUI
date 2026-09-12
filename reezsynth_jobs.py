@@ -252,9 +252,12 @@ def _render_legacy_job(job_path):
         from reezsynth_image import render_image_job
         return render_image_job(job, progress)
     from reezsynth_artifacts import validate_exports, artifact_records, save_artifacts
+    from reezsynth_video_export import ffmpeg_executable, validate_video_export
     from reezsynth_config import validate_processing_settings
     processing = validate_processing_settings(job)
     exports = validate_exports(job.get("exports"))
+    video_export = validate_video_export(job.get('video_export'), check_audio=True)
+    video_ffmpeg = ffmpeg_executable() if video_export['enabled'] else None
     auxiliary_maps, auxiliary_flows = [], []
     entries = job["frames"]
     numbers = [entry[0] for entry in entries]
@@ -568,6 +571,12 @@ def _render_legacy_job(job_path):
         records = artifact_records(numbers, [n for n, _ in style_entries], blend_options.get("only_mode", "none"))
         save_artifacts(output, exports, records, auxiliary_maps, auxiliary_flows)
 
+    if video_export['enabled']:
+        progress(99, 'Encoding rendered video')
+        from reezsynth_video_export import export_rendered_video
+        export_rendered_video(output, numbers, job['padding'], video_export,
+                              ffmpeg_exe=video_ffmpeg)
+
     (output / "COMPLETE.txt").write_text(
         f"Keyframe: {key}\n"
         f"Range: {numbers[0]} to {numbers[-1]}\n"
@@ -588,4 +597,3 @@ if __name__ == "__main__":
     except Exception:
         traceback.print_exc()
         sys.exit(1)
-

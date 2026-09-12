@@ -35,6 +35,9 @@ def main():
                         help='Legacy grouped job: use CuPy histogram/matrix acceleration.')
     parser.add_argument('--cupy-poisson', action='store_true',
                         help='Legacy grouped job: also solve Poisson reconstruction with CuPy.')
+    parser.add_argument('--export-video', action='store_true',
+                        help='Encode video/grouped frame outputs to render.mp4.')
+    parser.add_argument('--audio', default='', help='Optional separate audio file for --export-video.')
     args = parser.parse_args()
     if args.four_k and (args.engine != 'legacy' or not args.memory_efficient):
         parser.error('--four-k requires legacy --memory-efficient')
@@ -48,6 +51,9 @@ def main():
         parser.error('--gpu-blending is for the legacy engine')
     if args.cupy_poisson and not args.gpu_blending:
         parser.error('--cupy-poisson requires --gpu-blending')
+    if args.audio and not args.export_video:
+        parser.error('--audio requires --export-video')
+    audio = str(Path(args.audio).expanduser().resolve()) if args.audio else ''
     engine = FUOUM if args.engine == 'fuoum' else LEGACY
     model = args.flow_model or {'RAFT': 'sintel', 'EF_RAFT': '25000_ours-sintel',
                                 'FLOW_DIFF': 'FlowDiffuser-things'}[args.flow_arch]
@@ -72,7 +78,8 @@ def main():
                        source=str(example / 'source_segment.png'), target=str(example / 'target_segment.png')))
         else:
             job.update(key=100, style=str(ROOT / 'examples/styles/style000.jpg'), padding=3,
-                       frames=[[100 + n, str(ROOT / 'examples/input' / (str(n).zfill(3) + '.jpg'))] for n in range(3)])
+                       frames=[[100 + n, str(ROOT / 'examples/input' / (str(n).zfill(3) + '.jpg'))] for n in range(3)],
+                       video_export=dict(enabled=args.export_video, fps=12.0, audio=audio))
             if kind == 'grouped':
                 job.update(type='grouped_video', styles=[[100, job['style']], [102, str(ROOT / 'examples/styles/style002.png')]],
                            blend_options=dict(use_gpu=args.gpu_blending,
@@ -136,6 +143,11 @@ def main():
             image = cv2.imread(str(output / name))
             if image is None or image.shape != (size[1], size[0], 3) or image.std() == 0:
                 raise RuntimeError(f'Invalid output shape/content: {output / name}')
+        if job.get('video_export', {}).get('enabled'):
+            video = output / 'render.mp4'
+            metadata = json.loads((output / 'rendered_video.json').read_text(encoding='utf-8'))
+            if not video.is_file() or video.stat().st_size == 0 or metadata['frames'] != 3 or metadata['fps'] != 12.0:
+                raise RuntimeError(f'Invalid rendered-video export: {video}')
         if job.get('type') == 'image_synthesis':
             error = np.load(output / 'error.npy', allow_pickle=False)
             if error.shape != (size[1], size[0]) or not np.isfinite(error).all():

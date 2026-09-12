@@ -1009,6 +1009,8 @@ class MainWindow(QMainWindow):
             validate_weights(data.get("guide_weights"))
             validate_blend_options(data.get("blend_options"))
             validate_exports(data.get("exports"))
+            from reezsynth_video_export import validate_video_export
+            validate_video_export(data.get('video_export'))
             grouped_selection = validate_grouped_selection(data.get("grouped_video"))
             if grouped_selection["keyframes"] is not None and set(grouped_selection["keyframes"]) - set(keys):
                 raise ValueError("Saved grouped keyframes are missing from the input folders.")
@@ -1092,6 +1094,9 @@ class MainWindow(QMainWindow):
 
             render_options = self.options.render(effective=True)
             guide_weights = self.options.weights()
+            from reezsynth_video_export import validate_video_export
+            video_export = validate_video_export(
+                self.options.snapshot('render')['video_export'], check_audio=True)
             application = validate_application(self.options.application())
             from reezsynth_engines import prepare_runtime, validate_capabilities, preflight_flow
             engine_runtime = prepare_runtime(render_options, application)
@@ -1198,6 +1203,7 @@ class MainWindow(QMainWindow):
                     "render_options": render_options,
                     "engine_runtime": engine_runtime,
                     "exports": validate_exports(self.options.snapshot("render")["exports"]),
+                    "video_export": video_export,
                     "guide_weights": guide_weights,
                     "masks": [[number, str(masks[number])] for number, _ in frames] if masks else [],
                     "edge_guides": [[number, str(edge_guides[number])] for number, _ in frames] if edge_guides else [],
@@ -2013,6 +2019,7 @@ class MainWindow(QMainWindow):
         self.image_synthesis.set_busy(busy)
         if hasattr(self, 'options'):
             self.options.refresh_engine_controls()
+            self.options.refresh_video_export_controls()
         update_naming_preview(self)
         self.stop.setEnabled(
             busy and not self.cancelled

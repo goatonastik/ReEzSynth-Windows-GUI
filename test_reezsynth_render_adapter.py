@@ -99,6 +99,26 @@ class RenderAdapterTests(unittest.TestCase):
             self.assertFalse(captured["engine"]["do_mask"])
         self.assertTrue((self.output / "COMPLETE.txt").exists())
 
+    def test_requested_video_export_finishes_before_completion_marker(self):
+        self.job['frames'] = self.frames[:1]
+        self.job['video_export'] = {'enabled': True, 'fps': 12, 'audio': ''}
+        def export(output, numbers, padding, settings, **kwargs):
+            self.assertFalse((Path(output) / 'COMPLETE.txt').exists())
+            (Path(output) / 'render.mp4').write_bytes(b'mp4')
+        with patch('reezsynth_video_export.export_rendered_video', side_effect=export):
+            self.run_job()
+        self.assertTrue((self.output / 'render.mp4').is_file())
+        self.assertTrue((self.output / 'COMPLETE.txt').is_file())
+
+    def test_requested_video_export_failure_prevents_completion_marker(self):
+        self.job['frames'] = self.frames[:1]
+        self.job['video_export'] = {'enabled': True, 'fps': 24, 'audio': ''}
+        with patch('reezsynth_video_export.export_rendered_video',
+                   side_effect=RuntimeError('encoder failed')), \
+                self.assertRaisesRegex(RuntimeError, 'encoder failed'):
+            self.run_job()
+        self.assertFalse((self.output / 'COMPLETE.txt').exists())
+
     def test_custom_controls_and_grayscale_masks_reach_engine(self):
         captured = self.fake_engine()
         mask = self.root / "mask.png"

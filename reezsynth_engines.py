@@ -211,9 +211,11 @@ def write_engine_manifest(job):
                                                  'reezsynth_fuoum_pipeline.py', 'reezsynth_raft.py',
                                                  'reezsynth_engines.py', 'reezsynth_provenance.py',
                                                  'reezsynth_config.py', 'reezsynth_video_plan.py',
-                                                 'reezsynth_artifacts.py', 'reezsynth_preview_transport.py')},
+                                                 'reezsynth_artifacts.py', 'reezsynth_video_export.py',
+                                                 'reezsynth_preview_transport.py')},
                     render_options=job.get('render_options', {}), guide_weights=job.get('guide_weights', {}),
-                    blend_options=job.get('blend_options', {}))
+                    blend_options=job.get('blend_options', {}),
+                    video_export=job.get('video_export', {}))
     atomic_json(Path(job['output']) / 'engine_manifest.json', manifest)
     print('[Engine] ' + json.dumps(dict(engine=engine, revision=runtime['revision'], python=sys.executable)), flush=True)
     return manifest

@@ -133,6 +133,35 @@ class Options(QObject):
             self.export_widgets[name] = widget
             advanced_layout.addWidget(widget)
             window.locked.append(widget)
+        video_box = QGroupBox('Rendered video export')
+        video_form = QFormLayout(video_box)
+        self.video_export_enabled = QCheckBox('Assemble render.mp4 after saving frames')
+        self.video_export_fps = QDoubleSpinBox()
+        self.video_export_fps.setRange(.1, 240)
+        self.video_export_fps.setDecimals(3)
+        self.video_export_fps.setValue(24)
+        self.video_export_fps.setSuffix(' FPS')
+        self.video_export_audio = QLineEdit()
+        self.video_export_audio.setPlaceholderText('Optional audio file')
+        audio_row = QWidget()
+        audio_layout = QHBoxLayout(audio_row)
+        audio_layout.setContentsMargins(0, 0, 0, 0)
+        audio_layout.addWidget(self.video_export_audio, 1)
+        audio_button = QPushButton('Select...')
+        audio_button.clicked.connect(self.choose_video_audio)
+        audio_layout.addWidget(audio_button)
+        video_form.addRow(self.video_export_enabled)
+        video_form.addRow('Frame rate', self.video_export_fps)
+        video_form.addRow('Audio (optional)', audio_row)
+        advanced_layout.addWidget(video_box)
+        self.video_export_enabled.toggled.connect(self.refresh_video_export_controls)
+        self.video_export_enabled.toggled.connect(self.changed)
+        self.video_export_fps.valueChanged.connect(self.changed)
+        self.video_export_audio.textChanged.connect(self.changed)
+        window.locked.extend([self.video_export_enabled, self.video_export_fps,
+                              self.video_export_audio, audio_button])
+        self.video_export_audio_button = audio_button
+        self.refresh_video_export_controls()
         columns = QHBoxLayout()
         control_forms = {}
         for group, defaults, title in (("weights", WEIGHTS, "Guide weights"), ("render", RENDER, "Synthesis")):
@@ -543,7 +572,7 @@ class Options(QObject):
         if group == 'weights':
             return dict(WEIGHTS)
         if group == 'render':
-            return dict(options=dict(RENDER), quality='Standard', exports={})
+            return dict(options=dict(RENDER), quality='Standard', exports={}, video_export={})
         if group == 'grouped':
             return dict(selection=validate_grouped_selection(), blend_options=validate_blend_options())
         if group == 'application':
@@ -563,9 +592,12 @@ class Options(QObject):
         if group == 'grouped':
             return dict(selection=w.grouped.selection(), blend_options=w.grouped.blend_options())
         if group == "render":
+            from reezsynth_video_export import validate_video_export
             result = dict(options={n: control_value(v) for n, v in self.widgets[group].items()},
                 quality=w.quality.currentText(),
-                exports={name: widget.isChecked() for name, widget in self.export_widgets.items()})
+                exports={name: widget.isChecked() for name, widget in self.export_widgets.items()},
+                video_export=validate_video_export(dict(enabled=self.video_export_enabled.isChecked(),
+                    fps=self.video_export_fps.value(), audio=self.video_export_audio.text())))
             result['engine_revision'] = engine_revision(result['options']['engine'])
             # Last-used setup retains related window controls. Named render presets
             # intentionally omit them so selecting a quality/render preset cannot
@@ -597,6 +629,10 @@ class Options(QObject):
                     set_control(self.widgets[group][name], value)
                 for name, value in data["exports"].items():
                     self.export_widgets[name].setChecked(value)
+                video_export = data['video_export']
+                self.video_export_enabled.setChecked(video_export['enabled'])
+                self.video_export_fps.setValue(video_export['fps'])
+                self.video_export_audio.setText(video_export['audio'])
                 if restore_related:
                     self.w.set_processing_size(data["processing_size"], data['max_width'])
                     set_project_naming(self.w, data["output_naming"])
@@ -908,6 +944,7 @@ class Options(QObject):
                     engine_revision=engine_revision(self.render()['engine']),
                     image_synthesis=self.w.image_synthesis.settings(),
                     exports=self.snapshot("render")["exports"],
+                    video_export=self.snapshot('render')['video_export'],
                     blend_options=self.w.grouped.blend_options(), grouped_video=self.w.grouped.selection())
 
     def load_project(self, data):
@@ -915,7 +952,7 @@ class Options(QObject):
         render.update(data.get("render_options", {}))
         self.apply("render", dict(options=render, quality=data["quality"],
                                  engine_revision=data.get('engine_revision'),
-                                 exports=data.get("exports")))
+                                 exports=data.get("exports"), video_export=data.get('video_export')))
         self.w.grouped.set_blend_options(data.get("blend_options"))
         self.apply("weights", data.get("guide_weights", {}))
         self.apply('image', data.get('image_synthesis', {}))
@@ -928,6 +965,19 @@ class Options(QObject):
         path, _ = QFileDialog.getOpenFileName(self.w, "Completion sound", "", "WAV sound (*.wav)")
         if path:
             self.widgets["application"]["sound_file"].setText(path)
+
+    def choose_video_audio(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self.w, 'Optional rendered-video audio', self.video_export_audio.text(),
+            'Audio files (*.wav *.mp3 *.m4a *.aac *.flac *.ogg);;All files (*)')
+        if path:
+            self.video_export_audio.setText(path)
+
+    def refresh_video_export_controls(self, *_):
+        enabled = self.video_export_enabled.isChecked() and not self.w.busy
+        self.video_export_fps.setEnabled(enabled)
+        self.video_export_audio.setEnabled(enabled)
+        self.video_export_audio_button.setEnabled(enabled)
 
     def notify(self, each=False):
         app = self.application()

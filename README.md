@@ -332,6 +332,13 @@ NumPy maps retain their numerical values and dtype. Flow PNGs use upstream color
 visualization with per-image magnitude normalization; they are not raw flow vectors.
 A single-frame copy writes an empty manifest when exports are requested.
 Requested exports must finish before the job receives `COMPLETE.txt`.
+Enable **Assemble render.mp4 after saving frames** in Rendering to create an H.264
+MP4 beside each video job's PNG frames. Set an explicit rate from 0.1 to 240 FPS
+and optionally select a separate audio file; short audio is padded and long audio
+is trimmed to the exact frame-count duration. Encoding is atomic and must succeed
+before `COMPLETE.txt` is written. The PNG sequence remains authoritative and is
+not deleted. This is output assembly only: direct video import and synchronized
+source/output playback are intentionally not included.
 ### Image Synthesis
 
 Select or drop a styled image, its source guide and a target guide, then click

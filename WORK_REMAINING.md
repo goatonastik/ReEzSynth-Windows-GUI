@@ -108,9 +108,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    three-channel Poisson solve, and a full grouped frontend job on RTX 5090. The
    retained CUDA 12 failure remains useful compatibility evidence. Reproducible
    pins are separate from standard installation in `requirements-cupy-cuda13.txt`.
-3. [ ] **Rendered-video export:** assemble existing rendered frames into video
-   with an explicit frame rate and optional separately selected audio. Direct
-   video import/frame extraction is excluded from this workflow.
+3. [x] **Rendered-video export:** both engines can atomically assemble each job's
+   PNG frames into `render.mp4` at an explicit 0.1-240 FPS, with an optional
+   separately selected audio file padded/trimmed to the exact video duration.
+   Encoder failure prevents `COMPLETE.txt`; metadata records the inputs. Direct
+   video import/frame extraction and synchronized playback remain excluded.
 4. [ ] **Durable queue recovery:** save pending jobs and resume after application
    restart/crash, with explicit handling of partial outputs and changed inputs.
 5. [ ] **Cache reuse and longer-clip memory management:** reuse validated flow/
@@ -163,7 +165,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the fixes: 230 tests passed in 29.779 seconds with normal
+- Full suite after the fixes: 237 tests passed in 31.272 seconds with normal
   temporary-directory/Qt access. The focused new regression selection also passed.
 - Synthetic CUDA correlation checks passed, followed by real 256x144 Preview
   image/video/grouped smoke checks for both engines. Legacy used compiled RAFT.

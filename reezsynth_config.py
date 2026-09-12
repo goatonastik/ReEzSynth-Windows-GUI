@@ -321,7 +321,7 @@ def validate_group(group, data):
                     blend_options=validate_blend_options(data["blend_options"]))
     if group == "render":
         from reezsynth_project_controls import validate_project_naming
-        if set(data) - {"options", "quality", "max_width", "processing_size", "output_naming", "blend_options", "exports", "engine_revision"}:
+        if set(data) - {"options", "quality", "max_width", "processing_size", "output_naming", "blend_options", "exports", "video_export", "engine_revision"}:
             raise ValueError("Unknown render preset field.")
         quality = data.get("quality", "Standard")
         processing = validate_processing_settings(data)
@@ -332,11 +332,13 @@ def validate_group(group, data):
             raise ValueError('Invalid rendering settings.')
         options = dict(quality_profile(quality), **options)
         revision = validate_revision(options.get('engine', LEGACY), data.get('engine_revision'))
+        from reezsynth_video_export import validate_video_export
         return dict(options=validate_render(options), quality=quality,
                     engine_revision=revision,
                     **processing, output_naming=validate_project_naming(data.get("output_naming")),
                     blend_options=validate_blend_options(data.get("blend_options")),
-                    exports=validate_exports(data.get("exports")))
+                    exports=validate_exports(data.get("exports")),
+                    video_export=validate_video_export(data.get('video_export')))
     raise ValueError("Unknown preset group.")
 
 

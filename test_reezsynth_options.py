@@ -277,20 +277,25 @@ class IntegrationTests(LifecycleFixture):
         w.options.widgets["weights"]["img_wgt"].setValue(8)
         w.options.widgets["render"]["uniformity"].setValue(4100)
         w.options.widgets['render']['memory_efficient_raft'].setChecked(True)
+        w.options.video_export_enabled.setChecked(True)
+        w.options.video_export_fps.setValue(23.976)
+        w.options.video_export_audio.setText(str(self.root / 'audio.wav'))
         w.set_processing_size([1536, 864])
         w.project_file = self.root / "project.json"
         w.save_project()
         data = json.loads(w.project_file.read_text())
         self.assertEqual(data["guide_weights"]["img_wgt"], 8)
         self.assertEqual(data['processing_size'], [1536, 864])
+        self.assertEqual(data['video_export']['fps'], 23.976)
         w.options.widgets["weights"]["img_wgt"].setValue(2)
         with patch.object(gui.QFileDialog, "getOpenFileName", return_value=(str(w.project_file), "")):
             w.open_project()
         self.assertEqual(w.options.weights()["img_wgt"], 8)
         self.assertEqual(w.options.render()["uniformity"], 4100)
         self.assertTrue(w.options.render()['memory_efficient_raft'])
+        self.assertTrue(w.options.snapshot('render')['video_export']['enabled'])
         self.assertEqual(w.processing_size(), [1536, 864])
-        for key in ("guide_weights", "render_options", "mask_dir", "output_naming"):
+        for key in ("guide_weights", "render_options", "mask_dir", "output_naming", "video_export"):
             data.pop(key, None)
         data["quality"] = "Standard"
         w.project_file.write_text(json.dumps(data))
@@ -299,6 +304,7 @@ class IntegrationTests(LifecycleFixture):
         self.assertEqual(w.rows[0]["folder"].text(), "manual")
         self.assertEqual(w.options.weights(), WEIGHTS)
         self.assertEqual(w.options.render()["patchsize"], STANDARD["patchsize"])
+        self.assertFalse(w.options.snapshot('render')['video_export']['enabled'])
         self.assertFalse(w.options.auto_armed)
 
     def make_masks(self, size=8):
@@ -332,13 +338,20 @@ class IntegrationTests(LifecycleFixture):
 
     def test_job_contains_render_controls_weights_and_masks(self):
         self.w.mask_dir.setText(str(self.make_masks()))
+        audio = self.root / 'audio.wav'
+        audio.write_bytes(b'wav')
         self.w.options.widgets["render"]["do_mask"].setChecked(True)
         self.w.options.widgets["weights"]["img_wgt"].setValue(8)
+        self.w.options.video_export_enabled.setChecked(True)
+        self.w.options.video_export_fps.setValue(30)
+        self.w.options.video_export_audio.setText(str(audio))
         with patch.object(self.w, "start_next"):
             self.run_queue()
         job = json.loads(self.w.pending[0]["job_path"].read_text())
         self.assertTrue(job["render_options"]["do_mask"])
         self.assertEqual(job["guide_weights"]["img_wgt"], 8)
+        self.assertEqual(job['video_export'],
+                         {'enabled': True, 'fps': 30.0, 'audio': str(audio.resolve())})
         self.assertEqual([n for n, _ in job["masks"]], [n for n, _ in job["frames"]])
         self.w.stop_queue()
 

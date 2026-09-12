@@ -16,6 +16,9 @@ def effective_settings(job):
     copy = not image and len(job.get('frames', [])) == 1
     result = dict(kind='image' if image else 'keyframe_copy' if copy else 'video',
                   quality=quality, processing=validate_processing_settings(job))
+    if not image:
+        from reezsynth_video_export import validate_video_export
+        result['video_export'] = validate_video_export(job.get('video_export'))
     native_extra = ('fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
                     'fuoum_search_pruning_threshold')
     if copy:

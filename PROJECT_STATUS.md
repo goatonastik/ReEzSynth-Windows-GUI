@@ -5,6 +5,16 @@ in [README.md](README.md).
 
 ## Local review fixes verified (2026-09-12)
 
+- Rendered-video export is implemented for both engines. Rendering settings and
+  projects retain an enable switch, 0.1-240 FPS value and optional separate audio
+  path. Workers encode an atomic H.264/AAC `render.mp4` after PNG/auxiliary saving
+  and before `COMPLETE.txt`; metadata records frame range, count, FPS and audio.
+  Exact frame limiting plus audio pad/trim prevents short audio from dropping the
+  last video frame or long audio extending the container. Real three-frame legacy
+  and FuouM frontend queues passed with 12 FPS audio, and FFprobe found three H.264
+  frames, AAC audio and a 0.250-second container in both outputs. Retained reports:
+  `engines_legacy_20260912_143716_372482` and
+  `engines_fuoum_20260912_143745_358434`.
 - Optional GPU blending is now validated on this RTX 5090. A quarantined CuPy
   14.2.0 environment using pinned CUDA 13.4 components passed the application's
   readiness kernel, histogram path, sparse construction and three-channel CuPy
@@ -48,7 +58,7 @@ in [README.md](README.md).
   relevant loaded native extensions, and expanded adapter/package provenance.
   Requested settings remain available separately. Native Auto backend decisions
   and geometry-dependent pyramid clamping are not introspected.
-- Full maintained suite: **230 tests passed in 29.779 seconds**. This includes
+- Full maintained suite: **237 tests passed in 31.272 seconds**. This includes
   default dual-engine setup, optional-flow readiness and provenance, new timing/
   completion tests, custom-kernel readiness, and metadata regressions. Expected
   upstream deprecation/offscreen Qt warnings remain; no test failed.

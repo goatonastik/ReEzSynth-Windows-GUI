@@ -135,12 +135,17 @@ class EngineGuiTests(GuiFixture):
         o = w.options
         o.widgets['render']['engine'].setCurrentText(FUOUM)
         o.widgets['render']['temporal_nnf'].setChecked(False)
+        o.video_export_enabled.setChecked(True)
+        o.video_export_fps.setValue(23.976)
+        o.video_export_audio.setText('separate-audio.wav')
         snapshot = o.snapshot('render')
         o.store.save('render', 'FuouM', snapshot)
         o.apply('render', dict(options=RENDER))
         o.apply('render', o.store.groups['render']['FuouM'])
         self.assertEqual(o.render()['engine'], FUOUM)
         self.assertFalse(o.render()['temporal_nnf'])
+        self.assertEqual(o.snapshot('render')['video_export'],
+                         {'enabled': True, 'fps': 23.976, 'audio': 'separate-audio.wav'})
         self.assertFalse(o.widgets['render']['memory_efficient_raft'].isEnabled())
         self.assertFalse(o.widgets['render']['fuoum_vote_mode'].isHidden())
         self.assertTrue(o.widgets['application']['fuoum_source'].isEnabled())

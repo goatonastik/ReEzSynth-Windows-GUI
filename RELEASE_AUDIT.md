@@ -64,6 +64,10 @@ release was uploaded. A GitHub source archive is not yet a cleared binary packag
 - Optional CUDA 13 CuPy installation pulls NVIDIA runtime/toolkit component wheels.
   Review their licenses and redistribution terms separately before bundling them;
   the repository only records an opt-in requirements set.
+- Rendered-video export makes `imageio-ffmpeg 0.6.0` a direct dependency. Inspect
+  the bundled FFmpeg binary's build configuration, notices and redistribution
+  obligations for the final release artifact; successful local encoding is not
+  a licensing clearance.
 
 ## Gates before publishing
 

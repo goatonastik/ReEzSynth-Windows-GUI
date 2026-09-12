@@ -15,7 +15,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parent
 PACKAGES = {'PySide6': 'PySide6.QtWidgets', 'numpy': 'numpy', 'opencv-python': 'cv2',
             'torch': 'torch', 'torchvision': 'torchvision', 'phycv': 'phycv',
-            'scipy': 'scipy', 'Pillow': 'PIL.Image', 'tqdm': 'tqdm'}
+            'scipy': 'scipy', 'Pillow': 'PIL.Image', 'tqdm': 'tqdm',
+            'imageio-ffmpeg': 'imageio_ffmpeg'}
 EF_RAFT_MODELS = ('25000_ours-sintel', 'ours_sintel', 'ours-things')
 FLOW_DIFFUSION_MODEL = 'FlowDiffuser-things.pth'
 
