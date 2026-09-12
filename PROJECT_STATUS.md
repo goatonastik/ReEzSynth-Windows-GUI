@@ -78,6 +78,8 @@ older limitations/results below without deleting the historical record.
 - Qt Multimedia loaded the bundled `assets/complete.wav` with `Ready` status. That
   verifies decoding and the notification routing tests pass, but audible output
   remains an interactive Windows check.
+- Interactive Windows check: the user heard the completion sound on queue finish,
+  confirming audible playback of the configured notification path.
 - Runtime environments, checkpoints downloaded for diagnostics, generated renders
   and logs remain ignored. `.gitattributes` archive exclusions were tested in
   memory with `git archive --worktree-attributes`: developer snapshot/backup absent,

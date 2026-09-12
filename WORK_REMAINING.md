@@ -42,11 +42,10 @@ Windows/RTX 5090 host and the stated samples, not universal release certificatio
 3. Revisit optional legacy CuPy blending when a CuPy release supports this GPU.
    An isolated CuPy 14.2.0 / CUDA 12 build was tested and cannot generate a kernel
    for RTX 5090; the frontend now rejects this condition before a render starts.
-4. Perform interactive Windows UI and audible completion-notification checks.
-5. Help review more user-provided clips/styles at production resolutions; retain
+4. Review more user-provided clips/styles at production resolutions; retain
    reproducible job settings and report visual failures without claiming a universal
    engine quality ranking. Escalate actual algorithmic failures to high reasoning.
-6. Review final documentation/staged-file inventory and commit when requested.
+5. Review final documentation/staged-file inventory and commit when requested.
 
 ## Requires external evidence or a user decision, not a model upgrade
 
