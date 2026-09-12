@@ -1,5 +1,6 @@
 """Installation safeguards and launcher checks; no installs or rendering."""
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -8,8 +9,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from check_reezsynth import verify_assets
+from check_reezsynth import EF_RAFT_MODELS, FLOW_DIFFUSION_MODEL, flow_extra_readiness, verify_assets
+from diagnose_reezsynth_adapter import (cancel_worker, render as run_adapter_diagnostic,
+                                        render_parallel)
+from reezsynth_config import install_optional_flow_files, optional_flow_status
 
 ROOT = Path(__file__).resolve().parent
 
@@ -48,7 +54,98 @@ class SetupTests(unittest.TestCase):
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         self.assertIn('./wheels/' + wheel.name, requirement)
         self.assertIn('sha256:' + digest, requirement)
-        self.assertEqual(verify_assets(ROOT), 3)
+        self.assertEqual(verify_assets(ROOT), 4)
+
+    def test_optional_flow_readiness_needs_only_files_and_timm_metadata(self):
+        flow = self.root / 'ezsynth' / 'utils' / 'flow_utils'
+        readiness = flow_extra_readiness(self.root, find_spec=lambda _: None)
+        self.assertIn('missing weights', readiness['EF-RAFT'][0])
+        self.assertEqual(readiness['FlowDiffuser'], [
+            'missing Python package: timm', f'missing weights: {FLOW_DIFFUSION_MODEL}'])
+        (flow / 'ef_raft_models').mkdir(parents=True)
+        (flow / 'flow_diffusion_models').mkdir()
+        for model in EF_RAFT_MODELS:
+            (flow / 'ef_raft_models' / f'{model}.pth').write_bytes(b'placeholder')
+        (flow / 'flow_diffusion_models' / FLOW_DIFFUSION_MODEL).write_bytes(b'placeholder')
+        readiness = flow_extra_readiness(self.root, find_spec=lambda _: object())
+        self.assertEqual(readiness, {'EF-RAFT': [], 'FlowDiffuser': []})
+
+    def test_optional_flow_file_installer_copies_only_recognized_checkpoints(self):
+        source = self.root / 'downloads'
+        source.mkdir()
+        ef = source / 'ours_sintel.pth'
+        ef.write_bytes(b'checkpoint')
+        copied = install_optional_flow_files('EF_RAFT', [ef], self.root)
+        self.assertEqual(copied[0].read_bytes(), b'checkpoint')
+        self.assertEqual(optional_flow_status(self.root, find_spec=lambda _: None)['EF_RAFT']['models'], ['ours_sintel'])
+        replacement = source / 'replacement' / 'ours_sintel.pth'
+        replacement.parent.mkdir()
+        replacement.write_bytes(b'different checkpoint')
+        with self.assertRaisesRegex(ValueError, 'already installed'):
+            install_optional_flow_files('EF_RAFT', [replacement], self.root)
+        self.assertEqual(copied[0].read_bytes(), b'checkpoint')
+        invalid = source / 'unknown.pth'
+        invalid.write_bytes(b'checkpoint')
+        with self.assertRaisesRegex(ValueError, 'recognized'):
+            install_optional_flow_files('FLOW_DIFF', [invalid], self.root)
+
+    def test_shared_worker_diagnostic_requires_completion_event_and_normal_exit(self):
+        job = self.root / 'job.json'
+        second = self.root / 'second.json'
+        job.write_text('{}', encoding='utf-8')
+        second.write_text('{}', encoding='utf-8')
+        event = ''.join('@@REEZSYNTH_SESSION@@' + json.dumps(
+            {'event': 'job_done', 'job': str(path.resolve())}, ensure_ascii=True)
+            for path in (job, second))
+        with patch('diagnose_reezsynth_adapter.subprocess.run',
+                   return_value=SimpleNamespace(returncode=0, stdout=event, stderr='')) as run, \
+             patch('sys.stdout', new_callable=io.StringIO):
+            run_adapter_diagnostic([job, second], self.root, shared_worker=True)
+        self.assertEqual(run.call_args.kwargs['cwd'], self.root)
+        commands = [json.loads(line) for line in run.call_args.kwargs['input'].splitlines()]
+        self.assertEqual(commands, [
+            {'action': 'run', 'job': str(job.resolve())},
+            {'action': 'run', 'job': str(second.resolve())},
+            {'action': 'quit'},
+        ])
+        with patch('diagnose_reezsynth_adapter.subprocess.run',
+                   return_value=SimpleNamespace(returncode=0, stdout='', stderr='')), \
+             patch('sys.stdout', new_callable=io.StringIO):
+            with self.assertRaisesRegex(RuntimeError, 'did not report'):
+                run_adapter_diagnostic(job, self.root, shared_worker=True)
+
+    def test_cancellation_diagnostic_kills_only_after_synthesis_begins(self):
+        job = self.root / 'job.json'
+        job.write_text('{}', encoding='utf-8')
+        class Process:
+            def __init__(self):
+                self.stdin = io.StringIO()
+                self.stdout = io.StringIO('@@REEZSYNTH_PROGRESS@@{"stage": "Synthesis 0/23"}\n')
+                self.returncode = None
+                self.killed = False
+            def poll(self):
+                return self.returncode
+            def wait(self, timeout):
+                return self.returncode
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+        process = Process()
+        with patch('diagnose_reezsynth_adapter.subprocess.Popen', return_value=process), \
+             patch('sys.stdout', new_callable=io.StringIO):
+            cancel_worker(job, self.root)
+        self.assertTrue(process.killed)
+
+    def test_parallel_diagnostic_starts_one_isolated_process_per_job(self):
+        jobs = [self.root / 'one.json', self.root / 'two.json']
+        for job in jobs:
+            job.write_text('{}', encoding='utf-8')
+        completed = SimpleNamespace(returncode=0, stdout='', stderr='')
+        with patch('diagnose_reezsynth_adapter.subprocess.run', return_value=completed) as run, \
+             patch('sys.stdout', new_callable=io.StringIO):
+            render_parallel(jobs, self.root)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual({Path(call.args[0][-1]) for call in run.call_args_list}, {job.resolve() for job in jobs})
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows launcher')
     def test_launcher_active_environment_and_argument_forwarding(self):

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import time
 import traceback
 from pathlib import Path
 
@@ -155,11 +156,13 @@ def build_plan(video_folder, keyframe_folder):
     return video, keys, padding, rows
 
 
-def progress(percent, stage):
+def progress(percent, stage, preview=None):
     message = {
         "percent": max(0, min(99, int(percent))),
         "stage": stage,
     }
+    if preview is not None:
+        message["preview"] = preview
     print("\n" + PREFIX + json.dumps(message), flush=True)
 
 
@@ -204,7 +207,35 @@ def validate_masks(folder, video):
     return masks
 
 
+def validate_edge_guides(folder, video):
+    if not str(folder).strip():
+        raise ValueError('Select a custom edge-guide directory when custom edge guides are enabled.')
+    guides, _ = scan_images(folder, source=True)
+    if set(guides) != set(video):
+        raise ValueError('Custom edge-guide frame numbers must exactly match the source sequence.')
+    from PIL import Image
+    for number, path in guides.items():
+        with Image.open(path) as guide, Image.open(video[number]) as source:
+            if guide.size != source.size:
+                raise ValueError(f'Custom edge-guide dimensions differ at frame {number}.')
+            guide.verify()
+    return guides
+
+
 def render_job(job_path):
+    from reezsynth_engines import LEGACY, FUOUM, validate_engine, write_engine_manifest
+    job = json.loads(Path(job_path).read_text(encoding='utf-8'))
+    engine = validate_engine(job.get('render_options', {}).get('engine', LEGACY))
+    if engine == FUOUM:
+        from reezsynth_fuoum import render_fuoum_job
+        return render_fuoum_job(job, progress)
+    if getattr(sys.modules.get('ezsynth'), '_frontend_source', None) is not None:
+        raise RuntimeError('The engine changed inside a worker. Start a new queue to switch engines.')
+    write_engine_manifest(job)
+    return _render_legacy_job(job_path)
+
+
+def _render_legacy_job(job_path):
     os.environ["TQDM_DISABLE"] = "1"
 
     for stream in (sys.stdout, sys.stderr):
@@ -221,6 +252,8 @@ def render_job(job_path):
         from reezsynth_image import render_image_job
         return render_image_job(job, progress)
     from reezsynth_artifacts import validate_exports, artifact_records, save_artifacts
+    from reezsynth_config import validate_processing_settings
+    processing = validate_processing_settings(job)
     exports = validate_exports(job.get("exports"))
     auxiliary_maps, auxiliary_flows = [], []
     entries = job["frames"]
@@ -229,6 +262,8 @@ def render_job(job_path):
     key = job["key"]
     key_position = numbers.index(key)
     output = Path(job["output"])
+    from reezsynth_preview_transport import PreviewPublisher
+    preview_publisher = PreviewPublisher(output)
     from reezsynth_video_plan import plan_grouped_video, check_blend_dependencies
     grouped = job.get("type") == "grouped_video"
     if job.get("type") not in (None, "grouped_video"):
@@ -273,12 +308,13 @@ def render_job(job_path):
         if original_shape is None:
             original_shape = image.shape
             height, width = image.shape[:2]
-            limit = job["max_width"]
-            scale = min(1.0, limit / width) if limit else 1.0
-            size = (
-                max(1, round(width * scale)),
-                max(1, round(height * scale)),
-            )
+            requested = processing['processing_size']
+            if requested is not None:
+                size = tuple(requested)
+            else:
+                limit = processing['max_width']
+                scale = min(1.0, limit / width) if limit else 1.0
+                size = (max(1, round(width * scale)), max(1, round(height * scale)))
 
             if count > 1 and min(size) < 128:
                 raise ValueError(
@@ -306,14 +342,18 @@ def render_job(job_path):
 
     print("Processing size:", size, flush=True)
 
-    from reezsynth_config import PREVIEW, STANDARD, RENDER, validate_render, validate_weights
-    options = dict(RENDER, **(STANDARD if job["quality"] == "Standard" else PREVIEW))
+    from reezsynth_config import (RENDER, quality_profile, validate_flow_model_available,
+                                  validate_render, validate_weights, validate_synthesis_dimensions)
+    options = dict(RENDER, **quality_profile(job["quality"]))
     options.update(job.get("render_options", {}))
     options = validate_render(options)
-    if count > 1 and options['memory_efficient_raft']:
-        from reezsynth_raft import require_alt_cuda_corr
-        require_alt_cuda_corr()
+    if count > 1:
+        validate_synthesis_dimensions(options['patchsize'], size)
+        validate_flow_model_available(options['flow_model'], options['flow_arch'])
     weights = validate_weights(job.get("guide_weights"))
+    print('[Settings] ' + json.dumps(dict(quality=job['quality'], processing_size=list(size),
+        render_options=options, guide_weights=weights, blend_options=blend_options,
+        exports=exports), sort_keys=True), flush=True)
     masks = []
     if options["do_mask"]:
         entries_mask = job.get("masks", [])
@@ -326,6 +366,19 @@ def render_job(job_path):
             if mask.shape[::-1] != size:
                 mask = cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST)
             masks.append(mask)
+
+    edge_guides = []
+    if options['custom_edge_guides']:
+        entries_edge = job.get('edge_guides', [])
+        if [entry[0] for entry in entries_edge] != numbers:
+            raise ValueError('Job custom edge-guide frame numbers must match its source frames.')
+        for number, path in entries_edge:
+            guide = read_image(path, grayscale=True)
+            if guide.shape != original_shape[:2]:
+                raise ValueError(f'Custom edge-guide dimensions differ at frame {number}.')
+            if guide.shape[::-1] != size:
+                guide = cv2.resize(guide, size, interpolation=cv2.INTER_AREA)
+            edge_guides.append(guide)
 
     if count == 1:
         results = [style]
@@ -344,13 +397,28 @@ def render_job(job_path):
         from ezsynth.aux_classes import RunConfig
         from ezsynth.main_ez import EzsynthBase
 
-        if not torch.cuda.is_available():
-            raise RuntimeError("PyTorch CUDA is unavailable.")
-
-        print("GPU:", torch.cuda.get_device_name(0), flush=True)
+        cuda_available = torch.cuda.is_available()
+        if not cuda_available:
+            if options['ebsynth_backend'] == 'cuda':
+                raise RuntimeError('PyTorch CUDA is unavailable. Choose CPU or Auto EbSynth backend to use CPU optical flow.')
+            if options['memory_efficient_raft']:
+                raise RuntimeError('Memory-efficient RAFT correlation requires CUDA. Disable it for CPU optical flow.')
+            if options['edge_method'] != 'Classic':
+                raise RuntimeError('PST and PAGE edge detectors require CUDA. Choose Classic for CPU optical flow.')
+            if blend_options.get('use_gpu'):
+                raise RuntimeError('GPU blending requires CUDA. Disable GPU blending for CPU rendering.')
+            print('Optical flow device: CPU', flush=True)
+        else:
+            print('Optical flow GPU:', torch.cuda.get_device_name(0), flush=True)
+        if options['memory_efficient_raft']:
+            from reezsynth_raft import require_alt_cuda_corr
+            require_alt_cuda_corr()
 
         config = RunConfig(
-            **{name: value for name, value in options.items() if name not in ("edge_method", "memory_efficient_raft")},
+            **{name: value for name, value in options.items()
+               if name not in ("edge_method", "custom_edge_guides", "memory_efficient_raft",
+                               "flow_arch", "flow_model", "ebsynth_backend", "engine",
+                               "temporal_nnf", "sparse_features")},
             **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
             **blend_options,
         )
@@ -361,18 +429,31 @@ def render_job(job_path):
             img_frs_seq=frames,
             cfg=config,
             edge_method=options["edge_method"],
-            raft_flow_model_name="sintel",
-            flow_arch="RAFT",
+            raft_flow_model_name=options["flow_model"],
+            flow_arch=options["flow_arch"],
             do_mask=options["do_mask"],
             msk_frs_seq=masks or None,
+            do_compute_edge=not options['custom_edge_guides'],
         )
+        if edge_guides:
+            runner.edge_guides = edge_guides
 
         # Requires the backend-forwarding edits from the earlier diagnostics.
-        runner.eb.backend = runner.eb.backends["cuda"]
-        print("Requested EbSynth backend: CUDA", flush=True)
+        runner.eb.backend = runner.eb.backends[options["ebsynth_backend"]]
+        print(f"Requested EbSynth backend: {options['ebsynth_backend'].upper()}", flush=True)
 
         completed = 0
         original_run = runner.eb.run
+        frame_lookup = {}
+        style_lookup = {}
+        for sequence in (getattr(runner, 'img_frs_seq', frames),
+                         getattr(runner, 'masked_frs_seq', None) or []):
+            frame_lookup.update((id(image), number) for number, image in zip(numbers, sequence))
+        for sequence in (getattr(runner, 'style_frs', styles),
+                         getattr(runner, 'style_masked_frs', None) or []):
+            style_lookup.update((id(image), number) for (number, _), image in zip(style_entries, sequence))
+        native_seconds = 0.0
+        loop_started = last_finished = time.perf_counter()
         mask_lookup = {}
         if masks and weights['mask_wgt']:
             for source_sequence in (getattr(runner, 'img_frs_seq', frames),
@@ -381,7 +462,7 @@ def render_job(job_path):
                     mask_lookup[id(source_frame)] = mask
 
         def tracked_run(*args, **kwargs):
-            nonlocal completed
+            nonlocal completed, native_seconds, last_finished
             if mask_lookup:
                 guides = list(kwargs['guides'])
                 source, target, _ = guides[1]
@@ -390,12 +471,33 @@ def render_job(job_path):
                 guides.append((mask_lookup[id(source)], mask_lookup[id(target)],
                                weights['mask_wgt'] / weights['key_wgt']))
                 kwargs['guides'] = guides
+            native_started = time.perf_counter()
+            preparation_seconds = native_started - last_finished
             result = original_run(*args, **kwargs)
+            native_elapsed = time.perf_counter() - native_started
+            native_seconds += native_elapsed
             completed += 1
+            preview = None
+            frame_label = ''
+            # The video guide identifies the actual target array and the style
+            # argument identifies its keyframe, even for reversed/grouped passes.
+            guides = kwargs.get('guides', [])
+            if args and len(guides) > 1:
+                origin = style_lookup.get(id(args[0]))
+                target = frame_lookup.get(id(guides[1][1]))
+                if origin is not None and target is not None:
+                    direction = 'Backward' if target < origin else 'Forward'
+                    preview = preview_publisher.publish(origin, direction, target, result[0])
+                    frame_label = f' key={origin} frame={target} {direction.lower()}'
             progress(
                 15 + (65 if grouped else 75) * completed / expected,
                 f"Synthesis {completed}/{expected}",
+                preview=preview,
             )
+            print(f'[Timing] Frame {completed}/{expected}{frame_label}: '
+                  f'between calls (flow/guides/blending) {preparation_seconds:.3f}s; '
+                  f'EbSynth {native_elapsed:.3f}s', flush=True)
+            last_finished = time.perf_counter()
             if grouped and completed == expected:
                 progress(80, "Finalizing synthesis and blending")
             return result
@@ -415,8 +517,8 @@ def render_job(job_path):
                 print(
                     f"[Memory] GPU memory exhausted at {size[0]} x {size[1]}. "
                     "RAFT optical flow can require more memory than the GPU's total capacity "
-                    "at high resolutions. Try Processing size: Maximum width 960 "
-                    "(or 512 for preview). This also reduces output resolution; "
+                    "at high resolutions. Try a smaller Processing size such as 720p "
+                    "or 512 1:1. This also reduces output resolution; "
                     "the application will not silently resize or retry this job. "
                     "Fewer frames or worker reuse will not reduce the per-frame-pair "
                     "RAFT correlation allocation. Keep parallel rendering off while testing.",
@@ -425,6 +527,8 @@ def render_job(job_path):
             raise
         finally:
             runner.eb.run = original_run
+            print(f'[Timing] Synthesis loop {time.perf_counter() - loop_started:.3f}s; '
+                  f'native EbSynth {native_seconds:.3f}s; preview capture {preview_publisher.seconds:.3f}s', flush=True)
 
         if completed != expected:
             raise RuntimeError(
@@ -456,6 +560,7 @@ def render_job(job_path):
         progress(
             90 + 9 * (index + 1) / count,
             f"Saving {index + 1}/{count}",
+            preview=preview_publisher.publish(key, 'Keyframe', key, image, stage='final') if count == 1 else None,
         )
 
     if any(exports.values()):

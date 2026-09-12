@@ -21,9 +21,13 @@ env/
 /renders/
 /output_synth/
 /outputs/
+/diagnostic_outputs/
+/diagnostic_*.png
 
 # Local backups
 backups/
+engine_sources/
+.engine_envs/
 
 # Common model weight formats
 *.pt

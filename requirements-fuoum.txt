@@ -1,0 +1,7 @@
+# Overrides in .engine_envs/fuoum; never install these into the existing GUI environment.
+# The virtual environment inherits the working CUDA PyTorch and frontend dependencies.
+numpy==1.26.4
+opencv-python==4.11.0.86
+pydantic==2.11.7
+einops==0.8.1
+ninja==1.11.1.4

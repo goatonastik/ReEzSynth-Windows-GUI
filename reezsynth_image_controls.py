@@ -105,7 +105,7 @@ class ImageSynthesisControls(QWidget):
     def weight(self, value, minimum=0):
         widget = QueueDoubleSpinBox()
         widget.setRange(minimum, 10000)
-        widget.setDecimals(3)
+        widget.setDecimals(6)
         widget.setSingleStep(.1)
         widget.setValue(value)
         widget.valueChanged.connect(self.changed)

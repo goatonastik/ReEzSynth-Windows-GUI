@@ -4,6 +4,7 @@
   "files": {
     "ezsynth/utils/ebsynth.dll": "e3cfad210d445fcbfa6c7dcd2f9bdaaf36d550746c108c79a94d2d1ecce41369",
     "ezsynth/utils/flow_utils/models/raft-sintel.pth": "90630d2e7d488a0d3ccb5e8194524850c4c05c732ea4ff99799822c7fa5c5cbf",
+    "ezsynth/utils/flow_utils/models/raft-kitti.pth": "b9d170362415e1a27bd8402ee966a3ddf0d60df9b2df2c0b4949f5ced490a9e6",
     "wheels/reezsynth_alt_cuda_corr-0.2.0-cp311-cp311-win_amd64.whl": "1c0ee46345cdc02744f6c96e89708f104ee7957c4f0de106e64cf1838eae4a4d"
   }
 }

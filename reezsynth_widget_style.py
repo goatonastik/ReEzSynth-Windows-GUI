@@ -1,8 +1,29 @@
 """Shared vector-painted arrows and checkmarks for queue and compact controls."""
+from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QDoubleSpinBox,
+from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QDoubleSpinBox, QSpinBox,
     QProxyStyle, QSizePolicy, QStyle, QVBoxLayout, QWidget)
+
+
+# Qt's stylesheet draws combobox arrows itself, bypassing drawComplexControl.
+# Style them here for every combobox, including editable folder histories.
+_ASSETS = Path(__file__).resolve().parent / 'assets'
+COMBO_STYLE = f'''
+QComboBox {{ padding-right: 32px; }}
+QComboBox::drop-down {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 28px;
+    background: #414141;
+    border-top: 1px solid #626262;
+}}
+QComboBox::drop-down:hover {{ background: #555555; }}
+QComboBox::drop-down:pressed {{ background: #007e6b; }}
+QComboBox::drop-down:disabled {{ background: #303030; }}
+QComboBox::down-arrow {{ image: url("{(_ASSETS / 'arrow-down.svg').as_posix()}"); width: 13px; height: 8px; }}
+QComboBox::down-arrow:disabled {{ image: url("{(_ASSETS / 'arrow-down-disabled.svg').as_posix()}"); }}
+'''
 
 
 def paint_check(painter, rectangle, checked, enabled=True, focused=False, partial=False):
@@ -39,8 +60,47 @@ def paint_check(painter, rectangle, checked, enabled=True, focused=False, partia
     painter.restore()
 
 
+def paint_arrow(painter, rectangle, direction, color):
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    x, y = rectangle.center().x(), rectangle.center().y()
+    dx, dy = min(6.5, rectangle.width()*.24), min(4, rectangle.height()*.24)
+    if direction > 0:
+        points = [QPointF(x, y-dy), QPointF(x-dx, y+dy), QPointF(x+dx, y+dy)]
+    else:
+        points = [QPointF(x-dx, y-dy), QPointF(x+dx, y-dy), QPointF(x, y+dy)]
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color))
+    painter.drawPolygon(QPolygonF(points))
+    painter.restore()
+
+
+def paint_arrow_button(painter, rectangle, direction, enabled=True, pressed=False, hovered=False):
+    if not enabled:
+        background, foreground = '#303030', '#777777'
+    elif pressed:
+        background, foreground = '#007e6b', '#ffffff'
+    elif hovered:
+        background, foreground = '#555555', '#ffffff'
+    else:
+        background, foreground = '#414141', '#eeeeee'
+    painter.save()
+    painter.fillRect(rectangle, QColor(background))
+    painter.setPen(QColor('#626262'))
+    painter.drawLine(rectangle.topLeft(), rectangle.topRight())
+    paint_arrow(painter, rectangle, direction, foreground)
+    painter.restore()
+
+
 class QueueStyle(QProxyStyle):
+    """Application-wide checkmarks and dropdown arrows, including new controls."""
     def drawPrimitive(self, element, option, painter, widget=None):
+        if element in (QStyle.PrimitiveElement.PE_IndicatorArrowDown,
+                       QStyle.PrimitiveElement.PE_IndicatorArrowUp):
+            paint_arrow(painter, QRectF(option.rect),
+                        1 if element == QStyle.PrimitiveElement.PE_IndicatorArrowUp else -1,
+                        '#eeeeee' if option.state & QStyle.StateFlag.State_Enabled else '#777777')
+            return
         if element in (QStyle.PrimitiveElement.PE_IndicatorCheckBox,
                        QStyle.PrimitiveElement.PE_IndicatorItemViewItemCheck):
             paint_check(painter, QRectF(option.rect).adjusted(1, 1, -1, -1),
@@ -87,27 +147,8 @@ class StepButton(QAbstractButton):
         if width < 1 or height < 1:
             return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if not self.isEnabled():
-            background, foreground = '#303030', '#777777'
-        elif self.isDown():
-            background, foreground = '#007e6b', '#ffffff'
-        elif self.underMouse():
-            background, foreground = '#555555', '#ffffff'
-        else:
-            background, foreground = '#414141', '#eeeeee'
-        painter.fillRect(self.rect(), QColor(background))
-        painter.setPen(QColor('#626262'))
-        painter.drawLine(0, 0, width-1, 0)
-        x, y = width/2, height/2
-        dx, dy = min(6.5, width*.24), min(4, height*.24)
-        if self.direction > 0:
-            points = [QPointF(x,y-dy), QPointF(x-dx,y+dy), QPointF(x+dx,y+dy)]
-        else:
-            points = [QPointF(x-dx,y-dy), QPointF(x+dx,y-dy), QPointF(x,y+dy)]
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(foreground))
-        painter.drawPolygon(QPolygonF(points))
+        paint_arrow_button(painter, QRectF(self.rect()), self.direction,
+                           self.isEnabled(), self.isDown(), self.underMouse())
 
 
 class QueueDoubleSpinBox(QDoubleSpinBox):
@@ -150,3 +191,56 @@ class QueueDoubleSpinBox(QDoubleSpinBox):
     def setMaximum(self, maximum):
         super().setMaximum(maximum)
         self.update_buttons()
+
+
+class QueueSpinBox(QSpinBox):
+    """Integer counterpart to QueueDoubleSpinBox with the same arrow column."""
+    def __init__(self):
+        super().__init__()
+        self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.setStyleSheet('QSpinBox { padding-right: 28px; }')
+        self.setMinimumHeight(30)
+        self.column = QWidget(self)
+        self.up = StepButton(1, 'Increase value')
+        self.down = StepButton(-1, 'Decrease value')
+        layout = QVBoxLayout(self.column)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.up, 1)
+        layout.addWidget(self.down, 1)
+        self.up.clicked.connect(self.stepUp)
+        self.down.clicked.connect(self.stepDown)
+        self.valueChanged.connect(self.update_buttons)
+        self.update_buttons()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.column.setGeometry(self.width() - 28, 0, 28, self.height())
+
+    def update_buttons(self, *_):
+        if hasattr(self, 'up'):
+            self.up.setEnabled(self.value() < self.maximum())
+            self.down.setEnabled(self.value() > self.minimum())
+
+    def setRange(self, minimum, maximum):
+        super().setRange(minimum, maximum)
+        self.update_buttons()
+
+    def setMinimum(self, minimum):
+        super().setMinimum(minimum)
+        self.update_buttons()
+
+    def setMaximum(self, maximum):
+        super().setMaximum(maximum)
+        self.update_buttons()
+
+
+class PyramidLevelsSpinBox(QueueSpinBox):
+    """Expose the native -1 automatic value and skip unsupported zero when stepping."""
+    def stepBy(self, steps):
+        old = self.value()
+        super().stepBy(steps)
+        if self.value() == 0:
+            self.setValue(1 if steps > 0 else -1)
+        elif old == -1 and steps > 1:
+            self.setValue(min(self.maximum(), self.value() + 1))

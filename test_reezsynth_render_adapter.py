@@ -1,4 +1,5 @@
 ﻿"""Exercise the real renderer adapter with a fake engine; no torch/GPU imports."""
+import ast
 import contextlib
 import io
 import json
@@ -13,7 +14,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from reezsynth_config import PREVIEW, STANDARD, WEIGHTS
+from reezsynth_config import PREVIEW, STANDARD, WEIGHTS, validate_synthesis_dimensions
 from reezsynth_jobs import render_job
 
 
@@ -23,6 +24,7 @@ class RenderAdapterTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.enterContext(patch.dict(os.environ))
+        self.enterContext(patch('reezsynth_config.validate_flow_model_available'))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         self.frames = []
         for i in range(2):
@@ -45,13 +47,19 @@ class RenderAdapterTests(unittest.TestCase):
     def fake_engine(self):
         captured = {}
         class Config:
-            def __init__(self, **kwargs):
-                captured["config"] = kwargs
+            def __init__(self, uniformity=3500.0, patchsize=7, pyramidlevels=6,
+                         searchvoteiters=12, patchmatchiters=6, extrapass3x3=True,
+                         edg_wgt=1.0, img_wgt=6.0, pos_wgt=2.0, wrp_wgt=0.5,
+                         use_gpu=False, use_lsqr=True, use_poisson_cupy=False,
+                         poisson_maxiter=None, only_mode='none', do_mask=False,
+                         pre_mask=False, feather=0):
+                captured["config"] = locals() | {}
+                captured["config"].pop("self")
         class Engine:
             def __init__(self, **kwargs):
                 captured["engine"] = kwargs
                 self.frames = kwargs["img_frs_seq"]
-                self.eb = types.SimpleNamespace(backends={"cuda": 17}, backend=None, run=lambda: None)
+                self.eb = types.SimpleNamespace(backends={"cuda": 17, "auto": 18, "cpu": 19}, backend=None, run=lambda: None)
                 captured["runner"] = self
             def run_sequences(self):
                 for _ in self.frames[1:]:
@@ -73,7 +81,7 @@ class RenderAdapterTests(unittest.TestCase):
              contextlib.redirect_stdout(log), self.assertRaises(RuntimeError) as raised:
             self.run_job()
         self.assertIs(raised.exception, failure)
-        self.assertIn('Maximum width 960', log.getvalue())
+        self.assertIn('720p', log.getvalue())
         self.assertIn('also reduces output resolution', log.getvalue())
         self.assertFalse((self.output / 'COMPLETE.txt').exists())
 
@@ -96,15 +104,45 @@ class RenderAdapterTests(unittest.TestCase):
         mask = self.root / "mask.png"
         mask.write_bytes(cv2.imencode(".png", np.full((128, 128), 255, np.uint8))[1].tobytes())
         self.job["masks"] = [[i, str(mask)] for i in range(2)]
-        self.job["render_options"] = dict(uniformity=4567.0, edge_method="PAGE", do_mask=True, pre_mask=True, feather=5)
+        self.job["render_options"] = dict(uniformity=4567.0, edge_method="PAGE", do_mask=True,
+                                            pre_mask=True, feather=5, flow_model="kitti",
+                                            ebsynth_backend="cpu")
         self.job["guide_weights"] = dict(img_wgt=9.0)
         self.run_job()
         self.assertEqual(captured["config"]["uniformity"], 4567)
         self.assertEqual(captured["config"]["img_wgt"], 9)
         self.assertEqual(captured["config"]["feather"], 5)
         self.assertEqual(captured["engine"]["edge_method"], "PAGE")
+        self.assertEqual(captured["engine"]["raft_flow_model_name"], "kitti")
+        self.assertEqual(captured["runner"].eb.backend, 19)
         self.assertTrue(captured["engine"]["do_mask"])
         self.assertEqual([m.shape for m in captured["engine"]["msk_frs_seq"]], [(128, 128)] * 2)
+
+    def test_optional_flow_architecture_reaches_engine(self):
+        captured = self.fake_engine()
+        self.job['render_options'] = dict(flow_arch='EF_RAFT', flow_model='ours_sintel')
+        self.run_job()
+        self.assertEqual(captured['engine']['flow_arch'], 'EF_RAFT')
+        self.assertEqual(captured['engine']['raft_flow_model_name'], 'ours_sintel')
+
+    def test_custom_edge_guides_skip_engine_edge_generation(self):
+        captured = self.fake_engine()
+        guides = []
+        for number, _ in self.frames:
+            path = self.root / f'edge{number:03d}.png'
+            path.write_bytes(cv2.imencode('.png', np.full((128, 128), number + 10, np.uint8))[1].tobytes())
+            guides.append([number, str(path)])
+        self.job['render_options'] = dict(custom_edge_guides=True)
+        self.job['edge_guides'] = guides
+        self.run_job()
+        self.assertFalse(captured['engine']['do_compute_edge'])
+        self.assertEqual([guide.shape for guide in captured['runner'].edge_guides], [(128, 128), (128, 128)])
+        self.assertEqual(int(captured['runner'].edge_guides[1][0, 0]), 11)
+
+    def test_missing_custom_edge_guide_rejects_before_engine(self):
+        self.job['render_options'] = dict(custom_edge_guides=True)
+        with patch.dict(sys.modules, {'torch': None, 'ezsynth.main_ez': None}), self.assertRaisesRegex(ValueError, 'edge-guide'):
+            self.run_job()
 
     def test_single_frame_masks_preserve_background_without_engine(self):
         self.job["frames"] = self.frames[:1]
@@ -122,16 +160,78 @@ class RenderAdapterTests(unittest.TestCase):
 
     def test_single_frame_without_masks_copies_style_without_engine(self):
         self.job["frames"] = self.frames[:1]
-        with patch.dict(sys.modules, {"torch": None, "ezsynth.main_ez": None}):
+        with patch.dict(sys.modules, {"torch": None, "ezsynth.main_ez": None}), \
+             patch('reezsynth_config.validate_flow_model_available', side_effect=AssertionError('Copy needs no weights')):
             self.run_job()
         output = cv2.imdecode(np.frombuffer((self.output / "000.png").read_bytes(), np.uint8), cv2.IMREAD_COLOR)
         self.assertTrue(np.all(output == 200))
+
+    def test_exact_dimensions_and_automatic_pyramid_forwarding(self):
+        captured = self.fake_engine()
+        self.job['processing_size'] = [512, 288]
+        self.job['render_options'] = dict(pyramidlevels=-1)
+        self.run_job()
+        self.assertEqual(captured['config']['pyramidlevels'], -1)
+        self.assertEqual(captured['engine']['img_frs_seq'][0].shape, (288, 512, 3))
+        self.assertEqual(cv2.imread(str(self.output / '001.png')).shape, (288, 512, 3))
+
+    def test_oversized_patch_is_rejected_before_engine_but_single_copy_is_allowed(self):
+        self.job['render_options'] = dict(patchsize=65)
+        with patch.dict(sys.modules, {'torch': None, 'ezsynth.main_ez': None}):
+            with self.assertRaisesRegex(ValueError, 'at least 131 x 131'):
+                self.run_job()
+            self.assertFalse((self.output / 'COMPLETE.txt').exists())
+            self.job['frames'] = self.frames[:1]
+            self.run_job()
+            self.assertTrue((self.output / 'COMPLETE.txt').exists())
+
+    def test_largest_fitting_patch_reaches_video_engine_unchanged(self):
+        captured = self.fake_engine()
+        self.job['render_options'] = dict(patchsize=63, pyramidlevels=-1)
+        self.run_job()
+        self.assertEqual(captured['config']['patchsize'], 63)
+        self.assertEqual(captured['config']['pyramidlevels'], -1)
+
+    def test_cpu_and_auto_allow_cpu_flow_and_reject_cuda_only_settings(self):
+        captured = self.fake_engine()
+        sys.modules['torch'].cuda.is_available = lambda: False
+        sys.modules['torch'].cuda.get_device_name = lambda _: self.fail('Must not query a missing GPU')
+        for backend, identifier in (('cpu', 19), ('auto', 18)):
+            self.job['render_options'] = dict(ebsynth_backend=backend)
+            self.run_job()
+            self.assertEqual(captured['runner'].eb.backend, identifier)
+        for options, message in ((dict(ebsynth_backend='cuda'), 'CUDA is unavailable'),
+                                 (dict(ebsynth_backend='cpu', edge_method='PAGE'), 'Choose Classic'),
+                                 (dict(ebsynth_backend='cpu', memory_efficient_raft=True), 'requires CUDA')):
+            self.job['render_options'] = options
+            with self.subTest(options=options), self.assertRaisesRegex(RuntimeError, message):
+                self.run_job()
 
     def test_missing_mask_is_rejected_before_engine_initialization(self):
         self.job["render_options"] = dict(do_mask=True)
         with patch.dict(sys.modules, {"torch": None, "ezsynth.main_ez": None}), self.assertRaises(ValueError):
             self.run_job()
         self.assertFalse((self.output / "COMPLETE.txt").exists())
+
+
+class SynthesisDimensionTests(unittest.TestCase):
+    def test_preflight_matches_live_wrapper_pyramid_availability(self):
+        # Execute only the pure upstream method; never load the native DLL.
+        tree = ast.parse((Path(__file__).parent / 'ezsynth/utils/_eb.py').read_text(encoding='utf-8'))
+        runner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'EbsynthRunner')
+        method = next(node for node in runner.body if isinstance(node, ast.FunctionDef) and node.name == 'get_max_pyramid_level')
+        namespace = {}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), '_eb.py', 'exec'), namespace)
+        for patchsize in (3, 7, 63, 99):
+            for extent in (patchsize, 2 * patchsize, 2 * patchsize + 1, 512):
+                for style, target in (((extent, 512), (512, 512)), ((512, 512), (512, extent))):
+                    with self.subTest(patch=patchsize, style=style, target=target):
+                        levels = namespace['get_max_pyramid_level'](None, patchsize, *style, *target)
+                        if levels:
+                            validate_synthesis_dimensions(patchsize, style, target)
+                        else:
+                            with self.assertRaises(ValueError):
+                                validate_synthesis_dimensions(patchsize, style, target)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parent
 PACKAGES = {'PySide6': 'PySide6.QtWidgets', 'numpy': 'numpy', 'opencv-python': 'cv2',
             'torch': 'torch', 'torchvision': 'torchvision', 'phycv': 'phycv',
             'scipy': 'scipy', 'Pillow': 'PIL.Image', 'tqdm': 'tqdm'}
+EF_RAFT_MODELS = ('25000_ours-sintel', 'ours_sintel', 'ours-things')
+FLOW_DIFFUSION_MODEL = 'FlowDiffuser-things.pth'
 
 
 def verify_assets(root=ROOT):
@@ -33,6 +35,25 @@ def verify_assets(root=ROOT):
         if digest != expected:
             raise ValueError(f'Runtime asset differs from the working checkout: {relative}. Verify its source before rendering.')
     return len(manifest['files'])
+
+
+def flow_extra_readiness(root=ROOT, find_spec=importlib.util.find_spec):
+    """Report optional flow architecture requirements without importing a model."""
+    root = Path(root)
+    flow_root = root / 'ezsynth' / 'utils' / 'flow_utils'
+    ef_dir = flow_root / 'ef_raft_models'
+    flow_diff_dir = flow_root / 'flow_diffusion_models'
+    ef_missing = [model for model in EF_RAFT_MODELS if not (ef_dir / f'{model}.pth').is_file()]
+    return {
+        'EF-RAFT': [] if not ef_missing else [
+            'missing weights: ' + ', '.join(f'{model}.pth' for model in ef_missing),
+        ],
+        'FlowDiffuser': (
+            ([] if find_spec('timm') is not None else ['missing Python package: timm'])
+            + ([] if (flow_diff_dir / FLOW_DIFFUSION_MODEL).is_file()
+               else [f'missing weights: {FLOW_DIFFUSION_MODEL}'])
+        ),
+    }
 
 
 def gui_smoke():
@@ -75,6 +96,7 @@ def main(argv=None):
     parser.add_argument('--cuda', action='store_true', help='Query CUDA availability; no models or rendering.')
     parser.add_argument('--native', action='store_true', help='Load the EbSynth DLL and check its entry point; no synthesis.')
     parser.add_argument('--raft-extension', action='store_true', help='Load the bundled memory-efficient RAFT extension; no model or synthesis.')
+    parser.add_argument('--flow-extras', action='store_true', help='Check EF-RAFT and FlowDiffuser files/dependencies without loading models.')
     parser.add_argument('--_gui-child', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args._gui_child:
@@ -133,6 +155,12 @@ def main(argv=None):
             extension = require_alt_cuda_corr()
             return f'{extension.__file__}; build {extension.reezsynth_build}'
         check('Memory-efficient RAFT extension', raft_extension)
+    if args.flow_extras:
+        for name, missing in flow_extra_readiness().items():
+            check(name, lambda name=name, missing=missing: (
+                f'{name} files and dependencies are present' if not missing
+                else (_ for _ in ()).throw(RuntimeError('; '.join(missing)))
+            ))
     if args.gui_smoke:
         def smoke():
             result = subprocess.run([sys.executable, '-X', 'utf8', str(Path(__file__).resolve()), '--_gui-child'],

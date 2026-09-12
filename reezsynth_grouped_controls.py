@@ -2,7 +2,9 @@
 from PySide6.QtCore import Qt, QSignalBlocker
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
-    QSpinBox, QVBoxLayout, QWidget)
+    QVBoxLayout, QWidget)
+
+from reezsynth_widget_style import QueueSpinBox
 
 from reezsynth_video_plan import validate_blend_options, validate_grouped_selection
 
@@ -21,8 +23,8 @@ class GroupedVideoControls(QWidget):
         self.full_range = QCheckBox("Use full source range")
         self.full_range.setChecked(True)
         form.addRow(self.full_range)
-        self.start = QSpinBox()
-        self.end = QSpinBox()
+        self.start = QueueSpinBox()
+        self.end = QueueSpinBox()
         for widget in (self.start, self.end):
             widget.setRange(0, 2147483647)
         endpoints = QHBoxLayout()
@@ -50,7 +52,7 @@ class GroupedVideoControls(QWidget):
         form.addRow("CPU Poisson solver", self.solver)
         self.poisson_gpu = QCheckBox("Use CuPy Poisson reconstruction (LSMR)")
         form.addRow(self.poisson_gpu)
-        self.maxiter = QSpinBox()
+        self.maxiter = QueueSpinBox()
         self.maxiter.setRange(0, 2147483647)
         self.maxiter.setSpecialValueText("Automatic")
         self.maxiter.setToolTip("Applies to LSMR. Zero selects the solver's automatic iteration limit.")

@@ -33,13 +33,14 @@ class ParallelQueue(QObject):
                 decoders={name: codecs.getincrementaldecoder("utf-8")(errors="replace") for name in ("out", "err")},
                 error=False)
             self.active[process] = record
+            self.w.preview_window.activate(record)
             record["row"]["state"].setText("Starting")
             process.setWorkingDirectory(str(self.script.parent))
             process.readyReadStandardOutput.connect(lambda p=process: self.read(p, "out"))
             process.readyReadStandardError.connect(lambda p=process: self.read(p, "err"))
             process.errorOccurred.connect(lambda error, p=process: self.error(p, error))
             process.finished.connect(lambda code, status, p=process: self.finished(p, code, status))
-            process.start(sys.executable, ["-X", "utf8", "-u", str(self.script), str(record["job_path"])])
+            process.start(record.get('python', sys.executable), ["-X", "utf8", "-u", str(self.script), str(record["job_path"])])
         self.finish_if_idle()
 
     def read(self, process, name, final=False):
@@ -64,6 +65,7 @@ class ParallelQueue(QObject):
                     record["percent"] = percent
                     record["row"]["bar"].setValue(percent)
                     record["row"]["state"].setText(str(message["stage"]))
+                    self.w.preview_window.receive(message.get('preview'), record)
                     self.progress()
                     continue
                 except (ValueError, KeyError, TypeError, OverflowError):
@@ -91,6 +93,7 @@ class ParallelQueue(QObject):
         self.read(process, "out", True)
         self.read(process, "err", True)
         del self.active[process]
+        self.w.preview_window.finish(record)
         process.deleteLater()
         success = code == 0 and status == QProcess.ExitStatus.NormalExit and not record["error"] and (record["output"] / "COMPLETE.txt").is_file()
         if success:

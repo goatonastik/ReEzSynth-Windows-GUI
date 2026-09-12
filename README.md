@@ -7,6 +7,12 @@ ReEzSynth aims to make the workflow easier to manage: select your source
 image sequence and styled keyframes, configure frame ranges, queue renders,
 and monitor progress without manually preparing each rendering job.
 
+Rendering now includes a **Synthesis engine** selector for Trentonom0r3/Ezsynth
+and FuouM/ReEzSynth. The original engine remains the default. The optional FuouM
+engine uses a separate Python runtime and supports image synthesis, RAFT video
+and normal grouped blending. See [dual-engine setup and capabilities](DUAL_ENGINE.md)
+and the [remaining-work checklist](WORK_REMAINING.md).
+
 ## Project goals
 
 - Make keyframe-based rendering more accessible through a Windows interface.
@@ -33,20 +39,53 @@ CUDA and native-library availability without rendering.
 
 Launch `run_reezsynth.bat` with the existing `reezsynth` Conda environment.
 The entry point is `reezsynth_gui.py`.
+The logo and tabs share the top row; **Save Log...** stays available at its right
+from every tab, including while a worker is running.
 
 - **Video / Keyframes:** select or drop project, source, styled-keyframe and
   optional mask directories. Sources must be consecutive numbered PNG/JPEG
   images; keyframe numbers must match sources. Set inclusive propagation ranges.
 - **Rendering:** edit guide weights, uniformity, patch size, pyramid levels,
-  iteration counts, polishing, edge method and masks. Preview/Standard reset
-  synthesis parameters while preserving guide weights. RAFT Sintel and the CUDA
-  synthesis backend remain selected.
+  iteration counts, polishing, edge method, masks, RAFT model and EbSynth backend.
+  Preview, Standard, and Highest reset only synthesis parameters while preserving
+  guide weights and all controls outside this tab.
 - **Masks:** tick the Masks checkbox beside its directory input. Untick it to ignore
   the remembered mask folder for rendering and compositing. Supply one mask per source frame,
   matching its number and dimensions. White selects stylized pixels; black keeps
   source pixels. Feather size is zero or an odd integer.
-- **Settings:** the toolbar button opens the Settings tab, including optional
+- **Custom edge guides:** select a numbered edge-guide sequence and enable **Use
+  custom edge-guide frames** in Rendering to use those maps instead of automatic
+  Classic, PST, or PAGE edge generation. Edge-guide numbers and dimensions must
+  exactly match the selected source video. The folder is remembered in directory
+  presets and projects; it is ignored until the checkbox is enabled.
+- **Live previews:** **Previews** opens a resizable window showing each completed
+  synthesis frame in its keyframe/direction tile, during shared, isolated, or
+  parallel rendering. Capture and image loading run only while the window is open;
+  reopening shows the last captured images and resumes on the next finished frame.
+  Previews are capped at 960 pixels on the longest edge and precede final mask
+  compositing/grouped blending; saved renders retain the selected resolution.
+  Queue pairs/Square grid is selected in this window. Settings controls its image
+  cap (default 8); later active jobs replace earlier completed jobs at the cap.
+  Small latest-frame files live under each job's `.reezsynth-preview/` directory.
+- **Settings:** includes optional
   discovery, automatic start, parallel rendering, notifications and startup choices.
+- **Diagnostics / Log:** retains all queue runs for the open application session.
+  Each queue has prominent start/end separators; use **Save Log...** to write the
+  complete current session to a `.log` or `.txt` file, including an active run.
+  Logs include effective render settings, per-frame EbSynth time, time between
+  synthesis calls (flow/guides/blending), and total preview-capture time. These
+  distinguish synthesis cost from preview work when investigating slowdowns.
+  To compare the GUI with a direct renderer process, run
+  `benchmark_current_gui_settings.bat` after saving a GUI log. It clones the last
+  completed job in `reezsynth-session.log` into a new sibling output folder and
+  invokes `reezsynth_jobs.py job.json` in a fresh process. The resulting
+  `cli-benchmark.log` contains the same render timing lines, an automatic
+  per-frame summary, and a direct CLI wall time. You may instead pass an explicit
+    job JSON path to the batch file. Existing outputs are never overwritten.
+
+Projects and shareable preset libraries may also be saved or imported as `.yaml`
+or `.yml`. JSON remains the default. YAML uses PyYAML safe loading and the same
+version and field validation as JSON; job files and worker protocol remain JSON.
 
 ### Presets and startup behavior
 
@@ -59,13 +98,28 @@ mask correspondence guide when masks are enabled; zero disables that additional
 guide without disabling mask compositing. Defaults (key 1, mask guide 0) preserve
 previous rendering behavior. All are saved in weight presets and projects.
 
-The default quality preset is Standard. Video weight 6, Mapping 2 and Deflicker
+The default quality preset is Standard. Preview is the lower-cost draft profile;
+Highest uses Standard settings with automatic pyramid depth. Video weight 6, Mapping 2 and Deflicker
 0.5 match Ezsynth's RunConfig defaults.
+Patch size must leave at least one usable pyramid level: each processed style
+and target dimension must be at least twice the patch size plus one pixel.
+Invalid combinations report an error before engine initialization. Current numeric
+ranges and their limitations are listed in [NUMERIC_SETTINGS.md](NUMERIC_SETTINGS.md).
 Processing size defaults to Original resolution; explicitly saved size choices
 remain respected. With Original resolution selected, video jobs check selected
 source-frame and keyframe dimensions before creating outputs or launching workers.
 Mismatches show the filename, actual size and expected size. Image Synthesis keeps
 its separate rule allowing target dimensions to differ from source/style dimensions.
+Choose an exact Processing size preset (512/1024 square, 720p or 1080p landscape
+or portrait), or Custom to enter exact width and height. Preset dimensions are
+shown but locked; Custom dimensions are editable and apply to video and Image
+Synthesis output. Exact sizes resize to the chosen dimensions; a different aspect
+ratio stretches the input rather than cropping it. Original shows source dimensions
+(the target image on Image Synthesis), or a dash until an input is available.
+Older projects/presets using maximum-width limits reopen as **Legacy max width
+512/960**. This compatibility entry preserves aspect ratio and never upscales;
+image source and target groups retain their separate sizes. New presets continue
+to use the exact sizes above. Select one explicitly to replace a legacy limit.
 Existing saved weights are preserved. The visible guide order is Mapping,
 Deflicker, Diversity.
 
@@ -75,11 +129,40 @@ These are related controls, not a promise of identical EbSynth Beta behavior or
 matching numerical scales. The native weighting model is described in the
 [EbSynth source documentation](https://github.com/jamriska/ebsynth#examples).
 
-Directory, guide-weight, rendering and application presets are independent.
+The flow controls offer RAFT with bundled Sintel (default) and Kitti weights, plus
+the upstream EF-RAFT and FlowDiffuser architecture/model pairs for video. EF-RAFT
+and FlowDiffuser are optional: a queue checks their exact files (and FlowDiffuser's
+`timm` package) before it creates output or starts a worker. Use
+`check_reezsynth.py --flow-extras` to see what is missing. The default install and
+existing projects remain on RAFT; Memory-efficient RAFT correlation applies only
+to that architecture. EbSynth backend defaults to CUDA; Auto lets the native library decide and
+CPU avoids its CUDA synthesis backend. Video optical flow can still use PyTorch
+CUDA when it is available, so CPU EbSynth is not a complete CPU-only video mode.
+When PyTorch CUDA is unavailable, CPU/Auto jobs can proceed with CPU optical flow,
+Classic edges, GPU blending off and memory-efficient CUDA correlation off. These
+adapter paths are mock-tested; real native CPU/Auto output still needs validation.
+Single-frame keyframe copies require no flow weights or GPU initialization.
+
+Settings > **Optional flow components** displays each optional model's readiness.
+Its install buttons copy user-selected official checkpoint files into the expected
+directories; the FlowDiffuser package button installs its pinned `timm` dependency
+only after confirmation. An unavailable optional architecture returns to RAFT with
+an explanation instead of allowing an invalid queue setting.
+
+**Pyramid levels: Automatic** forwards the upstream `-1` setting, which chooses
+the available depth from image and patch dimensions. Fixed values remain available.
+
+Directories, Output naming, Guide weights, Rendering, Blend / Flow, Application,
+and Image Synthesis presets are independent. Every dropdown includes a protected
+**Default** entry with the recommended built-in values. The bottom of Settings
+has **Reset all settings to defaults**, which restores those values after
+confirmation without deleting saved projects or custom preset files. Resetting
+directory inputs rebuilds the queue from those default inputs.
 Select from a dropdown; **+** saves the current group and **-** removes it after
 confirmation. Saving pre-fills the selected name and confirms overwriting an
-existing name. Rendering presets include quality, resolution and output naming;
-per-job frame ranges belong in saved projects.
+existing name. Named Rendering presets include only controls from Rendering;
+they do not alter processing resolution, output naming, or Blend / Flow. Per-job
+frame ranges belong in saved projects.
 
 The versioned JSON library is `%LOCALAPPDATA%/ReEzSynth/presets.json`.
 Settings provides Import/Export buttons; import replaces the local library after
@@ -178,7 +261,7 @@ continues while the popup is visible. No automatic resizing or retry occurs.
 Run these explicit modules in the existing environment, without real GPU renders:
 
 ```powershell
-python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations test_reezsynth_image test_reezsynth_setup test_reezsynth_raft -v
+python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations test_reezsynth_image test_reezsynth_setup test_reezsynth_polish test_reezsynth_preview test_reezsynth_raft test_reezsynth_cli_benchmark test_reezsynth_serialization test_reezsynth_engines -v
 ```
 
 Tests isolate settings/files, use offscreen Qt, mock workers and a fake engine,
@@ -189,6 +272,33 @@ test discovery for this lightweight suite.
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for results and remaining manual checks.
 Real GPU memory use, rendering quality and native audio playback remain unverified.
+For small real CUDA checks of the frontend adapter, run
+`python -B diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
+`python -B diagnose_reezsynth_adapter.py --image` for Image Synthesis, or
+`python -B diagnose_reezsynth_adapter.py --grouped` for grouped blending. They use
+bundled examples and write ignored output under `diagnostic_outputs/`.
+Add `--shared-worker` to any of those commands to run it through the persistent
+worker protocol and verify its completion event and normal cleanup/exit.
+For the video diagnostic, also add `--live-preview` to renew a preview-window
+lease and verify that a synthesis-stage thumbnail is produced by the worker.
+Use `--reuse-worker` to send two independent video jobs through one persistent
+worker and verify both completion events before it exits.
+Use `--cancel-worker` to force-kill a worker after synthesis begins and verify
+that it exits without writing `COMPLETE.txt`; it cannot be combined with the
+preview or reuse checks.
+Use `--parallel-workers` to run two independent jobs concurrently through the
+same isolated-job entry point used by parallel rendering.
+For an end-to-end offscreen GUI-controller check with temporary settings, run
+`python -B diagnose_reezsynth_gui.py`. It opens the Preview window, runs one
+small shared-worker queue, verifies a preview tile and completion marker, then
+waits for the UI to unlock.
+Add `--parallel` to run two independent jobs through the GUI's ParallelQueue.
+Add `--cancel` to stop a longer small shared-worker queue after synthesis begins
+and verify asynchronous worker finalization without `COMPLETE.txt`.
+Add `--close` to exercise the same shutdown path through the window-close
+confirmation and verify that the window closes after worker finalization.
+Add `--cancel-restart` to stop a queue during synthesis, rebuild it, and complete
+a fresh queue in the same GUI window.
 Blend / Flow now renders one sequence from multiple selected keyframes, with its
 own inclusive range and output subfolder. Choose normal blending, forward-only
 or reverse-only propagation between keyframes. Outer tails propagate from the
@@ -245,13 +355,19 @@ Its synthesis technology is a foundation of this workflow.
 
 Website: **https://ebsynth.com/**
 
-### Ezsynth — FuouM
+### Ezsynth — Trentonom0r3 and contributors
 
-[Ezsynth](https://github.com/FuouM/Ezsynth) is developed by **FuouM and
-contributors**. It provides the Python rendering pipeline that this
-front end builds upon.
+[Trentonom0r3/Ezsynth](https://github.com/Trentonom0r3/Ezsynth) supplies the
+original Python pipeline and native EbSynth interface used by this frontend.
+Its reworked pipeline credits **FuouM**; related earlier work is available at
+[FuouM/Ezsynth](https://github.com/FuouM/Ezsynth).
 
-GitHub: **https://github.com/FuouM/Ezsynth**
+### ReEzSynth — FuouM
+
+[FuouM/ReEzSynth](https://github.com/FuouM/ReEzSynth) supplies the optional
+PyTorch/CUDA synthesis engine. It is a separate project from the original
+Ezsynth pipeline and this Windows GUI. The supported revision, local build
+compatibility patch and adapter limits are documented in DUAL_ENGINE.md.
 
 ### ReEzSynth Windows GUI
 

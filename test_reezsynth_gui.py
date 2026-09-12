@@ -89,7 +89,7 @@ class ConstructionTests(GuiFixture):
         self.assertFalse(window.run_all.isEnabled())
         self.assertIsNone(window.process)
         self.assertTrue(window.reuse_worker.isChecked())
-        self.assertEqual(window.resolution.currentData(), 0)
+        self.assertEqual(window.resolution.currentData(), 'original')
         self.assertEqual(window.batch_name_pattern.text(), controls.DEFAULT_BATCH_PATTERN)
         self.assertIn("out_023", window.naming_preview.text())
         for field in (window.project_dir, window.keyframe_dir, window.video_dir):
@@ -116,17 +116,68 @@ class ConstructionTests(GuiFixture):
         project = self.directory("project")
         window.project_dir.setText(project)
         window.quality.setCurrentText("Standard")
-        window.resolution.setCurrentIndex(window.resolution.findData(0))
+        window.set_processing_size([1536, 864])
         window.batch_name_pattern.setText("shot_{date}")
         window.job_name_pattern.setText("paint_{key:04d}")
         window.close()
         restored = self.window()
         self.assertEqual(restored.project_dir.text(), project)
         self.assertEqual(restored.quality.currentText(), "Standard")
-        self.assertEqual(restored.resolution.currentData(), 0)
+        self.assertEqual(restored.resolution.currentData(), 'custom')
+        self.assertEqual(restored.processing_size(), [1536, 864])
         self.assertEqual(restored.batch_name_pattern.text(), "shot_{date}")
         self.assertEqual(restored.job_name_pattern.text(), "paint_{key:04d}")
         self.assertEqual(restored.rows, [])
+
+    def test_processing_size_presets_and_custom_fields(self):
+        window = self.window()
+        expected = [('original', None), ('square_512', (512, 512)), ('square_1024', (1024, 1024)),
+                    ('landscape_720', (1280, 720)), ('portrait_720', (720, 1280)),
+                    ('landscape_1080', (1920, 1080)), ('portrait_1080', (1080, 1920))]
+        for identifier, size in expected:
+            window.resolution.setCurrentIndex(window.resolution.findData(identifier))
+            self.assertEqual(window.processing_size(), size)
+            self.assertFalse(window.processing_width.isEnabled())
+            self.assertFalse(window.processing_height.isEnabled())
+        window.resolution.setCurrentIndex(window.resolution.findData('custom'))
+        self.assertTrue(window.processing_width.isEnabled())
+        window.processing_width.setValue(1536); window.processing_height.setValue(864)
+        self.assertEqual(window.processing_size(), [1536, 864])
+        self.assertIsInstance(window.processing_width, gui.QueueSpinBox)
+        self.assertIsInstance(window.options.widgets['render']['patchsize'], gui.QueueSpinBox)
+        self.assertIsInstance(window.grouped.start, gui.QueueSpinBox)
+
+    def test_processing_size_display_parts_and_session_log_save(self):
+        self.assertEqual(gui.processing_size_parts('720p 16:9'), ('720p', '16:9'))
+        self.assertEqual(gui.processing_size_parts('Original resolution'), ('Original resolution', ''))
+        window = self.window()
+        window.log.setPlainText('Earlier session entry')
+        window.start_records([], self.root, False, False, self.root / 'unused.py', {})
+        contents = window.log.toPlainText()
+        self.assertIn('Earlier session entry', contents)
+        self.assertIn('QUEUE RUN', contents)
+        self.assertIn('STARTED', contents)
+        self.assertIn('ENDED', contents)
+        self.assertEqual(window.log.maximumBlockCount(), 0)
+        destination = self.root / 'session.log'
+        with patch.object(gui.QFileDialog, 'getSaveFileName', return_value=(str(destination), '')):
+            window.save_log()
+        self.assertEqual(destination.read_text(encoding='utf-8'), window.log.toPlainText())
+
+    def test_legacy_max_width_conversion_preserves_source_aspect_ratio(self):
+        source = self.root / 'frame000.png'
+        image = gui.QImage(1920, 1080, gui.QImage.Format.Format_RGB32)
+        image.fill(0)
+        self.assertTrue(image.save(str(source)))
+        window = self.window()
+        window.video = {0: source}
+        window.set_processing_size(None, 512)
+        self.assertEqual(window.processing_max_width(), 512)
+        self.assertIsNone(window.processing_size())
+        self.assertEqual((window.processing_width.value(), window.processing_height.value()), (512, 288))
+        self.assertFalse(window.processing_width.isEnabled())
+        window.set_processing_size(None)
+        self.assertEqual((window.processing_width.value(), window.processing_height.value()), (1920, 1080))
 
 
 class FolderHistoryTests(GuiFixture):
@@ -296,7 +347,7 @@ class NamingTests(GuiFixture):
     def test_generated_names_reflect_directions_and_do_not_mutate_rows(self):
         window = self.window()
         window.job_name_pattern.setText("{index:02d}_{key}_{start}_{end}_{width}")
-        window.resolution.setCurrentIndex(window.resolution.findData(0))
+        window.resolution.setCurrentIndex(window.resolution.findData('original'))
         definitions = [dict(key=5, start=0, end=10, reverse=False, forward=True, folder="manual"),
                        dict(key=8, start=2, end=12, reverse=True, forward=False, folder="other")]
         result = controls.default_job_definitions(window, definitions)

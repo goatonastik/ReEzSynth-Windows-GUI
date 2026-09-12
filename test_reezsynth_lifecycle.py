@@ -38,6 +38,7 @@ if __name__ == "__main__":
 class LifecycleFixture(GuiFixture):
     def setUp(self):
         super().setUp()
+        self.enterContext(patch.object(gui, 'validate_flow_model_available'))
         shutil.copy2(SOURCE / "reezsynth_shared_worker.py", self.root)
         (self.root / "reezsynth_jobs.py").write_text(MOCK_RENDERER, encoding="utf-8")
         self.mode("normal")

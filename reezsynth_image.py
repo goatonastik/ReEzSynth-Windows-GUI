@@ -53,12 +53,14 @@ def image_job_settings(data):
 def render_image_job(job, progress):
     import cv2
     import numpy as np
-    from reezsynth_config import STANDARD, PREVIEW, validate_render
+    from reezsynth_config import validate_render, validate_processing_settings, validate_synthesis_dimensions
 
     settings = image_job_settings(job['image_synthesis'])
-    if job.get('quality') not in ('Standard', 'Preview') or job.get('max_width') not in (0, 512, 960):
+    if job.get('quality') not in ('Standard', 'Preview', 'Highest'):
         raise ValueError('Invalid image quality or processing size.')
-    options = dict(STANDARD if job['quality'] == 'Standard' else PREVIEW)
+    processing = validate_processing_settings(job)
+    from reezsynth_config import quality_profile
+    options = dict(quality_profile(job['quality']))
     options.update(job.get('render_options', {}))
     options = validate_render(options)
     def read(path, style=False):
@@ -87,30 +89,43 @@ def render_image_job(job, progress):
         raise ValueError('The native engine supports at most 24 guide channels in total.')
     original_style_shape = style.shape[:2]
     def resize(image):
-        limit = job['max_width']
+        requested = processing['processing_size']
+        if requested is not None:
+            return cv2.resize(image, tuple(requested), interpolation=cv2.INTER_AREA)
+        limit = processing['max_width']
         if limit and image.shape[1] > limit:
             height = max(1, round(image.shape[0] * limit / image.shape[1]))
             return cv2.resize(image, (limit, height), interpolation=cv2.INTER_AREA)
         return image
     style = resize(style)
     pairs = [(resize(a), resize(b), weight / settings['key_weight']) for a, b, weight in pairs]
-    if min(*style.shape[:2], *pairs[0][1].shape[:2]) < options['patchsize']:
-        raise ValueError('Processing dimensions must be at least the patch size.')
+    validate_synthesis_dimensions(options['patchsize'], style.shape[1::-1], pairs[0][1].shape[1::-1])
     progress(10, 'Initializing image synthesis')
-    from ezsynth.aux_classes import RunConfig
-    from ezsynth.main_ez import ImageSynthBase
-    cfg = RunConfig(**{name: options[name] for name in SYNTHESIS_FIELDS}, img_wgt=pairs[0][2])
-    runner = ImageSynthBase(style_img=style, src_img=pairs[0][0], tgt_img=pairs[0][1], cfg=cfg)
-    runner.eb.backend = runner.eb.backends['cuda']
+    backend = options['ebsynth_backend']
     progress(15, 'Synthesizing image')
-    # Always pass a fresh list: upstream appends the primary pair to this list.
-    result, error = runner.run(guides=list(pairs[1:]))
+    from reezsynth_engines import FUOUM
+    if options['engine'] == FUOUM:
+        from reezsynth_fuoum import synthesize_image
+        result, error = synthesize_image(style, pairs, options)
+    else:
+        from ezsynth.aux_classes import RunConfig
+        from ezsynth.main_ez import ImageSynthBase
+        cfg = RunConfig(**{name: options[name] for name in SYNTHESIS_FIELDS}, img_wgt=pairs[0][2])
+        runner = ImageSynthBase(style_img=style, src_img=pairs[0][0], tgt_img=pairs[0][1], cfg=cfg)
+        runner.eb.backend = runner.eb.backends[backend]
+        # Always pass a fresh list: upstream appends the primary pair to this list.
+        result, error = runner.run(guides=list(pairs[1:]))
     expected_shape = (*pairs[0][1].shape[:2], 3)
     if not isinstance(result, np.ndarray) or result.shape != expected_shape or not np.isfinite(result).all():
         raise RuntimeError('Image synthesis returned an invalid output image.')
     if not isinstance(error, np.ndarray) or error.shape != expected_shape[:2] or error.dtype.kind not in 'uif' or not np.isfinite(error).all():
         raise RuntimeError('Image synthesis returned an invalid numerical error map.')
-    progress(90, 'Saving image and error map')
+    from reezsynth_preview_transport import PreviewPublisher
+    preview = PreviewPublisher(job['output']).publish('Image', 'Image', None, result, stage='final')
+    if preview is not None:
+        progress(90, 'Saving image and error map', preview=preview)
+    else:
+        progress(90, 'Saving image and error map')
     output = Path(job['output'])
     ok, encoded = cv2.imencode('.png', np.clip(result, 0, 255).astype(np.uint8))
     if not ok:
@@ -126,6 +141,6 @@ def render_image_job(job, progress):
     atomic_json(output / 'image_manifest.json', dict(version=1, image='image.png', error='error.npy',
         error_dtype=str(error.dtype), output_shape=list(result.shape),
         original_style_shape=list(original_style_shape), original_target_shape=list(target_shape),
-        guide_channels=[channels(pair[0]) for pair in pairs], backend='cuda'))
+        guide_channels=[channels(pair[0]) for pair in pairs], backend=backend, engine=options['engine']))
     (output / 'COMPLETE.txt').write_text('Image synthesis complete: image.png, error.npy, image_manifest.json\n', encoding='utf-8')
     progress(99, 'Finishing image synthesis')

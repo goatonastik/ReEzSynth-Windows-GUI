@@ -1,5 +1,9 @@
 # Windows setup
 
+This guide installs the original Trentonom0r3/Ezsynth engine. To add the optional
+FuouM/ReEzSynth runtime and native extension, follow [DUAL_ENGINE.md](DUAL_ENGINE.md)
+after completing this setup.
+
 ReEzSynth uses its own Conda environment. Do not install its packages into base
 Conda, ComfyUI, or another application's environment. The setup below targets
 64-bit Windows, Python 3.11 and an NVIDIA GPU supported by CUDA 12.8 PyTorch wheels.
@@ -77,25 +81,47 @@ Once the environment is available, the same check can run through the launcher:
 .\run_reezsynth.bat check_reezsynth.py --gui-smoke --cuda --native
 ```
 
+To see what the optional EF-RAFT and FlowDiffuser architectures still need,
+without importing models or using the GPU, run:
+
+```powershell
+.\run_reezsynth.bat check_reezsynth.py --flow-extras
+```
+
 ## Runtime files and optional features
 
-The current checkout includes `ezsynth/utils/ebsynth.dll` and the default
-`ezsynth/utils/flow_utils/models/raft-sintel.pth`. `runtime-assets.json` records their
-working-checkout hashes to detect incomplete or changed copies. Hashes do not prove
-upstream provenance. Keep licensing/attribution when distributing runtime files.
+The current checkout includes `ezsynth/utils/ebsynth.dll` and RAFT Sintel/Kitti
+weights. `runtime-assets.json` records their working-checkout hashes to detect
+incomplete or changed copies. Hashes do not prove upstream provenance. Keep
+licensing/attribution when distributing runtime files.
 Do not replace the working DLL or remove the local CUDA-backend forwarding fixes.
 
 If RAFT weights are absent, obtain them from the
 [upstream RAFT project](https://github.com/princeton-vl/RAFT#demos), and verify the
 intended file before use. Setup will report missing assets rather than silently
-download them. The current video path selects Sintel; other model files are not
-required for that path. Image synthesis needs the native library but does not load
-RAFT models.
+download them. The video controls offer the bundled Sintel default and Kitti RAFT
+weights. Image synthesis needs the native library but does not load RAFT models.
 
 CuPy GPU blending is optional and off by default. It is not part of this baseline
-install. EF-RAFT, FlowDiffuser, YAML support and a general CPU-rendering switch are
-not currently exposed as complete frontend workflows. Installing optional packages
-alone does not enable those unfinished features.
+install. The EbSynth backend control offers CUDA, Auto and CPU; video optical flow
+can still use PyTorch CUDA, so CPU EbSynth is not a complete CPU-only video mode.
+If PyTorch CUDA is unavailable, CPU/Auto permits CPU optical flow with Classic
+edges and GPU blending/correlation disabled. Native CPU/Auto rendering still needs
+validation on actual installations.
+The Rendering tab includes the upstream EF-RAFT and FlowDiffuser architecture
+choices, but they are not part of the default installation. Before selecting one,
+run `check_reezsynth.py --flow-extras`; the queue repeats the same preflight before
+it creates any outputs. EF-RAFT needs its three model files
+(`25000_ours-sintel.pth`, `ours_sintel.pth`, and `ours-things.pth`) in
+`ezsynth/utils/flow_utils/ef_raft_models/`. FlowDiffuser needs `timm` and
+`FlowDiffuser-things.pth` in `ezsynth/utils/flow_utils/flow_diffusion_models/`.
+Its upstream code also initializes pretrained Twin-SVT backbones, which may fetch
+additional weights on first use. The setup script does not download or install
+these optional assets. Verify their source and compatibility with the pinned
+environment before adding them; installing `timm` alone does not enable FlowDiffuser.
+The Settings tab's **Optional flow components** panel can import checkpoint files
+you have downloaded from the upstream source and can install `timm` after explicit
+confirmation. It does not silently fetch model checkpoints.
 
 ## Memory-efficient RAFT extension
 

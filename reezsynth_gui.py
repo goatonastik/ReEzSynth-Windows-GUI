@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QProcess,
+    QSignalBlocker,
     QRectF,
     QSettings,
     QSize,
@@ -17,6 +18,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
+    QImage,
+    QImageReader,
     QPainter,
 )
 from PySide6.QtWidgets import (
@@ -38,6 +41,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QStyle,
+    QStyleOptionComboBox,
+    QStyleOptionViewItem,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -50,9 +57,13 @@ from reezsynth_jobs import (
     PREFIX,
     build_plan,
     validate_masks,
+    validate_edge_guides,
     validate_video_dimensions,
     validate_row,
 )
+from reezsynth_config import (PROCESSING_PRESETS, validate_flow_model_available,
+                              validate_processing_size, validate_processing_settings)
+from reezsynth_preview import LivePreviewWindow
 
 # ReEzSynth project controls integration v1
 from reezsynth_project_controls import (
@@ -76,7 +87,8 @@ from reezsynth_config import validate_render, validate_weights, validate_applica
 from reezsynth_grouped_controls import GroupedVideoControls
 from reezsynth_image_controls import ImageSynthesisControls
 from reezsynth_image import validate_image_settings, image_job_settings
-from reezsynth_widget_style import StepButton, QueueStyle, paint_check
+from reezsynth_serialization import read_document, write_document
+from reezsynth_widget_style import COMBO_STYLE, QueueSpinBox, StepButton, QueueStyle, paint_check
 from reezsynth_artifacts import validate_exports
 from reezsynth_video_plan import (plan_grouped_video, check_blend_dependencies,
                                   validate_grouped_selection, validate_blend_options)
@@ -87,6 +99,57 @@ SESSION_PREFIX = "@@REEZSYNTH_SESSION@@"
 SHUTDOWN_TIMEOUT_MS = 30_000
 ROW_HEIGHT = 36
 STEP_COLUMN_WIDTH = 30
+LOG_SEPARATOR = "=" * 96
+
+
+def processing_size_parts(label):
+    """Return the display's left resolution and right aspect-ratio fields."""
+    if label.startswith(("512 ", "1024 ", "720p ", "1080p ")):
+        return tuple(label.split(" ", 1))
+    return label, ""
+
+
+class ProcessingSizeItemDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        display = QStyleOptionViewItem(option)
+        self.initStyleOption(display, index)
+        label = display.text
+        display.text = ""
+        style = display.widget.style() if display.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, display, painter, display.widget)
+        left, right = processing_size_parts(label)
+        rectangle = display.rect.adjusted(8, 0, -8, 0)
+        painter.save()
+        painter.setPen(display.palette.text().color())
+        painter.drawText(rectangle, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, left)
+        if right:
+            painter.drawText(rectangle, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, right)
+        painter.restore()
+
+
+class ProcessingSizeCombo(QComboBox):
+    """Show resolution left-aligned and its aspect ratio right-aligned."""
+    def __init__(self):
+        super().__init__()
+        self.setItemDelegate(ProcessingSizeItemDelegate(self))
+        self.setMinimumContentsLength(20)
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+
+    def paintEvent(self, event):
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        option.currentText = ""
+        painter = QPainter(self)
+        self.style().drawComplexControl(QStyle.ComplexControl.CC_ComboBox, option, painter, self)
+        rectangle = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox, option,
+            QStyle.SubControl.SC_ComboBoxEditField, self).adjusted(4, 0, -4, 0)
+        left, right = processing_size_parts(self.currentText())
+        painter.setPen(option.palette.buttonText().color())
+        painter.drawText(rectangle, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, left)
+        if right:
+            painter.drawText(rectangle, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, right)
+
 
 THEME = """
 QWidget {
@@ -149,7 +212,7 @@ QSpinBox#QueueNumberEditor {
 QSpinBox#QueueNumberEditor:disabled {
     color: #666666;
 }
-"""
+""" + COMBO_STYLE
 
 
 class FolderEdit(QLineEdit):
@@ -329,6 +392,7 @@ class MainWindow(QMainWindow):
         self.finalizing_process = False
         self.shutdown_process = None
         self.queue_generation = 0
+        self.queue_count = 0
         self.close_when_idle = False
 
         self.preferences = QSettings("ReEzSynth", APP_NAME)
@@ -357,13 +421,16 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         self.setCentralWidget(root)
 
-        title = QLabel("ReEzSynth")
-        title.setStyleSheet(
+        self.logo = QLabel("ReEzSynth")
+        self.logo.setContentsMargins(0, 0, 20, 0)
+        self.logo.setStyleSheet(
             "color: #009f87; font-size: 25px; font-style: italic;"
         )
-        layout.addWidget(title)
 
         self.tabs = QTabWidget()
+        self.tabs.setCornerWidget(self.logo, Qt.Corner.TopLeftCorner)
+        self.save_log_button = self.button("Save Log...", self.save_log)
+        self.tabs.setCornerWidget(self.save_log_button, Qt.Corner.TopRightCorner)
         layout.addWidget(self.tabs)
 
         video_page = QWidget()
@@ -376,7 +443,6 @@ class MainWindow(QMainWindow):
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMaximumBlockCount(10000)
         self.tabs.addTab(self.log, "Diagnostics / Log")
 
         toolbar = QHBoxLayout()
@@ -410,24 +476,28 @@ class MainWindow(QMainWindow):
         self.video_dir.textChanged.connect(self.schedule_scan)
 
         options = QHBoxLayout()
-        options.addWidget(QLabel("EzSynth preset:"))
-
         self.quality = QComboBox()
-        self.quality.addItems(["Preview", "Standard"])
+        self.quality.addItems(["Preview", "Standard", "Highest"])
         self.quality.setCurrentText('Standard')
-        options.addWidget(self.quality)
-
         options.addWidget(QLabel("Processing size:"))
-        self.resolution = QComboBox()
-        self.resolution.addItem("Maximum width 512 - preview", 512)
-        self.resolution.addItem("Maximum width 960", 960)
-        self.resolution.addItem("Original resolution", 0)
-        self.resolution.setCurrentIndex(self.resolution.findData(0))
+        self.resolution = ProcessingSizeCombo()
+        for identifier, label, _ in PROCESSING_PRESETS:
+            self.resolution.addItem(label, identifier)
+        self.resolution.setCurrentIndex(self.resolution.findData('original'))
         options.addWidget(self.resolution)
+        self.processing_width = QueueSpinBox(); self.processing_width.setRange(0, 16384)
+        self.processing_height = QueueSpinBox(); self.processing_height.setRange(0, 16384)
+        for editor, name in ((self.processing_width, 'Width'), (self.processing_height, 'Height')):
+            editor.setSpecialValueText('—')
+            editor.setAccessibleName('Processing ' + name.lower())
+        options.addWidget(QLabel('W:')); options.addWidget(self.processing_width)
+        options.addWidget(QLabel('H:')); options.addWidget(self.processing_height)
+        self.resolution.currentIndexChanged.connect(self.processing_preset_changed)
+        self.processing_preset_changed()
         options.addStretch()
         page.addLayout(options)
 
-        self.locked.extend([self.quality, self.resolution])
+        self.locked.extend([self.quality, self.resolution, self.processing_width, self.processing_height])
         add_output_controls(self, output_layout)
 
         self.summary = QLabel(
@@ -492,9 +562,6 @@ class MainWindow(QMainWindow):
                 "reuse_queue_worker", True, type=bool
             )
         )
-        self.reuse_worker.setStyleSheet(
-            "QCheckBox::indicator { width: 20px; height: 20px; }"
-        )
         self.reuse_worker.toggled.connect(
             lambda enabled: self.preferences.setValue(
                 "reuse_queue_worker", enabled
@@ -516,9 +583,14 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(settings_page, "Settings")
         self.locked.append(self.reuse_worker)
 
+        status_row = QHBoxLayout()
         self.status = QLabel("Ready")
         self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        status_row.addWidget(self.status, 1)
+        self.queue_summary = QLabel()
+        self.queue_summary.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_row.addWidget(self.queue_summary)
+        layout.addLayout(status_row)
 
         self.overall = QProgressBar()
         self.overall.setRange(0, 100)
@@ -546,6 +618,8 @@ class MainWindow(QMainWindow):
                 placeholder.deleteLater()
                 break
         self.options = Options(self, page, form, settings_page, settings_layout)
+        self.tabs.currentChanged.connect(self.refresh_processing_display)
+        self.image_synthesis.target.textChanged.connect(self.refresh_processing_display)
 
     def button(self, text, callback, accent=False):
         button = QPushButton(text)
@@ -627,6 +701,10 @@ class MainWindow(QMainWindow):
                 f"{len(self.video)} source frames: "
                 f"{min(self.video)}–{max(self.video)} | "
                 f"{len(self.rows)} keyframe jobs"
+            )
+            self.summary.setText("Queue rebuilt. Choose rows to adjust their propagation ranges.")
+            self.queue_summary.setText(
+                f"{len(self.video)} source frames | {len(self.rows)} keyframe jobs"
             )
             self.set_busy(False)
             save_ui_state(self)
@@ -755,6 +833,73 @@ class MainWindow(QMainWindow):
             "folder": row["folder"].text().strip(),
         }
 
+    def processing_size(self):
+        identifier = self.resolution.currentData()
+        if identifier == 'original' or self.processing_max_width():
+            return None
+        if identifier == 'custom':
+            return validate_processing_size([self.processing_width.value(), self.processing_height.value()])
+        presets = {key: size for key, _, size in PROCESSING_PRESETS}
+        if identifier not in presets:
+            raise ValueError('Select a processing size.')
+        return presets[identifier]
+
+    def processing_max_width(self):
+        return {'legacy_512': 512, 'legacy_960': 960}.get(self.resolution.currentData(), 0)
+
+    def set_processing_size(self, size, max_width=0):
+        settings = validate_processing_settings(dict(processing_size=size, max_width=max_width))
+        size = settings['processing_size']
+        identifier = 'original' if size is None else next(
+            (key for key, _, preset in PROCESSING_PRESETS if preset == tuple(size)), 'custom')
+        if max_width:
+            identifier = f'legacy_{max_width}'
+        with QSignalBlocker(self.resolution), QSignalBlocker(self.processing_width), QSignalBlocker(self.processing_height):
+            # Compatibility entries only appear when restoring a width-limited file.
+            for index in reversed(range(self.resolution.count())):
+                if str(self.resolution.itemData(index)).startswith('legacy_'):
+                    self.resolution.removeItem(index)
+            if max_width:
+                self.resolution.addItem(f'Legacy max width {max_width}', identifier)
+            self.resolution.setCurrentIndex(self.resolution.findData(identifier))
+            if size:
+                self.processing_width.setValue(size[0])
+                self.processing_height.setValue(size[1])
+        self.processing_preset_changed()
+
+    def processing_preset_changed(self):
+        identifier = self.resolution.currentData()
+        if identifier == 'custom':
+            with QSignalBlocker(self.processing_width), QSignalBlocker(self.processing_height):
+                if min(self.processing_width.value(), self.processing_height.value()) < 128:
+                    self.processing_width.setValue(1920)
+                    self.processing_height.setValue(1080)
+        self.refresh_processing_display()
+
+    def refresh_processing_display(self, *_):
+        identifier = self.resolution.currentData()
+        editable = identifier == 'custom' and not self.busy and not self.close_when_idle
+        for editor in (self.processing_width, self.processing_height):
+            editor.setEnabled(editable)
+        if identifier == 'custom':
+            return
+        size = next((size for key, _, size in PROCESSING_PRESETS if key == identifier), None)
+        if size is None:
+            image_tab = getattr(self, 'image_synthesis', None)
+            if image_tab is not None and self.tabs.currentWidget() is image_tab:
+                path = image_tab.target.text().strip().strip('"')
+            else:
+                path = next(iter(self.video.values()), '')
+            dimensions = QImageReader(str(path)).size() if path else QSize()
+            size = [0, 0]
+            if dimensions.isValid():
+                limit = self.processing_max_width()
+                scale = min(1.0, limit / dimensions.width()) if limit else 1.0
+                size = [max(1, round(dimensions.width() * scale)), max(1, round(dimensions.height() * scale))]
+        with QSignalBlocker(self.processing_width), QSignalBlocker(self.processing_height):
+            self.processing_width.setValue(size[0])
+            self.processing_height.setValue(size[1])
+
     def save_project(self, save_as=False):
         if self.busy:
             return
@@ -774,7 +919,8 @@ class MainWindow(QMainWindow):
                 "video_dir": self.video_dir.text() if image_only else self.path_value(self.video_dir),
                 "keyframe_dir": self.keyframe_dir.text() if image_only else self.path_value(self.keyframe_dir),
                 "quality": self.quality.currentText(),
-                "max_width": self.resolution.currentData(),
+                "max_width": self.processing_max_width(),
+                "processing_size": self.processing_size(),
                 "output_naming": project_naming(self),
                 **self.options.project_data(),
                 "rows": [
@@ -794,16 +940,13 @@ class MainWindow(QMainWindow):
                     self,
                     "Save project",
                     str(ROOT / "project.reezsynth.json"),
-                    "ReEzSynth project (*.json)",
+                    "ReEzSynth project (*.reezsynth.json *.reezsynth.yaml *.reezsynth.yml)",
                 )
                 if not selected:
                     return
                 path = Path(selected)
 
-            path.write_text(
-                json.dumps(data, indent=2),
-                encoding="utf-8",
-            )
+            write_document(path, data)
             self.project_file = path
             self.status.setText(f"Project saved: {path}")
             save_ui_state(self)
@@ -821,26 +964,22 @@ class MainWindow(QMainWindow):
             self,
             "Open ReEzSynth project",
             "",
-            "ReEzSynth project (*.json)",
+            "ReEzSynth project (*.reezsynth.json *.reezsynth.yaml *.reezsynth.yml)",
         )
         if not selected:
             return
 
         try:
-            data = json.loads(
-                Path(selected).read_text(encoding="utf-8")
-            )
+            data = read_document(selected)
             if (
                 data.get("format") != APP_NAME
                 or data.get("version") != 1
             ):
                 raise ValueError("Unsupported project format.")
 
-            if data["quality"] not in {"Preview", "Standard"}:
+            if data["quality"] not in {"Preview", "Standard", "Highest"}:
                 raise ValueError("Unknown quality preset.")
-            if data["max_width"] not in {0, 512, 960}:
-                raise ValueError("Unknown processing size.")
-
+            processing = validate_processing_settings(data)
             if data.get('project_mode', 'video') not in ('image', 'video'):
                 raise ValueError('Unknown project mode.')
             validate_image_settings(data.get('image_synthesis'))
@@ -865,14 +1004,16 @@ class MainWindow(QMainWindow):
             )
 
             validate_render(data.get("render_options"))
+            from reezsynth_engines import LEGACY, validate_revision
+            validate_revision(data.get('render_options', {}).get('engine', LEGACY), data.get('engine_revision'))
             validate_weights(data.get("guide_weights"))
             validate_blend_options(data.get("blend_options"))
             validate_exports(data.get("exports"))
             grouped_selection = validate_grouped_selection(data.get("grouped_video"))
             if grouped_selection["keyframes"] is not None and set(grouped_selection["keyframes"]) - set(keys):
                 raise ValueError("Saved grouped keyframes are missing from the input folders.")
-            if not isinstance(data.get("mask_dir", ""), str):
-                raise ValueError("Mask directory must be text.")
+            if not all(isinstance(data.get(name, ""), str) for name in ('mask_dir', 'edge_dir')):
+                raise ValueError("Mask and custom edge-guide directories must be text.")
 
             self.loading_project = True
             self.scan_timer.stop()
@@ -881,9 +1022,7 @@ class MainWindow(QMainWindow):
             self.video_dir.setText(data["video_dir"])
             self.keyframe_dir.setText(data["keyframe_dir"])
             self.quality.setCurrentText(data["quality"])
-            self.resolution.setCurrentIndex(
-                self.resolution.findData(data["max_width"])
-            )
+            self.set_processing_size(processing['processing_size'], processing['max_width'])
             set_project_naming(self, naming)
             self.options.load_project(data)
 
@@ -905,6 +1044,10 @@ class MainWindow(QMainWindow):
                 f"{len(self.rows)} saved jobs"
             )
             self.status.setText(f"Project loaded: {selected}")
+            self.summary.setText("Saved queue loaded.")
+            self.queue_summary.setText(
+                f"{len(video)} source frames | {len(self.rows)} keyframe jobs"
+            )
             self.set_busy(False)
             save_ui_state(self)
 
@@ -950,7 +1093,12 @@ class MainWindow(QMainWindow):
             render_options = self.options.render()
             guide_weights = self.options.weights()
             application = validate_application(self.options.application())
+            from reezsynth_engines import prepare_runtime, validate_capabilities, preflight_flow
+            engine_runtime = prepare_runtime(render_options, application)
+            validate_capabilities(render_options, blend=self.grouped.blend_options() if grouped else None,
+                                  exports=self.options.snapshot('render')['exports'])
             masks = validate_masks(self.mask_dir.text(), video) if render_options["do_mask"] else {}
+            edge_guides = validate_edge_guides(self.edge_dir.text(), video) if render_options['custom_edge_guides'] else {}
             planned = []
             folders = set()
             group_plan = None
@@ -1000,7 +1148,13 @@ class MainWindow(QMainWindow):
                 for _, definition, _, _ in planned
             ])
 
-            if self.resolution.currentData() == 0:
+            if any(len(frames) > 1 for _, _, frames, _ in planned):
+                if engine_runtime['engine'] == 'Trentonom0r3/Ezsynth':
+                    validate_flow_model_available(render_options['flow_model'], render_options['flow_arch'])
+                else:
+                    preflight_flow(render_options, engine_runtime)
+
+            if self.processing_size() is None and not self.processing_max_width():
                 selected_video = {number: path for _, _, frames, _ in planned for number, path in frames}
                 selected_keys = (dict(group_plan['styles']) if group_plan else
                                  {definition['key']: style for _, definition, _, style in planned})
@@ -1032,13 +1186,16 @@ class MainWindow(QMainWindow):
                     "frames": frames,
                     "padding": padding,
                     "quality": self.quality.currentText(),
-                    "max_width": self.resolution.currentData(),
+                    "max_width": self.processing_max_width(),
+                    "processing_size": self.processing_size(),
                     "output": str(destination),
                     **(group_plan or {}),
                     "render_options": render_options,
+                    "engine_runtime": engine_runtime,
                     "exports": validate_exports(self.options.snapshot("render")["exports"]),
                     "guide_weights": guide_weights,
                     "masks": [[number, str(masks[number])] for number, _ in frames] if masks else [],
+                    "edge_guides": [[number, str(edge_guides[number])] for number, _ in frames] if edge_guides else [],
                 }
 
                 job_path = destination / "job.json"
@@ -1049,9 +1206,11 @@ class MainWindow(QMainWindow):
 
                 records.append({
                     "row": row,
+                    "key": definition["key"],
                     "job_path": job_path,
                     "output": destination,
                     "weight": max(1, group_plan["synthesis_work"] if group_plan else len(frames) - 1),
+                    "python": engine_runtime['python'],
                 })
 
         except Exception as exc:
@@ -1077,6 +1236,9 @@ class MainWindow(QMainWindow):
                                str(Path(settings['style']).parent), str(Path(settings['target']).parent))
             options = self.options.render()
             application = validate_application(self.options.application())
+            from reezsynth_engines import prepare_runtime, validate_capabilities
+            engine_runtime = prepare_runtime(options, application)
+            validate_capabilities(options, image=True)
             parallel = application['parallel']
             shared = self.reuse_worker.isChecked() and not parallel
             worker_script = ROOT / ('reezsynth_shared_worker.py' if shared else 'reezsynth_jobs.py')
@@ -1089,11 +1251,12 @@ class MainWindow(QMainWindow):
                     BATCH_FIELDS, allow_nested=False)) if naming['batch_enabled'] else root
             destination = create_unique_directory(batch, settings['folder'])
             job = dict(type='image_synthesis', image_synthesis=settings, output=str(destination),
-                       quality=self.quality.currentText(), max_width=self.resolution.currentData(),
-                       render_options=options)
+                       quality=self.quality.currentText(), max_width=self.processing_max_width(), processing_size=self.processing_size(),
+                       render_options=options, engine_runtime=engine_runtime)
             job_path = destination / 'job.json'
             job_path.write_text(json.dumps(job, indent=2), encoding='utf-8')
-            records = [dict(row=self.image_synthesis.row, job_path=job_path, output=destination, weight=1)]
+            records = [dict(row=self.image_synthesis.row, key='Image', job_path=job_path,
+                            output=destination, weight=1, python=engine_runtime['python'])]
         except Exception as exc:
             QMessageBox.warning(self, 'Cannot synthesize image', str(exc))
             return
@@ -1106,6 +1269,9 @@ class MainWindow(QMainWindow):
         self.shutdown_process = None
 
         self.queue_generation += 1
+        self.queue_count += 1
+        self.active_queue_generation = self.queue_count
+        self.queue_mode = 'parallel' if parallel else ('shared' if shared else 'isolated')
         self.batch = batch
         save_ui_state(self)
         self.pending = records
@@ -1119,9 +1285,17 @@ class MainWindow(QMainWindow):
         self.total_work = sum(
             record["weight"] for record in records
         )
+        self.preview_window.begin(records, application.get("preview_limit", 8))
 
         self.overall.setValue(0)
-        self.log.clear()
+        self.log.appendPlainText(
+            f"\n{LOG_SEPARATOR}\n"
+            f"QUEUE RUN {self.active_queue_generation} STARTED {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Mode: {'parallel' if parallel else ('shared worker' if shared else 'isolated workers')}\n"
+            f"Jobs: {len(records)} | Output root: {batch}\n"
+            + (f"Maximum simultaneous renders: {application.get('parallel_limit', 2) or 'unlimited'}\n" if parallel else '') +
+            f"{LOG_SEPARATOR}"
+        )
         self.open_output.setEnabled(True)
 
         for record in records:
@@ -1174,6 +1348,7 @@ class MainWindow(QMainWindow):
 
         self.current = self.pending.pop(0)
         self.job_sent = False
+        self.preview_window.activate(self.current)
 
         row = self.current["row"]
         row["state"].setText("Starting")
@@ -1255,7 +1430,7 @@ class MainWindow(QMainWindow):
         )
 
         process.start(
-            sys.executable,
+            (self.current or {}).get('python', sys.executable),
             [
                 "-X",
                 "utf8",
@@ -1678,6 +1853,7 @@ class MainWindow(QMainWindow):
                     0, min(99, int(message["percent"]))
                 )
                 stage = str(message["stage"])
+                preview = message.get("preview")
             except (ValueError, KeyError, TypeError, OverflowError):
                 self.log.appendPlainText(line)
                 return
@@ -1695,6 +1871,7 @@ class MainWindow(QMainWindow):
                     f"{row.get('label', 'Keyframe ' + str(row['key']))}: {stage}"
                 )
                 self.update_overall(percent)
+                self.preview_window.receive(preview, self.current)
             return
 
         self.log.appendPlainText(line)
@@ -1708,6 +1885,7 @@ class MainWindow(QMainWindow):
         record["row"]["bar"].setValue(100)
         self.completed_work += record["weight"]
         self.options.notify(each=True)
+        self.preview_window.finish(record)
         self.current = None
         self.job_sent = False
         self.update_overall()
@@ -1749,7 +1927,15 @@ class MainWindow(QMainWindow):
         self.job_sent = False
 
         self.status.setText(message)
+        self.preview_window.end()
         self.set_busy(False)
+        self.log.appendPlainText(
+            f"\n{LOG_SEPARATOR}\n"
+            f"QUEUE RUN {getattr(self, 'active_queue_generation', self.queue_generation)} ENDED "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Result: {message}\n"
+            f"{LOG_SEPARATOR}"
+        )
 
         if self.close_when_idle:
             QTimer.singleShot(0, self.close)
@@ -1802,6 +1988,7 @@ class MainWindow(QMainWindow):
 
         for widget in self.locked:
             widget.setEnabled(editable)
+        self.refresh_processing_display()
 
         for row in self.rows:
             for field in (
@@ -1819,6 +2006,8 @@ class MainWindow(QMainWindow):
         self.run_all.setEnabled(editable and bool(self.rows))
         self.grouped.update_enabled()
         self.image_synthesis.set_busy(busy)
+        if hasattr(self, 'options'):
+            self.options.refresh_engine_controls()
         update_naming_preview(self)
         self.stop.setEnabled(
             busy and not self.cancelled
@@ -1832,11 +2021,7 @@ class MainWindow(QMainWindow):
             elapsed = (
                 time.perf_counter() - self.queue_started_at
             )
-            mode = (
-                "shared"
-                if self.shared_this_run
-                else "isolated"
-            )
+            mode = getattr(self, 'queue_mode', 'shared' if self.shared_this_run else 'isolated')
             self.log.appendPlainText(
                 f"\n[Timing] Worker queue ({mode}): "
                 f"{elapsed:.3f}s\n"
@@ -1850,7 +2035,28 @@ class MainWindow(QMainWindow):
                 QUrl.fromLocalFile(str(self.batch))
             )
 
+    def save_log(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save diagnostics log", "reezsynth-session.log", "Log files (*.log);;Text files (*.txt)"
+        )
+        if not path:
+            return
+        try:
+            Path(path).write_text(self.log.toPlainText(), encoding="utf-8")
+            self.statusBar().showMessage(f"Diagnostics log saved: {path}", 5000)
+        except OSError as exc:
+            QMessageBox.warning(self, "Cannot save diagnostics log", str(exc))
+
     def closeEvent(self, event):
+        if self.options.installation_active():
+            event.ignore()
+            QMessageBox.information(
+                self,
+                "Optional dependency installation",
+                "An optional dependency installation is still running. Wait for it to finish before closing ReEzSynth.",
+            )
+            return
+
         active = self.busy or self.process is not None
 
         if active:

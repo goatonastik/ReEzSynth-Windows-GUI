@@ -17,7 +17,7 @@ from reezsynth_project_controls import project_naming
 class DestinationTests(LifecycleFixture):
     def test_original_resolution_rejects_mismatched_keys_and_video_before_start(self):
         w = self.w
-        self.assertEqual(w.resolution.currentData(), 0)
+        self.assertEqual(w.resolution.currentData(), 'original')
         paths = [Path(w.keyframe_dir.text())/'style002.png', Path(w.video_dir.text())/'frame001.png']
         for path in paths:
             original = path.read_bytes()
@@ -36,10 +36,11 @@ class DestinationTests(LifecycleFixture):
 
     def test_explicit_saved_processing_size_survives_new_default(self):
         w = self.w
-        w.resolution.setCurrentIndex(w.resolution.findData(960))
+        w.set_processing_size([960, 540])
         w.options.persist()
         restored = self.window()
-        self.assertEqual(restored.resolution.currentData(), 960)
+        self.assertEqual(restored.resolution.currentData(), 'custom')
+        self.assertEqual(restored.processing_size(), [960, 540])
 
     def test_all_location_roots(self):
         w = self.w

@@ -47,7 +47,7 @@ class ImageAdapterTests(unittest.TestCase):
                     result = np.full((*tgt_img.shape[:2], 3), 123, np.uint8)
                     error = np.full(tgt_img.shape[:2], 1.234567, np.float32)
                     return result, error
-                runner.eb = types.SimpleNamespace(backends={'cuda': 17}, backend=None, run=native)
+                runner.eb = types.SimpleNamespace(backends={'cuda': 17, 'auto': 18, 'cpu': 19}, backend=None, run=native)
         self.enterContext(patch.dict(sys.modules, {
             'ezsynth.aux_classes': types.SimpleNamespace(RunConfig=lambda **kw: types.SimpleNamespace(**kw)),
             'ezsynth.main_ez': types.SimpleNamespace(ImageSynthBase=Engine),
@@ -81,6 +81,24 @@ class ImageAdapterTests(unittest.TestCase):
             self.run_job()
         self.assertFalse((self.output/'COMPLETE.txt').exists())
 
+    def test_patch_pyramid_boundary_checks_both_style_and_target(self):
+        captured = self.prepare()
+        for source_size, target_size in (((14, 32), (32, 32)), ((32, 32), (14, 32))):
+            with self.subTest(source=source_size, target=target_size):
+                for name, size in (('style', source_size), ('source', source_size), ('target', target_size)):
+                    shape = (*size, 3) if name == 'style' else size
+                    Path(self.settings[name]).write_bytes(cv2.imencode('.png', np.zeros(shape, np.uint8))[1].tobytes())
+                with self.assertRaisesRegex(ValueError, 'at least 15 x 15'):
+                    self.run_job()
+                self.assertNotIn('runner', captured)
+                self.assertFalse((self.output / 'COMPLETE.txt').exists())
+        for name in ('style', 'source', 'target'):
+            shape = (15, 15, 3) if name == 'style' else (15, 15)
+            Path(self.settings[name]).write_bytes(cv2.imencode('.png', np.zeros(shape, np.uint8))[1].tobytes())
+        self.run_job()
+        self.assertEqual(captured['cfg'].patchsize, 7)
+        self.assertTrue((self.output / 'COMPLETE.txt').exists())
+
     def test_channel_limit_and_bad_files_rejected(self):
         self.prepare()
         self.settings['source'] = self.settings['style']
@@ -110,6 +128,17 @@ class ImageAdapterTests(unittest.TestCase):
         self.run_job()
         self.assertEqual(captured['runner'].style_img.shape, (384,512,3))
         self.assertEqual(captured['runner'].tgt_img.shape, (256,512))
+
+    def test_exact_image_output_size_and_cpu_auto_backends(self):
+        captured = self.prepare()
+        self.job['processing_size'] = [512, 288]
+        for backend, identifier in (('cpu', 19), ('auto', 18)):
+            self.job['render_options'] = dict(ebsynth_backend=backend, pyramidlevels=-1)
+            self.run_job()
+            self.assertEqual(captured['runner'].eb.backend, identifier)
+            self.assertEqual(captured['cfg'].pyramidlevels, -1)
+            self.assertEqual(cv2.imread(str(self.output / 'image.png')).shape, (288, 512, 3))
+            self.assertEqual(json.loads((self.output / 'image_manifest.json').read_text())['backend'], backend)
 
     def test_invalid_settings_and_uint16_guide(self):
         for data in ({'key_weight':0}, {'source_weight':float('nan')}, {'guides':[{}]}, {'unknown':1}):

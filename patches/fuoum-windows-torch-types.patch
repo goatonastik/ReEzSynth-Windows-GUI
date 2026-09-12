@@ -1,0 +1,21 @@
+diff --git a/ebsynth_extension/dispatch.h b/ebsynth_extension/dispatch.h
+index e1d4dc4..4476100 100644
+--- a/ebsynth_extension/dispatch.h
++++ b/ebsynth_extension/dispatch.h
+@@ -3 +3 @@
+-#include <torch/extension.h>
++#include <torch/types.h>
+diff --git a/ebsynth_extension/integral_image.h b/ebsynth_extension/integral_image.h
+index 69e7517..ef11377 100644
+--- a/ebsynth_extension/integral_image.h
++++ b/ebsynth_extension/integral_image.h
+@@ -3 +3 @@
+-#include <torch/extension.h>
++#include <torch/types.h>
+diff --git a/ebsynth_extension/kernels.h b/ebsynth_extension/kernels.h
+index bc53d21..9f5f653 100644
+--- a/ebsynth_extension/kernels.h
++++ b/ebsynth_extension/kernels.h
+@@ -6 +6 @@
+-#include <torch/all.h>
++#include <torch/types.h>

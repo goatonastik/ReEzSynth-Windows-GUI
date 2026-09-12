@@ -1,4 +1,5 @@
 
+import json
 import re
 import string
 from datetime import datetime
@@ -160,8 +161,8 @@ def _values(window=None, definition=None, index=1, now=None):
 
     if window is not None:
         values["quality"] = window.quality.currentText()
-        width = window.resolution.currentData()
-        values["width"] = width if width else "original"
+        size = window.processing_size()
+        values["width"] = size[0] if size else (window.processing_max_width() or "original")
         values["padding"] = window.padding
         values["keyframe_dir_name"] = Path(window.keyframe_dir.text()).name
         values["video_dir_name"] = Path(window.video_dir.text()).name
@@ -353,6 +354,7 @@ def set_project_naming(window, naming):
 
 def add_output_controls(window, page):
     group = QGroupBox("Output naming")
+    window.output_group = group
     layout = QVBoxLayout(group)
     form = QFormLayout()
 
@@ -445,6 +447,8 @@ def add_output_controls(window, page):
         window.job_name_pattern.textChanged,
         window.quality.currentTextChanged,
         window.resolution.currentIndexChanged,
+        window.processing_width.valueChanged,
+        window.processing_height.valueChanged,
         window.output_location.currentIndexChanged,
         window.batch_enabled.toggled,
         window.custom_output.textChanged,
@@ -623,10 +627,8 @@ def save_ui_state(window):
         "last_setup/quality",
         window.quality.currentText(),
     )
-    preferences.setValue(
-        "last_setup/max_width",
-        window.resolution.currentData(),
-    )
+    preferences.setValue("last_setup/processing_size", json.dumps(window.processing_size()))
+    preferences.setValue("last_setup/max_width", window.processing_max_width())
     preferences.setValue(
         "last_setup/batch_pattern",
         window.batch_name_pattern.text(),
@@ -660,19 +662,16 @@ def restore_ui_state(window):
         quality = preferences.value(
             "last_setup/quality", "Standard"
         )
-        if quality in {"Preview", "Standard"}:
+        if quality in {"Preview", "Standard", "Highest"}:
             window.quality.setCurrentText(quality)
 
+        raw_size = preferences.value("last_setup/processing_size", None)
         try:
-            width = int(preferences.value(
-                "last_setup/max_width", 0
-            ))
+            saved_size = json.loads(raw_size) if raw_size is not None else None
+            legacy_width = int(preferences.value('last_setup/max_width', 0))
+            window.set_processing_size(saved_size, 0 if saved_size is not None else legacy_width)
         except (ValueError, TypeError):
-            width = 0
-
-        index = window.resolution.findData(width)
-        if index >= 0:
-            window.resolution.setCurrentIndex(index)
+            window.set_processing_size(None)
 
         batch = preferences.value(
             "last_setup/batch_pattern",

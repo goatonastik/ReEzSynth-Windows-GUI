@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import QProcess
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QCloseEvent, QImage
 from PySide6.QtWidgets import QCheckBox
 
 from test_reezsynth_gui import GuiFixture, gui, controls
@@ -89,6 +89,17 @@ class PresetTests(GuiFixture):
         self.assertFalse(w.options.store.path.exists())
         self.assertEqual(self.window().options.weights()["img_wgt"], 7)
 
+    def test_float_controls_preserve_six_decimal_places_in_last_used_settings(self):
+        w = self.window()
+        self.assertEqual(w.image_synthesis.source_weight.decimals(), 6)
+        self.assertEqual(w.image_synthesis.key_weight.decimals(), 6)
+        w.options.widgets["weights"]["img_wgt"].setValue(6.123456)
+        w.options.widgets["render"]["uniformity"].setValue(3500.123456)
+        w.options.persist()
+        restored = self.window()
+        self.assertAlmostEqual(restored.options.weights()["img_wgt"], 6.123456, places=6)
+        self.assertAlmostEqual(restored.options.render()["uniformity"], 3500.123456, places=6)
+
     def test_corrupt_preset_library_is_preserved(self):
         path = self.root / "configuration" / "presets.json"
         path.parent.mkdir()
@@ -110,11 +121,111 @@ class PresetTests(GuiFixture):
             self.assertEqual(w.options.render()[key], value)
         self.assertEqual(w.options.weights()["img_wgt"], 11)
 
+    def test_highest_quality_is_render_only(self):
+        w = self.window()
+        w.set_processing_size([1280, 720])
+        w.job_name_pattern.setText('keep_{key}')
+        before_blend = w.grouped.blend_options()
+        w.quality.setCurrentText('Highest')
+        self.assertEqual(w.options.render()['pyramidlevels'], -1)
+        self.assertEqual(w.processing_size(), (1280, 720))
+        self.assertEqual(w.job_name_pattern.text(), 'keep_{key}')
+        self.assertEqual(w.grouped.blend_options(), before_blend)
+
+    def test_every_section_has_builtin_default_and_reset_all_restores_it(self):
+        w = self.window()
+        self.assertEqual(set(w.options.preset_boxes),
+                         {'directories', 'output', 'weights', 'render', 'grouped', 'application', 'image'})
+        for box in w.options.preset_boxes.values():
+            self.assertEqual(box.itemText(0), 'Default')
+            self.assertEqual(box.itemData(0), '__default__')
+        w.options.widgets['weights']['img_wgt'].setValue(99)
+        w.quality.setCurrentText('Highest')
+        w.batch_enabled.setChecked(False)
+        w.grouped.mode.setCurrentIndex(w.grouped.mode.findData('forward'))
+        w.options.widgets['application']['preview_limit'].setValue(4)
+        with patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes):
+            w.options.reset_all()
+        self.assertEqual(w.options.weights()['img_wgt'], 6)
+        self.assertEqual(w.quality.currentText(), 'Standard')
+        self.assertTrue(w.batch_enabled.isChecked())
+        self.assertEqual(w.grouped.blend_options()['only_mode'], 'none')
+        self.assertEqual(w.options.application()['preview_limit'], 8)
+
+    def test_preview_limit_editor_only_offers_accepted_settings(self):
+        w = self.window()
+        editor = w.options.widgets['application']['preview_limit']
+        editor.setValue(1)
+        editor.stepDown()
+        self.assertEqual(w.options.application()['preview_limit'], 1)
+        editor.setValue(64)
+        editor.stepUp()
+        self.assertEqual(w.options.application()['preview_limit'], 64)
+        w.options.persist()
+        self.assertEqual(self.window().options.application()['preview_limit'], 64)
+
     def test_invalid_engine_parameters_are_rejected(self):
         for data in ({"patchsize": 4}, {"feather": 2}, {"uniformity": float("inf")},
-                     {"do_mask": 1}, {"edge_method": "unknown"}):
+                     {"do_mask": 1}, {"edge_method": "unknown"}, {"flow_model": "small"},
+                     {"flow_arch": "Other"}, {"flow_arch": "EF_RAFT", "flow_model": "sintel"},
+                     {"flow_arch": "FLOW_DIFF", "memory_efficient_raft": True}, {"ebsynth_backend": "vulkan"}):
             with self.subTest(data=data), self.assertRaises(ValueError):
                 validate_render(data)
+
+    def test_flow_architecture_changes_available_model_choices(self):
+        w = self.window()
+        architecture = w.options.widgets['render']['flow_arch']
+        model = w.options.widgets['render']['flow_model']
+        status = {'EF_RAFT': {'models': ['ours_sintel'], 'missing': []},
+                  'FLOW_DIFF': {'models': ['FlowDiffuser-things'], 'missing': [], 'timm': True}}
+        with patch('reezsynth_options.optional_flow_status', return_value=status):
+            architecture.setCurrentText('EF_RAFT')
+            self.assertEqual([model.itemText(i) for i in range(model.count())], ['ours_sintel'])
+            architecture.setCurrentText('FLOW_DIFF')
+            self.assertEqual(model.currentText(), 'FlowDiffuser-things')
+            self.assertFalse(model.isEnabled())
+            architecture.setCurrentText('RAFT')
+            self.assertEqual(model.currentText(), 'sintel')
+
+    def test_uninstalled_optional_architecture_warns_and_reverts_to_raft(self):
+        w = self.window()
+        architecture = w.options.widgets['render']['flow_arch']
+        status = {'EF_RAFT': {'models': [], 'missing': ['ours_sintel']},
+                  'FLOW_DIFF': {'models': [], 'missing': ['FlowDiffuser-things'], 'timm': False}}
+        with patch('reezsynth_options.optional_flow_status', return_value=status), \
+             patch('reezsynth_options.QMessageBox.warning') as warning:
+            architecture.setCurrentText('EF_RAFT')
+        self.assertEqual(architecture.currentText(), 'RAFT')
+        self.assertIn('not installed', warning.call_args.args[1])
+
+    def test_failed_timm_installer_reenables_optional_component_buttons(self):
+        w = self.window()
+        options = w.options
+        options.timm_install_pending = True
+        for button in options.optional_flow_buttons:
+            button.setEnabled(False)
+        with patch('reezsynth_options.QMessageBox.warning') as warning:
+            options.flowdiffuser_timm_install_error(None)
+        self.assertFalse(options.timm_install_pending)
+        self.assertTrue(all(button.isEnabled() for button in options.optional_flow_buttons))
+        self.assertIn('failed', warning.call_args.args[2])
+
+    def test_optional_component_installers_are_disabled_while_rendering(self):
+        w = self.window()
+        w.set_busy(True)
+        self.assertTrue(all(not button.isEnabled() for button in w.options.optional_flow_buttons))
+        w.set_busy(False)
+        self.assertTrue(all(button.isEnabled() for button in w.options.optional_flow_buttons))
+
+    def test_window_refuses_to_close_while_installing_optional_dependency(self):
+        w = self.window()
+        w.options.timm_install_pending = True
+        event = QCloseEvent()
+        with patch('reezsynth_gui.QMessageBox.information') as notice:
+            w.closeEvent(event)
+        self.assertFalse(event.isAccepted())
+        self.assertIn('still running', notice.call_args.args[2])
+        w.options.timm_install_pending = False
 
     def test_discovery_matches_sibling_suffixes_and_custom_prefixes(self):
         for name in ("keys_shot", "video_shot", "keys_other", "video_different", "nested"):
@@ -153,22 +264,32 @@ class PresetTests(GuiFixture):
 
 
 class IntegrationTests(LifecycleFixture):
+    def test_selected_raft_weights_are_checked_before_queue_start(self):
+        self.w.options.widgets['render']['flow_model'].setCurrentText('kitti')
+        with patch('reezsynth_gui.validate_flow_model_available', side_effect=ValueError('Kitti weights are missing')), \
+             patch.object(gui.QMessageBox, 'warning') as warning:
+            self.w.run_rows(list(self.w.rows))
+        self.assertIn('Kitti weights are missing', warning.call_args.args[2])
+
     def test_project_round_trip_and_older_project_keeps_manual_names(self):
         w = self.w
         w.rows[0]["folder"].setText("manual")
         w.options.widgets["weights"]["img_wgt"].setValue(8)
         w.options.widgets["render"]["uniformity"].setValue(4100)
         w.options.widgets['render']['memory_efficient_raft'].setChecked(True)
+        w.set_processing_size([1536, 864])
         w.project_file = self.root / "project.json"
         w.save_project()
         data = json.loads(w.project_file.read_text())
         self.assertEqual(data["guide_weights"]["img_wgt"], 8)
+        self.assertEqual(data['processing_size'], [1536, 864])
         w.options.widgets["weights"]["img_wgt"].setValue(2)
         with patch.object(gui.QFileDialog, "getOpenFileName", return_value=(str(w.project_file), "")):
             w.open_project()
         self.assertEqual(w.options.weights()["img_wgt"], 8)
         self.assertEqual(w.options.render()["uniformity"], 4100)
         self.assertTrue(w.options.render()['memory_efficient_raft'])
+        self.assertEqual(w.processing_size(), [1536, 864])
         for key in ("guide_weights", "render_options", "mask_dir", "output_naming"):
             data.pop(key, None)
         data["quality"] = "Standard"

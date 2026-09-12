@@ -1,9 +1,319 @@
 # Project status
 
-Updated 2026-09-11. Live files are authoritative. Usage and settings are described
+Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
-Latest real-render report: 3840x2160 video on RTX 5090 failed in RAFT CorrBlock
+## Dual-engine integration and highest-risk validation (2026-09-12)
+
+The current completion checklist is [WORK_REMAINING.md](WORK_REMAINING.md).
+Sections following this update contain historical checkpoints; their pending
+claims should be read against this update and the current checklist.
+
+- Added the Rendering engine selector: Trentonom0r3/Ezsynth remains the default;
+  FuouM/ReEzSynth uses a separate Python worker runtime and a pinned upstream
+  checkout at aaa8d06170e6cc59054410aa9c422edd789f7ab2. Both package namespaces
+  are isolated; attempting to reuse a worker across engines is rejected.
+- Added FuouM image, independent video and normal grouped blending adapters,
+  native setting mappings, temporal NNF/sparse-feature controls, preview delivery,
+  original output numbering, and early rejection of unsupported video controls.
+  Projects/presets/jobs record engine identity and revision; output manifests
+  include source/native/checkpoint hashes, adapter hashes and package versions.
+  Both queue modes and CLI benchmarks launch the selected Python executable.
+- Built and imported FuouM's native CUDA extension on RTX 5090 using the existing
+  PyTorch 2.11.0+cu128, CUDA 12.8 and VS 2022 toolchain. A tracked compatibility
+  patch changes three CUDA-facing includes to torch/types.h. NumPy 1.26.4,
+  OpenCV 4.11.0.86 and FuouM-specific packages live in .engine_envs/fuoum; the
+  existing environment still has NumPy 2.4.6 and OpenCV 5.0.0.93. The FuouM
+  environment passed pip check. Its venv shares the parent PyTorch installation.
+- Removed conflict markers and duplicate identical branches from the older
+  ezsynth/utils/flow_utils/alt_cuda_corr sources. The supported RAFT build already
+  used clean third_party sources. No RAFT algorithm change was made.
+- Final full explicit regression suite: **187 tests passed in 25.213 seconds**.
+  Includes engine/revision persistence, capability failures, namespace isolation,
+  strict parameter mapping, grayscale guides, shared/parallel routing and the
+  existing frontend, lifecycle, artifact, serialization and CPU RAFT tests.
+- Real FuouM image/video/grouped jobs passed through one persistent worker in
+  9.790 seconds, including previews, error-map validation and orderly exit.
+  Aggregate GPU memory was 2180 MiB before and 2174 MiB after. Evidence:
+  diagnostic_outputs/engines_fuoum_20260912_020034_577481/.
+- Matching original-engine image/video/grouped jobs passed in 6.196 seconds,
+  with aggregate GPU memory 2082 MiB before and after. Evidence:
+  diagnostic_outputs/engines_legacy_20260912_020233_020178/.
+- Real offscreen FuouM GUI cancellation/restart and two-job parallel rendering
+  passed using copied bundled inputs and temporary QSettings. No matching worker
+  processes remained after the diagnostics. Small video/image outputs and the
+  Rendering layout were inspected; this is not general visual-quality parity.
+- Three-frame **3840x2160** original-engine rendering with compiled memory-efficient
+  RAFT and Preview settings passed in **10.171 seconds**. Sampled aggregate GPU
+  memory peaked at **10747 MiB**, returning from **2142 MiB to 2142 MiB** after
+  worker exit. Output shape/content, frame numbering and previews passed. Evidence:
+  diagnostic_outputs/engines_legacy_20260912_020414_528713/.
+  These short measurements include other GPU users and are not production
+  benchmarks, exact process-allocation peaks, or long-duration leak tests.
+- FuouM masks, custom edge sequences, video auxiliary exports, grouped directional
+  modes, CuPy blending and additional flow architectures remain unmapped and are
+  rejected explicitly. Native audible notification playback remains a manual check.
+  Setup, capabilities and build reproduction are documented in DUAL_ENGINE.md.
+- The source checkout, worker venv, native build and diagnostic outputs are local
+  ignored artifacts. Existing user changes were preserved. No commit or push.
+
+## Numeric audit follow-up
+
+- [NUMERIC_SETTINGS.md](NUMERIC_SETTINGS.md) inventories the frontend ranges,
+  engine constraints and remaining policy/precision limits. Defaults are unchanged.
+- Fixed a patch-size validation gap: the live wrapper needs processed style and
+  target dimensions of at least `2 * patchsize + 1` for one usable pyramid level.
+  Video and image adapters now reject zero-level combinations before constructing
+  an engine; single-frame keyframe copies still bypass synthesis restrictions.
+- Fixed the preview-limit editor to offer only the accepted 1–64 range. Previously
+  it could produce values the application validator rejected. Regression coverage
+  includes persistence and stepping at both bounds.
+- Video and Image Synthesis floating-point editors now retain six decimal places.
+  Last-used settings regression coverage confirms guide-weight and diversity values
+  survive a GUI restart at that precision. Frontend range caps and advanced
+  per-level engine inputs remain documented policy/API limitations.
+- Latest full isolated suite: **173 tests passed in 26.387 seconds**. It includes
+  the new six-decimal round-trip regression, boundary checks
+  against the live wrapper calculation, image/video adapter tests, GUI/worker
+  lifecycle, preview transport, presets and CPU RAFT comparisons. No GPU render,
+  dependency installation, engine-source edit, commit or push was performed.
+- The user's completed CLI benchmark used identical job data apart from output
+  location (verified directly). CLI synthesis: 216.235s versus GUI 223.338s; CLI
+  process wall time: 239.706s versus GUI 246.763s. Both processed 155 synthesis
+  transitions. Preview capture was 0.011s versus 2.901s. This one pair shows a
+  small measured difference; it does not establish the earlier slowdown's cause
+  or prove the remaining difference is normal timing variation. Both paths use
+  the same frontend renderer adapter; this is not a pristine-upstream comparison.
+
+## Live-preview repair and performance investigation
+
+- Earlier preview attempts only emitted images during final saving and the
+  parallel worker reader dropped preview payloads. The adapter now publishes a
+  bounded thumbnail immediately after each native synthesis call, identified by
+  the style and video-guide array identities. Shared, isolated, grouped, masked,
+  single-frame and image paths are covered without modifying engine sources.
+- Capture uses a short request lease refreshed only while the window is open.
+  Hidden windows do no image capture/decoding; closed/crashed windows stop renewing
+  the lease. Fixed latest-frame paths are loaded from fresh bytes, avoiding Qt's
+  filename cache. Old widgets are disposed between queues; hidden pixmaps are freed.
+  Active later jobs replace earlier completed tiles when the preview cap is reached.
+- These are synthesis previews before final masking/blending, not final output
+  frames. Final PNG content and resolution are unchanged. No real GPU render was
+  run for this fix. CPU mocks exercise the live upstream sequence/pass methods.
+- The user's recent job files (12:28–13:31 on 2026-09-11) have matching effective
+  synthesis settings at 1920x1080 Standard. Current application preferences enable
+  two parallel workers, but there is no comparable earlier timing evidence proving
+  the cause of the reported increase in seconds per frame. Settings were not altered.
+  Effective settings, per-frame native EbSynth/between-call times and preview-capture
+  totals are now logged for comparison.
+- Reviewed the user's saved session log from the 13:50 run: one keyframe job,
+  155 synthesis calls, 1920x1080 Standard, CUDA EbSynth, dense RAFT correlation.
+  It completed successfully in 246.763 seconds including startup/output/exit.
+  The synthesis loop took 223.338 seconds (1.441 seconds per synthesized frame):
+  native EbSynth 174.324 seconds, between-call work about 46.071 seconds, and
+  preview capture 2.901 seconds (18.7 ms/frame, 1.3% of the loop). This measures
+  worker capture, not GUI image decoding. Parallel mode was enabled but this queue
+  had only one job. No earlier timing baseline establishes the reported regression.
+- The live-preview note now shares the Layout dropdown row, aligned right and
+  wrapping when the window narrows. Nine existing GUI-construction/preview-window
+  tests passed; offscreen headers were reviewed at widths 900 and 480, including
+  the longer preview-cap notice. This layout change does not alter the renderer.
+- `benchmark_current_gui_settings.bat` now provides an apples-to-apples direct
+  CLI timing comparison without overwriting a GUI output. It finds the last
+  completed job in the saved `reezsynth-session.log` (or accepts a job JSON path),
+  clones its exact job data to a unique sibling `*_cli_benchmark_###` directory,
+  and launches `reezsynth_jobs.py job.json` in a fresh process. Its
+  `cli-benchmark.log` retains the same per-frame timing lines, an automatic timing
+  summary, and direct CLI wall time. Unit coverage verifies final-log selection,
+  lossless job cloning apart from output destination, collision handling, and
+  dry-run behavior. The user has completed a GPU benchmark through this tool;
+  measured results are recorded above.
+- Validation: **148 tests passed in 21.230 seconds**, including 12 new preview
+  tests. They check emission before sequence saving, pixel-identical mock final
+  outputs with capture on/off, masked array identities, hidden/expired capture,
+  same-path image refresh, cap rotation/widget disposal, and real QProcess routing
+  in shared/isolated/parallel modes with cancellation/restart. Offscreen layout
+  images were reviewed using the installed Segoe UI font. Real GPU performance
+  recovery is not established by these tests.
+
+## Pending local changes: processing sizes, live previews, and supported model/backend choices
+
+- Processing size now offers Original resolution (default), 512/1024 square,
+  720p/1080p landscape or portrait, and Custom width/height. Preset dimensions
+  are locked and Custom is editable. Exact selected dimensions reach both video
+  and Image Synthesis jobs. Legacy width-limited projects, presets and QSettings
+  retain their max_width semantics through a compatibility-only dropdown entry;
+  they no longer migrate to square sizes. Image source/target aspect ratios are
+  preserved independently. Original shows header dimensions, Custom is editable,
+  and fixed size fields remain locked after completion/cancellation.
+- Rendering controls now expose the locally supported RAFT Sintel (default) and
+  Kitti weights, plus CUDA (default), Auto and CPU native EbSynth backends.
+  The backend choice is forwarded to both video and Image Synthesis. CPU EbSynth
+  does not disable PyTorch CUDA optical flow in video jobs. Without CUDA, CPU/Auto
+  jobs can use CPU flow with Classic edges and GPU-only features disabled. This
+  removes an unconditional CUDA rejection; native CPU/Auto execution is unverified.
+  Automatic pyramid depth (-1) is now available, persisted and forwarded.
+- Rendering contains Preview, Standard (default), and Highest quality profiles.
+  These change only the synthesis controls in that tab; Highest is Standard with
+  automatic pyramid depth. Processing size, output naming, and Blend / Flow are
+  retained. The Previews window now shows frames during synthesis (see repair above),
+  with queue-pair or shape-aware grid layout and a default cap of eight images.
+- Preset dropdowns now cover Directories, Output naming, Guide weights,
+  Rendering, Blend / Flow, Application, and Image Synthesis. Each contains an
+  always-available built-in Default profile. Settings has a confirmed reset-all
+  action that restores those values without deleting projects or custom presets.
+- No `ezsynth/` source, model weight, runtime dependency or GPU render changed.
+  Full explicit lightweight suite: **148 tests passed in 21.230 seconds**. New focused
+  regressions cover the header, busy-state log export, sequential run boundaries,
+  width-limit compatibility, Original dimensions, automatic pyramid depth and CPU
+  adapter forwarding. GUI construction/tab display also passed in the separate
+  reezsynth-setup-check environment with temporary settings. Current changes
+  remain uncommitted pending review.
+- The Processing size popup presents the resolution at left and aspect ratio at
+  right. Queue-style arrow columns now cover standard integer and decimal spin
+  controls throughout the interface, and the shared checkmark painter covers
+  regular checkboxes. Diagnostics retains the entire open-session log, marks each
+  queue's start and end with 96-character separators, and can save the visible
+  session text to a log file.
+- Logo and tabs now share the top header. Save Log is at the right and stays
+  enabled during renders; saving does not replace render progress/status. Queue
+  numbers increase once per run and parallel timing is labeled correctly.
+  Dropdown arrows use shared SVG geometry and state colors through the global
+  stylesheet (Qt stylesheets bypass the proxy's combobox painter). All tabs and
+  the size popup were inspected offscreen at 1320x820 using temporary inputs.
+- Selected Sintel/Kitti RAFT weights are checked before a multi-frame video queue
+  creates outputs or starts a worker. Single-frame copies skip this check in both
+  GUI and worker. Both tracked weight hashes are included in the
+  runtime asset manifest and therefore checked by the installation diagnostic.
+
+Remaining priorities: address the documented numeric-domain/precision limitations;
+obtain and validate optional EF-RAFT/FlowDiffuser assets; validate real GPU/CPU
+rendering, output quality and memory cleanup; review repository distribution and
+publish with approval.
+Automatic pyramid depth is implemented, but the remaining frontend numeric bounds
+are inventoried in NUMERIC_SETTINGS.md and are not full arbitrary-parameter parity.
+
+## YAML interchange
+
+- Projects and preset libraries now support safe YAML import/export alongside the
+  existing JSON default. Both formats use the same versioned schema and validation;
+  render job files and worker messages remain JSON. PyYAML 6.0.2 is pinned for the
+  reproducible Windows setup and installed in the working environment.
+
+## Optional flow readiness
+
+- `check_reezsynth.py --flow-extras` now checks EF-RAFT and FlowDiffuser
+  requirements without importing their models, loading weights or initializing CUDA.
+  It reports each missing EF-RAFT weight and the FlowDiffuser `timm` dependency and
+  weight separately. The normal setup check deliberately does not enable this flag:
+  these optional assets are not bundled and their absence must not fail a standard
+  RAFT installation.
+- Tests use temporary placeholder files and a mocked dependency lookup. EF-RAFT and
+  FlowDiffuser remain unavailable in the working environment; no download, install,
+  engine edit or render has been performed for them.
+
+## Optional flow architecture selection
+
+- Rendering now persists a video-only flow architecture (`RAFT`, `EF_RAFT`, or
+  `FLOW_DIFF`) and presents only models supported by that selection. RAFT/Sintel
+  remains the Default preset. The job adapter forwards both fields to the existing
+  `EzsynthBase` API; it does not alter `ezsynth/` source.
+- Every multi-frame queue performs a no-GPU preflight for the selected checkpoint;
+  FlowDiffuser also checks for `timm`. This happens before a batch/output directory
+  is created. Memory-efficient correlation is intentionally restricted to standard
+  RAFT, where the compiled correlation extension is compatible.
+- Settings has an Optional flow components panel with current readiness, safe
+  checkpoint import buttons, and an explicit-confirmation installer for `timm`.
+  Selecting an unavailable optional architecture immediately returns to RAFT and
+  explains the missing setup rather than allowing an invalid option to persist.
+- Focused GUI, setup and renderer-adapter regression suite: **77 passed in 8.649
+  seconds**. Optional models remain uninstalled and no real render was run.
+
+## Adapter constructor compatibility
+
+- The video adapter excludes all frontend-only controls, including custom edge
+  guides, before constructing the live `RunConfig`. A strict mock matching the
+  live constructor signature now guards this boundary; the custom-guide path
+  cannot silently pass an unsupported keyword to real rendering.
+- Optional model/package installer buttons are part of the normal locked-control
+  set and are disabled throughout an active queue, preventing environment changes
+  while rendering.
+
+## Distribution audit follow-up
+
+- Generated diagnostic image paths and `diagnostic_outputs/` are now ignored.
+  Existing tracked `output_synth/` images and example assets were preserved for a
+  later provenance/release decision; ignore rules do not remove tracked files.
+- The non-render setup check passed in the working environment: dependency
+  consistency, four pinned runtime hashes, RTX 5090 CUDA availability, the
+  EbSynth DLL entry point, the bundled correlation extension, and isolated Qt GUI
+  construction. It did not load a model or perform synthesis.
+- `diagnose_reezsynth_adapter.py` provides an opt-in small real-render check for
+  the frontend adapter, including masks and custom edge guides. It uses bundled
+  examples at 512×288 and writes only ignored diagnostic output.
+- Real local checks on 2026-09-11 passed: direct three-frame CUDA video synthesis
+  (1.847 seconds including initialization); frontend adapter video with masks and
+  custom edge guides (three 512×288 PNGs and `COMPLETE.txt`); frontend Image
+  Synthesis (image, error map, manifest and `COMPLETE.txt`); and grouped normal
+  blending with two keyframes (three 512×288 PNGs and `COMPLETE.txt`). The native
+  EbSynth CPU and Auto diagnostics also completed in 0.167 and 0.277 seconds.
+- The same masked/custom-edge video job also passed through the real persistent
+  worker: it emitted the expected `job_done` event, accepted `quit`, completed
+  Python cleanup, and exited normally in 9.683 seconds. The opt-in diagnostic's
+  `--shared-worker` mode now verifies that protocol path without opening the GUI.
+- The real shared-worker diagnostic also verified live preview transport using a
+  renewable GUI-equivalent request lease. It emitted two synthesis-stage preview
+  events and produced the latest thumbnail before final output saving; capture
+  took 0.025 seconds across the two calls. This validates renderer/worker preview
+  delivery, while an interactive GUI-window render remains a separate manual check.
+- The `--reuse-worker` diagnostic sent two independent 512Ã—288 video jobs to one
+  persistent worker and verified both outputs and completion events before one
+  orderly shutdown. Each job still constructed its own engine; on this small run,
+  engine initialization was 0.178 seconds for the first job and 0.070 seconds for
+  the second. This is a protocol/cache observation, not a production benchmark.
+- The `--cancel-worker` diagnostic used 24 consecutive small frames, force-killed
+  the real worker immediately after its synthesis-start event, and verified no
+  `COMPLETE.txt` marker was written. It returned in 4.029 seconds. A forced stop
+  may skip Python cleanup by design; process exit is the final resource boundary.
+- The `--parallel-workers` diagnostic ran two independent 512Ã—288 masked/custom
+  edge jobs concurrently through `reezsynth_jobs.py`, the same isolated-job entry
+  point used by the parallel queue. Both wrote valid output and `COMPLETE.txt` in
+  5.395 seconds. The GUI's QProcess coordination still has its separate mock
+  lifecycle coverage; this verifies the two real renderer processes together.
+- `diagnose_reezsynth_gui.py` passed a real offscreen MainWindow run with copied
+  bundled inputs and temporary QSettings. It opened the Preview window, received
+  a synthesis-stage tile through the GUI's QProcess output handling, found the
+  completed output marker, and verified that the worker and UI both finalized.
+- Its `--parallel` mode also passed with two real 512Ã—288 jobs and a two-worker
+  limit. It verified the controller selected `ParallelQueue`, both completion
+  markers were written, a preview tile arrived, and the UI unlocked after both
+  QProcesses finalized.
+- Its `--cancel` mode passed a real GUI Stop Queue path: it waited until a longer
+  small shared-worker job entered synthesis, force-killed the worker, verified
+  asynchronous UI/process finalization, and found no `COMPLETE.txt` marker.
+- Its `--close` mode passed the real close-during-render confirmation path. The
+  window stayed alive while its worker was stopped, then closed after asynchronous
+  finalization; no `COMPLETE.txt` marker was written.
+- Its `--cancel-restart` mode passed a real cancellation followed by queue rebuild
+  and successful restart in the same GUI window. The stopped run had no completion
+  marker; the fresh run created one after the previous worker finalized.
+- GPU memory cleanup remains unmeasured. ComfyUI was using most of the RTX 5090
+  during the checks (about 1.3 GiB free), so post-render memory readings cannot be
+  attributed to ReEzSynth. Real GUI preview, parallel-worker,
+  cancellation and restart checks remain pending with the GPU otherwise idle.
+
+## Custom edge-guide sequences
+
+- Video / Keyframes now includes an optional Custom edge guides directory and
+  Rendering includes a matching checkbox. Enabled jobs require one numbered,
+  same-size edge image per selected source frame, skip automatic edge computation,
+  and assign the validated grayscale sequence through the engine's `edge_guides`
+  hook. The setting is saved in render presets; the directory is saved in directory
+  presets and projects. Automatic edge generation remains the default.
+- Validation: **164 tests passed in 29.518 seconds**. The custom edge tests use
+  a fake engine and synthetic numbered files; no GPU render was run.
+
+Earlier real-render report: 3840x2160 video on RTX 5090 failed in RAFT CorrBlock
 with a 62.57 GiB allocation request against 31.82 GiB total VRAM. This is a
 per-frame-pair correlation allocation, not evidence of a worker-cache leak.
 The adapter now logs actionable resolution guidance on CUDA OOM while preserving
@@ -228,6 +538,10 @@ are now implemented as described below.
 - No AGENTS.md was found in this repository or its checked parent directories.
 - Preserve engine code, runtime libraries, weights, user inputs/outputs, licenses
   and upstream attribution. Use companion modules, not versioned GUI subclasses.
+- New numeric editors should use QueueSpinBox/QueueDoubleSpinBox from
+  reezsynth_widget_style; keep QueueStyle and COMBO_STYLE installed for all tabs,
+  dropdowns and checkboxes. Keep logo/tab header compact and Save Log available
+  while busy. Tests must isolate QSettings and input/output data.
 - Do not commit/push, delete project data, run destructive Git operations,
   install/upgrade dependencies or run expensive GPU renders without approval.
 
@@ -259,7 +573,8 @@ Queue completion requests quit, drains streams and waits for process exit, with
 30-second normal shutdown timeout. Stop/timeout can skip Python cleanup. Final
 process exit remains the resource boundary. COMPLETE.txt is required for success.
 
-Rendering uses RAFT Sintel and explicitly selects runner.eb.backends["cuda"].
+Rendering defaults to RAFT Sintel and explicitly selects the saved EbSynth backend
+(CUDA by default); Kitti, CPU and Auto are exposed with the limits above.
 Single-frame jobs do not initialize the engine; optional masks composite styled
 pixels over the source. Cross-keyframe blending is available in Blend / Flow;
 Image Synthesis is implemented; real CUDA validation remains pending.
@@ -289,10 +604,10 @@ torch 2.11.0+cu128 and torchvision 0.26.0+cu128.
 Run only the explicit lightweight suite, not the upstream rendering demos:
 
 ```powershell
-python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations test_reezsynth_image -v
+python -B -m unittest test_reezsynth_gui test_reezsynth_lifecycle test_reezsynth_worker test_reezsynth_options test_reezsynth_render_adapter test_reezsynth_grouped test_reezsynth_artifacts test_reezsynth_destinations test_reezsynth_image test_reezsynth_setup test_reezsynth_polish test_reezsynth_preview test_reezsynth_raft test_reezsynth_cli_benchmark test_reezsynth_serialization -v
 ```
 
-Historical baseline: 66 tests passed; current full suite is 102 tests (see above).
+Historical baseline: 66 tests passed; see the latest validation entry above.
 Tests cover GUI construction, folder history/drag-drop, naming, preset
 persistence, startup choices, old/new projects, masks, automation guards,
 sequential/parallel failure/cancellation/close/restart and shutdown timeout.

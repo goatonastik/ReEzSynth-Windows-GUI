@@ -168,7 +168,7 @@ class GroupedGuiTests(LifecycleFixture):
             self.assertEqual(w.grouped.blend_options()['only_mode'], 'none' if legacy else 'reverse')
             self.assertEqual(w.grouped.folder.text(), 'grouped_video' if legacy else 'custom/group')
         w.options.apply('render', preset)
-        self.assertEqual(w.grouped.blend_options()['only_mode'], 'reverse')
+        self.assertEqual(w.grouped.blend_options()['only_mode'], 'none')
 
 
 if __name__ == '__main__':
