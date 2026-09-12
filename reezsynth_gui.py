@@ -1431,7 +1431,7 @@ class MainWindow(QMainWindow):
             f"QUEUE RUN {self.active_queue_generation} STARTED {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"Mode: {'parallel' if parallel else ('shared worker' if shared else 'isolated workers')}\n"
             f"Jobs: {len(records)} | Output root: {batch}\n"
-            + (f"Maximum simultaneous renders: {application.get('parallel_limit', 2) or 'unlimited'}\n" if parallel else '') +
+            + (f"Maximum simultaneous renders: {application.get('parallel_limit', 2) or 'GPU-aware automatic'}\n" if parallel else '') +
             f"{LOG_SEPARATOR}"
         )
         self.open_output.setEnabled(True)

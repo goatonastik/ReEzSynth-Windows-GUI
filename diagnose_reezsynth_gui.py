@@ -63,7 +63,7 @@ def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=
                 window.options.widgets['render']['engine'].setCurrentText(FUOUM)
             if parallel:
                 window.options.widgets['application']['parallel'].setChecked(True)
-                window.options.widgets['application']['parallel_limit'].setValue(2)
+                window.options.widgets['application']['parallel_limit'].setValue(0)
             expected_jobs = 2 if parallel else 1
             if not window.rebuild_queue(show_error=True) or len(window.rows) != expected_jobs:
                 raise RuntimeError('Could not build the diagnostic queue.')
@@ -119,6 +119,13 @@ def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=
                 raise RuntimeError('GUI queue did not produce a completion marker.')
             if window.process is not None or window.parallel_queue is not None:
                 raise RuntimeError('GUI queue did not finalize its worker process.')
+            if parallel:
+                resource_log = window.log.toPlainText()
+                if ('[Parallel resources] GPU ' not in resource_log or
+                        resource_log.count('estimated peak') < expected_jobs or
+                        resource_log.count('reserved estimate') < expected_jobs):
+                    raise RuntimeError('Parallel GUI queue did not report GPU and per-worker resources.')
+                (base / 'controller.log').write_text(resource_log, encoding='utf-8')
             if cache_reuse:
                 controls = window.options.widgets['render']
                 controls['uniformity'].setValue(controls['uniformity'].value() + 1)

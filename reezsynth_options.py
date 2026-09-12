@@ -32,7 +32,7 @@ LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (po
     feather="Mask feather size (zero or odd) [Trentonom0r3 only]", discover="Discover matching input subfolders",
     keys_prefix="Keyframe folder prefix", video_prefix="Video folder prefix",
     auto_start="Start automatically when inputs are ready", wait_for_mask="Wait for masks before automatic start",
-    parallel="Enable parallel rendering", parallel_limit="Maximum simultaneous renders (0 = unlimited)",
+    parallel="Enable parallel rendering", parallel_limit="Maximum simultaneous renders (0 = GPU-aware automatic)",
     sound_enabled="Enable completion sounds", sound_each="Play after each render",
     sound_queue="Play when the queue completes", sound_file="Custom WAV sound (blank = bundled sound)")
 LABELS["preview_limit"] = "Maximum live previews"
@@ -361,6 +361,9 @@ class Options(QObject):
                 widget.setToolTip('Automatic uses all pyramid levels supported by the input size and patch size.')
             elif name == 'patchsize':
                 widget.setToolTip('Odd sizes from 3 to 99. Processed style and target dimensions must each be at least twice the patch size plus one pixel.')
+            elif name == 'parallel_limit':
+                widget.setSpecialValueText('Automatic')
+                widget.setToolTip('Automatic admits workers using current NVIDIA GPU memory and conservative per-job estimates. Positive values are hard caps and remain GPU-memory-aware when telemetry is available.')
             if isinstance(widget, QDoubleSpinBox):
                 # Preserve practical native float inputs through presets and
                 # last-used settings instead of silently rounding to millis.

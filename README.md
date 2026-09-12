@@ -249,8 +249,14 @@ for files arriving after validation.
 
 Sequential rendering remains the default and reuses one worker per queue unless
 disabled. **Enable parallel rendering** uses independent isolated workers, with
-an initial limit of 2; 0 permits all queued jobs at once. It uses more GPU memory
-and has only been validated with mock workers. Stop/Close waits for every worker
+an initial hard limit of 2. A limit of 0 selects GPU-aware automatic scheduling.
+The scheduler combines current NVIDIA free-memory telemetry with conservative
+per-job reservations based on resolution, engine, flow model and GPU blending;
+it also leaves a desktop/error safety reserve. If telemetry is unavailable,
+automatic mode runs one worker at a time. Positive limits remain hard caps. The
+queue log and job tooltips report the GPU snapshot, estimate and worker PID. It uses more GPU memory;
+worker lifecycle has been checked with mocks and bounded real GPU jobs, while the
+estimates remain conservative admission heuristics. Stop/Close waits for every worker
 to exit. A render failure halts pending work and stops other active workers;
 completed output is retained.
 

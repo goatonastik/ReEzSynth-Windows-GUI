@@ -285,7 +285,7 @@ def validate_application(data):
         if type(result[name]) is not type(default):
             raise ValueError(f"Invalid application setting: {name}")
     if not 0 <= result["parallel_limit"] <= 64:
-        raise ValueError("Parallel limit must be between 0 (unlimited) and 64.")
+        raise ValueError("Parallel limit must be between 0 (GPU-aware automatic) and 64.")
     if not 1 <= result["preview_limit"] <= 64:
         raise ValueError("Maximum live previews must be between 1 and 64.")
     for name in ("keys_prefix", "video_prefix"):

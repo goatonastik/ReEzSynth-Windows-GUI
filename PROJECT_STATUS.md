@@ -3,6 +3,26 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## GPU-aware parallel scheduling verified (2026-09-12)
+
+- Parallel queues now reserve conservative per-job VRAM estimates derived from
+  processed resolution, engine, optical-flow path and GPU blending. Admission
+  combines those reservations with live `nvidia-smi` free-memory telemetry and a
+  10% safety reserve bounded to 1-4 GiB. The initial worker limit remains a hard
+  cap; zero now means GPU-aware automatic rather than unlimited. Without NVIDIA
+  telemetry, automatic mode safely uses one worker. A single estimate larger than
+  the safe budget is admitted alone so the queue cannot deadlock.
+- Queue logs and row tooltips report the selected GPU, current/free memory, safety
+  reserve, estimated peak, processed size, engine and worker PID. Finish records
+  include the post-exit device snapshot. These estimates are deliberately
+  conservative admission heuristics, not measured per-process allocation claims.
+- The maintained suite passed **253 tests in 34.995 seconds**. A real automatic
+  two-job FuouM GUI queue then passed at 512x288: each worker reserved 2.4 GiB
+  against 28.2 GiB initially free with a 3.2 GiB reserve, both completion markers
+  were written, both PIDs exited, and the final snapshot again showed 28.2 GiB
+  free. Retained diagnostic and controller log:
+  `diagnostic_outputs/gui_controller_20260912_160955_548162`.
+
 ## Local review fixes verified (2026-09-12)
 
 - Both engines now share frontend-owned, project-local content-addressed caches

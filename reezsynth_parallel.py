@@ -5,6 +5,8 @@ import sys
 
 from PySide6.QtCore import QObject, QProcess, QTimer
 from reezsynth_jobs import PREFIX
+from reezsynth_resources import (estimate_job_vram, format_mib, gpu_snapshot,
+                                 safety_reserve_mib)
 
 
 class ParallelQueue(QObject):
@@ -13,12 +15,22 @@ class ParallelQueue(QObject):
         self.w = window
         self.pending = list(records)
         self.script = script
-        self.limit = limit or len(records)
+        self.limit = limit
         self.active = {}
         self.cancelled = False
         self.failed = False
         self.running = True
         self.generation = window.queue_generation
+        self.gpu = gpu_snapshot()
+        self.reserve_mib = safety_reserve_mib(self.gpu) if self.gpu else 0
+        self.capacity_mib = (self.gpu["free_mib"] - self.reserve_mib) if self.gpu else None
+        for record in self.pending:
+            try:
+                record["resources"] = estimate_job_vram(record["job_path"])
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                record["resources"] = dict(estimated_mib=4096, width=0, height=0,
+                                            engine="unknown", basis="fallback estimate")
+        self.describe_policy()
 
     def valid(self):
         return self.running and self.w.parallel_queue is self and self.generation == self.w.queue_generation
@@ -26,8 +38,28 @@ class ParallelQueue(QObject):
     def start(self):
         if not self.valid():
             return
-        while self.pending and len(self.active) < self.limit and not self.cancelled and not self.failed:
+        snapshot = gpu_snapshot()
+        if snapshot and self.gpu and snapshot["index"] == self.gpu["index"]:
+            active_reserved = sum(item["resources"]["estimated_mib"] for item in self.active.values())
+            current_capacity = snapshot["free_mib"] + active_reserved - self.reserve_mib
+            self.capacity_mib = max(0, min(self.capacity_mib, current_capacity))
+            self.gpu = snapshot
+        hard_limit = self.limit or (len(self.pending) + len(self.active) if self.gpu else 1)
+        while self.pending and len(self.active) < hard_limit and not self.cancelled and not self.failed:
+            candidate = self.pending[0]
+            active_reserved = sum(item["resources"]["estimated_mib"] for item in self.active.values())
+            estimate = candidate["resources"]["estimated_mib"]
+            if self.capacity_mib is not None and active_reserved + estimate > self.capacity_mib and self.active:
+                candidate["row"]["state"].setText("Waiting for GPU memory")
+                candidate["row"]["state"].setToolTip(
+                    f"Estimated {format_mib(estimate)}; {format_mib(active_reserved)} reserved by active workers.")
+                break
             record = self.pending.pop(0)
+            if self.capacity_mib is not None and estimate > self.capacity_mib and not self.active:
+                self.w.log.appendPlainText(
+                    f"[Parallel resources] Key {record['row']['key']} estimate "
+                    f"{format_mib(estimate)} exceeds the safe available budget "
+                    f"{format_mib(self.capacity_mib)}; admitting it alone so the queue can make progress.")
             if not self.w.journal_state(record, 'running'):
                 record['row']['state'].setText('Failed')
                 self.failed = True
@@ -45,8 +77,34 @@ class ParallelQueue(QObject):
             process.readyReadStandardError.connect(lambda p=process: self.read(p, "err"))
             process.errorOccurred.connect(lambda error, p=process: self.error(p, error))
             process.finished.connect(lambda code, status, p=process: self.finished(p, code, status))
+            process.started.connect(lambda p=process: self.worker_started(p))
             process.start(record.get('python', sys.executable), ["-X", "utf8", "-u", str(self.script), str(record["job_path"])])
         self.finish_if_idle()
+
+    def describe_policy(self):
+        cap = self.limit or "automatic"
+        if self.gpu:
+            self.w.log.appendPlainText(
+                f"[Parallel resources] GPU {self.gpu['index']} {self.gpu['name']}: "
+                f"{format_mib(self.gpu['free_mib'])} free of {format_mib(self.gpu['total_mib'])}; "
+                f"safety reserve {format_mib(self.reserve_mib)}; worker cap {cap}.")
+        else:
+            fallback = "one worker" if not self.limit else f"explicit cap {self.limit}"
+            self.w.log.appendPlainText(
+                f"[Parallel resources] NVIDIA telemetry unavailable; using estimates with {fallback}.")
+
+    def worker_started(self, process):
+        record = self.active.get(process)
+        if record is None:
+            return
+        resources = record["resources"]
+        record["worker_pid"] = process.processId()
+        gpu = f"GPU {self.gpu['index']}" if self.gpu else "GPU telemetry unavailable"
+        detail = (f"PID {record['worker_pid']} | {gpu} | estimated peak "
+                  f"{format_mib(resources['estimated_mib'])} at "
+                  f"{resources['width']}x{resources['height']} ({resources['engine']})")
+        record["row"]["state"].setToolTip(detail)
+        self.w.log.appendPlainText(f"[Parallel worker key {record['row']['key']}] {detail}")
 
     def read(self, process, name, final=False):
         record = self.active.get(process)
@@ -98,6 +156,13 @@ class ParallelQueue(QObject):
         self.read(process, "out", True)
         self.read(process, "err", True)
         del self.active[process]
+        snapshot = gpu_snapshot()
+        resources = record["resources"]
+        finish_gpu = (f"; GPU {snapshot['index']} now {format_mib(snapshot['free_mib'])} free"
+                      if snapshot else "")
+        self.w.log.appendPlainText(
+            f"[Parallel worker key {record['row']['key']}] PID {record.get('worker_pid', 'unknown')} exited; "
+            f"reserved estimate {format_mib(resources['estimated_mib'])}{finish_gpu}.")
         self.w.preview_window.finish(record)
         process.deleteLater()
         success = code == 0 and status == QProcess.ExitStatus.NormalExit and not record["error"] and (record["output"] / "COMPLETE.txt").is_file()

@@ -127,9 +127,13 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    - [ ] True chunked/streaming source, style and result-frame processing remains
      a separate redesign for very long clips. Current memory mapping reduces flow
      residency without changing keyframe-boundary or grouped-blending semantics.
-6. [ ] **GPU-aware parallel scheduling:** limit concurrent jobs by measured or
-   estimated memory demand and show useful per-worker resource information.
-   Current scheduling uses a fixed worker limit, including an unlimited option.
+6. [x] **GPU-aware parallel scheduling:** parallel admission now combines current
+   NVIDIA free-memory telemetry with conservative per-job VRAM reservations based
+   on processed resolution, engine, flow path and GPU blending. Zero selects
+   automatic scheduling rather than unlimited workers; positive values remain hard
+   caps, and automatic mode serializes safely when telemetry is unavailable. Queue
+   logs and job tooltips report the GPU, safety reserve, estimate and worker PID.
+   Unit/lifecycle coverage and a real two-job automatic FuouM GUI run passed.
 7. [ ] **Engine setup controls in the GUI:** expose component readiness checks
    and maintenance/rebuild/version handling. Standard installation now includes
    FuouM; these controls should describe it as an included engine.
@@ -174,9 +178,14 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the fixes: 249 maintained tests passed in 31.226 seconds with
+- Full suite after the GPU-aware scheduler: 253 maintained tests passed in 34.995 seconds with
   normal temporary-directory/Qt access. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
+- Automatic GPU-aware admission also passed a real two-job 512x288 FuouM GUI run.
+  Each worker reserved an estimated 2.4 GiB against 28.2 GiB initially free with a
+  3.2 GiB safety reserve; both completed, logged their PIDs/resource snapshots and
+  left 28.2 GiB free after exit. Retained diagnostic:
+  `gui_controller_20260912_160955_548162`.
 - Synthetic CUDA correlation checks passed, followed by real 256x144 Preview
   image/video/grouped smoke checks for both engines. Legacy used compiled RAFT.
   Completion, previews, image errors, numbering, worker exit and the new component

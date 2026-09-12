@@ -15,9 +15,34 @@ from test_reezsynth_lifecycle import LifecycleFixture
 from reezsynth_config import (APPLICATION, PREVIEW, STANDARD, WEIGHTS, PresetStore,
     discover_pairs, validate_render, validate_weights)
 from reezsynth_jobs import validate_masks
+from reezsynth_resources import estimate_job_vram, gpu_snapshot, safety_reserve_mib
+from reezsynth_engines import FUOUM, LEGACY
 
 
 REAL_NOTIFY = gui.Options.notify
+
+
+class ResourceSchedulingUnitTests(unittest.TestCase):
+    def test_gpu_snapshot_selects_cuda_visible_device(self):
+        result = MagicMock(returncode=0, stdout=(
+            "0, GPU-zero, First GPU, 8192, 2048, 6144\n"
+            "1, GPU-one, Second GPU, 24576, 4096, 20480\n"))
+        snapshot = gpu_snapshot(run=MagicMock(return_value=result),
+                                environ={"CUDA_VISIBLE_DEVICES": "GPU-one"})
+        self.assertEqual(snapshot["index"], 1)
+        self.assertEqual(snapshot["free_mib"], 20480)
+        self.assertEqual(safety_reserve_mib(snapshot), 2457)
+        self.assertIsNone(gpu_snapshot(run=MagicMock(return_value=result),
+                                       environ={"CUDA_VISIBLE_DEVICES": "-1"}))
+
+    def test_vram_estimate_uses_processed_resolution_engine_and_blending(self):
+        legacy = estimate_job_vram(dict(processing_size=[1920, 1080],
+            render_options=dict(engine=LEGACY, flow_arch="RAFT", memory_efficient_raft=True)))
+        fuoum = estimate_job_vram(dict(type="grouped_video", processing_size=[1920, 1080],
+            render_options=dict(engine=FUOUM, fuoum_flow_engine="RAFT"),
+            blend_options=dict(use_gpu=True, use_poisson_cupy=True)))
+        self.assertEqual((legacy["width"], legacy["height"]), (1920, 1080))
+        self.assertGreater(fuoum["estimated_mib"], legacy["estimated_mib"])
 
 
 class PresetTests(GuiFixture):
@@ -426,6 +451,40 @@ class IntegrationTests(LifecycleFixture):
         self.w.stop_queue()
         self.until(lambda: not self.w.busy)
         self.assertEqual(self.w.rows[1]["state"].text(), "Not run")
+
+    def test_parallel_automatic_admits_only_estimated_safe_demand(self):
+        self.enable_parallel(0)
+        self.mode("slow")
+        snapshot = dict(index=0, uuid="GPU-test", name="Test GPU",
+                        total_mib=8192, used_mib=3192, free_mib=5000)
+        estimate = dict(estimated_mib=3000, width=1920, height=1080,
+                        engine=LEGACY, basis="test")
+        with patch("reezsynth_parallel.gpu_snapshot", return_value=snapshot), \
+             patch("reezsynth_parallel.estimate_job_vram", return_value=estimate):
+            self.run_queue()
+            self.until(lambda: "MOCK_STARTED" in self.w.log.toPlainText())
+            pool = self.w.parallel_queue
+            self.assertEqual(len(pool.active), 1)
+            self.assertEqual(len(pool.pending), 1)
+            self.assertEqual(self.w.rows[1]["state"].text(), "Waiting for GPU memory")
+            self.assertIn("estimated peak", self.w.rows[0]["state"].toolTip())
+            self.w.stop_queue()
+            self.until(lambda: not self.w.busy)
+
+    def test_parallel_automatic_serializes_without_gpu_telemetry(self):
+        self.enable_parallel(0)
+        self.mode("slow")
+        estimate = dict(estimated_mib=1024, width=512, height=288,
+                        engine=LEGACY, basis="test")
+        with patch("reezsynth_parallel.gpu_snapshot", return_value=None), \
+             patch("reezsynth_parallel.estimate_job_vram", return_value=estimate):
+            self.run_queue()
+            self.until(lambda: "MOCK_STARTED" in self.w.log.toPlainText())
+            self.assertEqual(len(self.w.parallel_queue.active), 1)
+            self.assertEqual(len(self.w.parallel_queue.pending), 1)
+            self.assertIn("telemetry unavailable", self.w.log.toPlainText())
+            self.w.stop_queue()
+            self.until(lambda: not self.w.busy)
 
     def test_parallel_failure_stops_queue_and_reaps_workers(self):
         self.enable_parallel()
