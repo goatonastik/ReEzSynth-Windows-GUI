@@ -1,0 +1,71 @@
+name: Maintained tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_gpu_diagnostics:
+        description: Run bounded real diagnostics on a configured self-hosted NVIDIA runner
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows-cpu-tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CUDA_VISIBLE_DEVICES: "-1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - name: Install CPU test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements-ci.txt
+          python -m pip check
+      - name: Run maintained suite
+        run: python -B run_maintained_tests.py
+
+  gpu-diagnostics:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_gpu_diagnostics
+    runs-on: [self-hosted, Windows, X64, reezsynth-gpu]
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check self-hosted runtime configuration
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath "$env:REEZSYNTH_FUOUM_SOURCE" -PathType Container)) { throw 'Set REEZSYNTH_FUOUM_SOURCE on the GPU runner.' }
+          if (-not (Test-Path -LiteralPath "$env:REEZSYNTH_FUOUM_PYTHON" -PathType Leaf)) { throw 'Set REEZSYNTH_FUOUM_PYTHON on the GPU runner.' }
+      - name: Verify configured included engines
+        shell: pwsh
+        run: |
+          python -B check_reezsynth_engines.py --fuoum-source "$env:REEZSYNTH_FUOUM_SOURCE" --fuoum-python "$env:REEZSYNTH_FUOUM_PYTHON"
+      - name: Bounded Legacy diagnostic
+        run: python -B diagnose_reezsynth_engines.py --engine legacy --memory-efficient
+      - name: Bounded FuouM diagnostic
+        shell: pwsh
+        run: |
+          python -B diagnose_reezsynth_engines.py --engine fuoum --fuoum-source "$env:REEZSYNTH_FUOUM_SOURCE" --fuoum-python "$env:REEZSYNTH_FUOUM_PYTHON"
+      - name: Upload diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: gpu-diagnostics-${{ github.run_id }}
+          path: diagnostic_outputs/
+          if-no-files-found: warn
+          retention-days: 14

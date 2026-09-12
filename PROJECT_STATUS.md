@@ -3,6 +3,21 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Maintained-suite CI added (2026-09-12)
+
+- `run_maintained_tests.py` is now the single canonical module list, excluding the
+  two upstream render demos and all real GPU diagnostics. A Windows GitHub Actions
+  workflow runs it for pushes and pull requests using Python 3.11, CPU PyTorch,
+  offscreen Qt and hidden CUDA. Workflow permissions are read-only.
+- Real GPU checks are a separate workflow-dispatch option targeting only a
+  preconfigured self-hosted Windows runner labelled `reezsynth-gpu`; they verify
+  both included engines and run bounded Legacy/FuouM diagnostics. Reports are
+  uploaded only for that explicitly requested job.
+- The canonical runner passed **258 tests in 35.498 seconds** locally with the same
+  CUDA-hidden/offscreen flags. It also passed normally in 35.440 seconds. The
+  workflow syntax and routing were reviewed locally, but no remote Actions run is
+  claimed because the commit has not been pushed.
+
 ## Included-engine GUI setup controls verified (2026-09-12)
 
 - Settings now has an **Included engine setup and maintenance** panel. It reports

@@ -308,6 +308,11 @@ Run these explicit modules in the existing environment, without real GPU renders
 python -B -m unittest discover -p "test_reezsynth_*.py" -v
 ```
 
+`python -B run_maintained_tests.py` is the canonical equivalent used by CI.
+GitHub-hosted Windows CI installs CPU PyTorch and sets CUDA hidden; real GPU
+diagnostics are available only through an explicit workflow-dispatch choice on a
+preconfigured self-hosted runner labelled `reezsynth-gpu`.
+
 Tests isolate settings/files, use offscreen Qt, mock workers and a fake engine,
 and include CPU image handling and CPU RAFT numerical checks without pretrained
 weights. Audio playback is mocked. The older

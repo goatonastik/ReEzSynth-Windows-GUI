@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import check_reezsynth_engines
+import run_maintained_tests
 
 from check_reezsynth import EF_RAFT_MODELS, FLOW_DIFFUSION_MODEL, flow_extra_readiness, verify_assets
 from diagnose_reezsynth_adapter import (cancel_worker, render as run_adapter_diagnostic,
@@ -26,6 +27,13 @@ ROOT = Path(__file__).resolve().parent
 
 
 class SetupTests(unittest.TestCase):
+    def test_maintained_runner_excludes_upstream_and_real_gpu_diagnostics(self):
+        self.assertIn('test_reezsynth_gui', run_maintained_tests.MODULES)
+        self.assertIn('test_reezsynth_video_export', run_maintained_tests.MODULES)
+        self.assertTrue(all(name.startswith('test_reezsynth_') for name in run_maintained_tests.MODULES))
+        self.assertNotIn('test_imgsynth', run_maintained_tests.MODULES)
+        self.assertNotIn('test_redux', run_maintained_tests.MODULES)
+
     def test_combined_engine_checker_runs_both_components_and_combines_failures(self):
         with contextlib.redirect_stdout(io.StringIO()), \
              patch.object(check_reezsynth_engines, 'run', side_effect=[1, 0]) as run:

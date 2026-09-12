@@ -150,8 +150,12 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 9. [ ] **Stronger quality/stability evidence:** overnight repeated-job testing,
     isolated performance comparisons, multi-GPU coverage, and investigation of
     true backward flow in place of FuouM's negative-forward-flow approximation.
-10. [ ] **Automated regression checks:** run the lightweight suite in CI and keep
-    GPU diagnostics opt-in, so future changes to either adapter are easier to review.
+10. [x] **Automated regression checks:** a canonical maintained-suite runner and
+    Windows GitHub Actions workflow now use CPU PyTorch with CUDA hidden for normal
+    push/PR checks. Real Legacy/FuouM diagnostics require an explicit manual input
+    and a preconfigured self-hosted `reezsynth-gpu` runner. The canonical command
+    passed all 258 tests locally both normally and with the CI environment flags;
+    the workflow itself remains unrun until this commit is pushed to GitHub.
 
 ### Excluded by user preference
 
@@ -183,7 +187,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the engine setup controls: 257 maintained tests passed in 34.923 seconds with
+- Full suite through the canonical CI runner: 258 maintained tests passed in 35.498 seconds with
   normal temporary-directory/Qt access. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
 - Automatic GPU-aware admission also passed a real two-job 512x288 FuouM GUI run.

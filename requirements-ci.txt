@@ -1,0 +1,12 @@
+# CPU-only hosted-runner dependencies. Install torch/torchvision from the
+# official PyTorch CPU index first; do not use this file for production setup.
+PySide6==6.11.2
+numpy==2.4.6
+opencv-python==5.0.0.93
+phycv==1.2.6
+scipy==1.17.1
+Pillow==12.3.0
+PyYAML==6.0.2
+tqdm==4.70.0
+imageio-ffmpeg==0.6.0
+av==18.1.0
