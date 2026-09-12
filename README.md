@@ -72,6 +72,13 @@ from every tab, including while a worker is running.
   Queue pairs/Square grid is selected in this window. Settings controls its image
   cap (default 8); later active jobs replace earlier completed jobs at the cap.
   Small latest-frame files live under each job's `.reezsynth-preview/` directory.
+- **Queue recovery:** every started queue receives an atomic
+  `.reezsynth-queue.json` journal. After a crash or interrupted run, use
+  **Recover Queue...**; recovery never starts automatically. Completed jobs are
+  skipped. Jobs whose JSON hash or input path/size/modification time changed are
+  blocked for review. An unchanged unfinished job can resume, while a job with
+  partial output restarts in a new `_recovered` sibling so existing files are
+  never overwritten. The last unfinished journal is noted at the next startup.
 - **Settings:** includes optional
   discovery, automatic start, parallel rendering, notifications and startup choices.
 - **Diagnostics / Log:** retains all queue runs for the open application session.
@@ -95,6 +102,9 @@ from every tab, including while a worker is running.
 Projects and shareable preset libraries may also be saved or imported as `.yaml`
 or `.yml`. JSON remains the default. YAML uses PyYAML safe loading and the same
 version and field validation as JSON; job files and worker protocol remain JSON.
+Queue journals are local recovery records, not shareable presets: they contain
+absolute input and runtime paths and should be removed or reviewed before sharing
+a render folder.
 
 ### Presets and startup behavior
 

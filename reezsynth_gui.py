@@ -393,6 +393,7 @@ class MainWindow(QMainWindow):
         self.shutdown_process = None
         self.queue_generation = 0
         self.queue_count = 0
+        self.queue_journal = None
         self.close_when_idle = False
 
         self.preferences = QSettings("ReEzSynth", APP_NAME)
@@ -411,6 +412,7 @@ class MainWindow(QMainWindow):
         self.set_busy(False)
         restore_ui_state(self)
         self.options.restore()
+        self.show_recovery_notice()
 
     # ------------------------------------------------------------------
     # Interface
@@ -544,12 +546,15 @@ class MainWindow(QMainWindow):
             "Open Outputs", self.open_outputs
         )
         self.open_output.setEnabled(False)
+        self.recover_queue_button = self.button('Recover Queue...', self.recover_queue)
 
         actions.addStretch()
+        actions.addWidget(self.recover_queue_button)
         actions.addWidget(self.open_output)
         actions.addWidget(self.stop)
         actions.addWidget(self.run_all)
         page.addLayout(actions)
+        self.locked.append(self.recover_queue_button)
 
         settings_page = QWidget()
         settings_layout = QVBoxLayout(settings_page)
@@ -1273,7 +1278,117 @@ class MainWindow(QMainWindow):
             return
         self.start_records(records, batch, shared, parallel, worker_script, application)
 
-    def start_records(self, records, batch, shared, parallel, worker_script, application):
+    def show_recovery_notice(self):
+        raw = self.preferences.value('last_queue_journal', '', type=str)
+        if not raw:
+            return
+        try:
+            from reezsynth_queue_recovery import audit_journal
+            audited = audit_journal(raw)
+            if any(not entry['complete'] for entry in audited['entries']):
+                self.status.setText('An unfinished queue is available. Use Recover Queue... to review it.')
+            else:
+                self.preferences.remove('last_queue_journal')
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            self.preferences.remove('last_queue_journal')
+
+    def recovery_row(self, entry, output):
+        key = entry.get('key', 'Recovery')
+        label = entry.get('label') or f'Recovered job {key}'
+        row = {'key': key, 'label': label, 'state': QLabel('Recovery queued'), 'bar': QProgressBar()}
+        row['bar'].setRange(0, 100)
+        row['bar'].setValue(0)
+        index = self.table.rowCount()
+        self.table.insertRow(index)
+        item = QTableWidgetItem(str(key))
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table.setItem(index, 3, item)
+        destination = QLabel(Path(output).name)
+        destination.setToolTip(str(output))
+        self.table.setCellWidget(index, 6, destination)
+        self.table.setCellWidget(index, 7, row['state'])
+        self.table.setCellWidget(index, 8, row['bar'])
+        return row
+
+    def recover_queue(self):
+        if self.busy or self.process is not None or self.parallel_queue is not None:
+            return
+        initial = self.preferences.value('last_queue_journal', '', type=str)
+        selected, _ = QFileDialog.getOpenFileName(
+            self, 'Recover interrupted queue', initial,
+            'ReEzSynth queue journal (.reezsynth-queue*.json);;JSON files (*.json)')
+        if not selected:
+            return
+        try:
+            from reezsynth_queue_recovery import audit_journal
+            audited = audit_journal(selected)
+            recoverable = [entry for entry in audited['entries'] if entry['recoverable']]
+            completed = sum(entry['complete'] for entry in audited['entries'])
+            changed = [entry for entry in audited['entries'] if entry['changed'] and not entry['complete']]
+            partial = [entry for entry in recoverable if entry['partial']]
+            if not recoverable:
+                detail = (f'{completed} job(s) are already complete. '
+                          f'{len(changed)} job(s) have changed or missing inputs.')
+                QMessageBox.information(self, 'Nothing to recover', detail)
+                return
+            message = (f'Resume {len(recoverable)} unfinished job(s)?\n\n'
+                       f'Already complete and skipped: {completed}\n'
+                       f'Changed/missing and blocked: {len(changed)}\n'
+                       f'Partial jobs restarted in fresh sibling folders: {len(partial)}\n\n'
+                       'Existing partial files will be preserved. Recovery does not start automatically.')
+            if changed:
+                paths = sorted({path for item in changed for path in item['changed']})
+                message += '\n\nChanged or missing paths (blocked):\n' + '\n'.join(paths[:8])
+                if len(paths) > 8:
+                    message += f'\n...and {len(paths) - 8} more.'
+            if QMessageBox.question(self, 'Recover queue?', message,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                return
+            self.rows.clear()
+            self.table.setRowCount(0)
+            records = []
+            from reezsynth_config import atomic_json
+            from reezsynth_output_location import create_unique_directory
+            for item in recoverable:
+                entry, job = item['entry'], dict(item['job'])
+                output, job_path = item['output'], item['job_path']
+                if item['partial']:
+                    output = create_unique_directory(output.parent, output.name + '_recovered')
+                    job['output'] = str(output)
+                    job_path = output / 'job.json'
+                    atomic_json(job_path, job)
+                row = self.recovery_row(entry, output)
+                runtime = job.get('engine_runtime') if isinstance(job.get('engine_runtime'), dict) else {}
+                records.append(dict(row=row, key=entry.get('key'), job_path=job_path,
+                                    output=output, weight=entry['weight'],
+                                    python=runtime.get('python') or entry.get('python') or sys.executable))
+            mode = audited['data']['mode']
+            parallel, shared = mode == 'parallel', mode == 'shared'
+            worker_script = ROOT / ('reezsynth_shared_worker.py' if shared else 'reezsynth_jobs.py')
+            application = validate_application(dict(self.options.application(), parallel=parallel,
+                parallel_limit=audited['data'].get('parallel_limit', 0)))
+            journal_name = '.reezsynth-queue-recovery-' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '.json'
+            self.start_records(records, audited['batch'], shared, parallel, worker_script,
+                               application, journal_name=journal_name)
+        except Exception as exc:
+            QMessageBox.warning(self, 'Cannot recover queue', str(exc))
+
+    def journal_state(self, record=None, state=None, overall=None):
+        if self.queue_journal is None:
+            return True
+        try:
+            from reezsynth_queue_recovery import update_journal
+            update_journal(self.queue_journal,
+                           None if record is None else record['job_path'], state, overall=overall)
+            return True
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            self.log.appendPlainText('[Recovery journal warning] ' + str(exc))
+            return False
+
+    def start_records(self, records, batch, shared, parallel, worker_script, application,
+                      journal_name='.reezsynth-queue.json'):
         self.gpu_memory_error_reported = False
         self.scan_timer.stop()
         self.shutdown_timer.stop()
@@ -1284,6 +1399,17 @@ class MainWindow(QMainWindow):
         self.active_queue_generation = self.queue_count
         self.queue_mode = 'parallel' if parallel else ('shared' if shared else 'isolated')
         self.batch = batch
+        try:
+            from reezsynth_queue_recovery import create_journal
+            self.queue_journal = create_journal(
+                batch, records, self.queue_mode, worker_script,
+                application.get('parallel_limit', 0), name=journal_name)
+            self.preferences.setValue('last_queue_journal', str(self.queue_journal))
+        except Exception as exc:
+            self.queue_journal = None
+            QMessageBox.warning(self, 'Cannot start queue',
+                                'Could not create the recovery journal: ' + str(exc))
+            return
         save_ui_state(self)
         self.pending = records
         self.current = None
@@ -1359,6 +1485,11 @@ class MainWindow(QMainWindow):
 
         self.current = self.pending.pop(0)
         self.job_sent = False
+        if not self.journal_state(self.current, 'running'):
+            self.current['row']['state'].setText('Failed')
+            self.session_error = 'Recovery journal could not record the running job.'
+            self.end_queue('Queue halted because its recovery journal could not be updated.')
+            return
         self.preview_window.activate(self.current)
 
         row = self.current["row"]
@@ -1594,6 +1725,7 @@ class MainWindow(QMainWindow):
         else:
             if self.current is not None:
                 self.current["row"]["state"].setText("Failed")
+                self.journal_state(self.current, 'failed')
             self.end_queue("Worker queue failed. See log.")
             self.tabs.setCurrentWidget(self.log)
 
@@ -1654,6 +1786,7 @@ class MainWindow(QMainWindow):
             )
             if record is not None:
                 record["row"]["state"].setText("Stopped")
+                self.journal_state(record, 'interrupted')
             self.end_queue(
                 "Queue stopped — worker exited; "
                 "output may be incomplete"
@@ -1698,6 +1831,7 @@ class MainWindow(QMainWindow):
             else:
                 if record is not None:
                     record["row"]["state"].setText("Failed")
+                    self.journal_state(record, 'failed')
                 self.end_queue(
                     "Shared worker failed or exited early. See log."
                 )
@@ -1715,6 +1849,7 @@ class MainWindow(QMainWindow):
         if not successful:
             if record is not None:
                 record["row"]["state"].setText("Failed")
+                self.journal_state(record, 'failed')
                 message = (
                     f"Queue halted: keyframe "
                     f"{record['row']['key']} failed. See log."
@@ -1894,6 +2029,7 @@ class MainWindow(QMainWindow):
 
         record["row"]["state"].setText("Complete")
         record["row"]["bar"].setValue(100)
+        self.journal_state(record, 'complete')
         self.completed_work += record["weight"]
         self.options.notify(each=True)
         self.preview_window.finish(record)
@@ -1925,6 +2061,15 @@ class MainWindow(QMainWindow):
 
         if self.overall.value() == 100 and not self.cancelled:
             self.options.notify()
+        complete = self.overall.value() == 100 and not self.cancelled
+        overall = 'complete' if complete else ('interrupted' if self.cancelled else 'failed')
+        journal = self.queue_journal
+        self.journal_state(overall=overall)
+        if complete and journal is not None:
+            saved = self.preferences.value('last_queue_journal', '', type=str)
+            if saved and Path(saved).resolve() == Path(journal).resolve():
+                self.preferences.remove('last_queue_journal')
+        self.queue_journal = None
         self.shutdown_timer.stop()
         self.shutdown_process = None
 

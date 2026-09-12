@@ -28,6 +28,11 @@ class ParallelQueue(QObject):
             return
         while self.pending and len(self.active) < self.limit and not self.cancelled and not self.failed:
             record = self.pending.pop(0)
+            if not self.w.journal_state(record, 'running'):
+                record['row']['state'].setText('Failed')
+                self.failed = True
+                self.w.log.appendPlainText('[Parallel queue] Recovery journal update failed; no worker was started.')
+                break
             process = QProcess(self)
             record = dict(record, percent=0, buffers={"out": "", "err": ""},
                 decoders={name: codecs.getincrementaldecoder("utf-8")(errors="replace") for name in ("out", "err")},
@@ -99,12 +104,15 @@ class ParallelQueue(QObject):
         if success:
             record["row"]["state"].setText("Complete")
             record["row"]["bar"].setValue(100)
+            self.w.journal_state(record, 'complete')
             self.w.completed_work += record["weight"]
             self.w.options.notify(each=True)
         elif self.cancelled or self.failed:
             record["row"]["state"].setText("Stopped")
+            self.w.journal_state(record, 'interrupted')
         else:
             record["row"]["state"].setText("Failed")
+            self.w.journal_state(record, 'failed')
             self.failed = True
             self.w.log.appendPlainText("[Parallel queue] Render failed; stopping other workers.")
             self.kill_active()

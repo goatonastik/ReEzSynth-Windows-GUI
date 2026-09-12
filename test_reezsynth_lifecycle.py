@@ -82,6 +82,39 @@ class LifecycleFixture(GuiFixture):
 
 
 class LifecycleTests(LifecycleFixture):
+    def test_interrupted_queue_recovers_without_overwriting_partial_output(self):
+        self.mode('slow')
+        self.run_queue(shared=False)
+        self.until(lambda: 'MOCK_STARTED' in self.w.log.toPlainText())
+        journal = Path(self.w.preferences.value('last_queue_journal'))
+        original_batch = self.w.batch
+        original_output = self.w.current['output']
+        self.w.stop_queue()
+        self.until(lambda: not self.w.busy)
+        self.w.show_recovery_notice()
+        self.assertIn('unfinished queue', self.w.status.text())
+        partial = original_output / 'partial.png'
+        partial.write_bytes(b'preserve me')
+
+        self.mode('normal')
+        with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(journal), '')), \
+             patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes):
+            self.w.recover_queue()
+        self.until(lambda: not self.w.busy)
+
+        self.assertEqual(partial.read_bytes(), b'preserve me')
+        self.assertFalse((original_output / 'COMPLETE.txt').exists())
+        recovered = [path for path in original_batch.glob(original_output.name + '_recovered*')
+                     if (path / 'COMPLETE.txt').is_file()]
+        self.assertEqual(len(recovered), 1)
+        self.assertTrue(any((path / 'COMPLETE.txt').is_file()
+                            for path in original_batch.iterdir() if path != original_output))
+        from reezsynth_queue_recovery import audit_journal
+        self.assertEqual(audit_journal(journal)['data']['state'], 'interrupted')
+        recovery_journals = list(original_batch.glob('.reezsynth-queue-recovery-*.json'))
+        self.assertEqual(len(recovery_journals), 1)
+        self.assertEqual(audit_journal(recovery_journals[0])['data']['state'], 'complete')
+
     def test_cuda_oom_popup_all_worker_modes_and_restart(self):
         for shared, parallel in ((True, False), (False, False), (False, True)):
             self.w.options.widgets['application']['parallel'].setChecked(parallel)
@@ -109,11 +142,15 @@ class LifecycleTests(LifecycleFixture):
     def test_shared_completion_and_restart(self):
         for _ in range(2):
             self.run_queue()
+            journal = self.w.batch / '.reezsynth-queue.json'
             self.until(lambda: not self.w.busy)
             self.assertIsNone(self.w.process)
             self.assertEqual(self.w.overall.value(), 100)
             self.assertTrue(all(r["state"].text() == "Complete" for r in self.w.rows))
             self.assertIn("Queue cleanup complete", self.w.log.toPlainText())
+            from reezsynth_queue_recovery import audit_journal
+            self.assertEqual(audit_journal(journal)['data']['state'], 'complete')
+            self.assertFalse(self.w.preferences.value('last_queue_journal', '', type=str))
 
     def test_isolated_completion(self):
         self.run_queue(False)
@@ -126,6 +163,7 @@ class LifecycleTests(LifecycleFixture):
         self.run_queue()
         self.until(lambda: "MOCK_STARTED" in self.w.log.toPlainText())
         old = self.w.process
+        journal = self.w.batch / '.reezsynth-queue.json'
         self.w.stop_queue()
         self.assertTrue(self.w.busy)
         self.assertFalse(self.w.run_all.isEnabled())
@@ -133,6 +171,8 @@ class LifecycleTests(LifecycleFixture):
         self.assertIsNone(self.w.process)
         self.assertEqual(self.w.rows[0]["state"].text(), "Stopped")
         self.assertEqual(self.w.rows[1]["state"].text(), "Not run")
+        from reezsynth_queue_recovery import audit_journal
+        self.assertEqual(audit_journal(journal)['data']['state'], 'interrupted')
         self.mode("normal")
         self.run_queue()
         # An obsolete callback must not detach the replacement process.

@@ -113,8 +113,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    separately selected audio file padded/trimmed to the exact video duration.
    Encoder failure prevents `COMPLETE.txt`; metadata records the inputs. Direct
    video import/frame extraction and synchronized playback remain excluded.
-4. [ ] **Durable queue recovery:** save pending jobs and resume after application
-   restart/crash, with explicit handling of partial outputs and changed inputs.
+4. [x] **Durable queue recovery:** shared, isolated and parallel queues atomically
+   record pending/running/final states. Manual recovery skips complete jobs,
+   rejects changed job JSON or input path/size/time fingerprints, and restarts
+   partial jobs in fresh sibling folders. Interrupted lifecycle and real parallel
+   FuouM GUI checks passed; no recovery starts without confirmation.
 5. [ ] **Cache reuse and longer-clip memory management:** reuse validated flow/
    edge data across settings changes, then consider chunking or streaming long
    sequences. Cache keys must include engine, checkpoint, inputs and resolution.
@@ -165,8 +168,9 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the fixes: 237 tests passed in 31.272 seconds with normal
-  temporary-directory/Qt access. The focused new regression selection also passed.
+- Full suite after the fixes: 243 maintained tests passed in 31.923 seconds with
+  normal temporary-directory/Qt access. The focused recovery selection and a real
+  two-job parallel FuouM journal audit also passed.
 - Synthetic CUDA correlation checks passed, followed by real 256x144 Preview
   image/video/grouped smoke checks for both engines. Legacy used compiled RAFT.
   Completion, previews, image errors, numbering, worker exit and the new component

@@ -35,6 +35,9 @@ clean-machine or CPU-only test.
 
 No existing assets were deleted or removed from Git history in this audit. No
 release was uploaded. A GitHub source archive is not yet a cleared binary package.
+Generated `.reezsynth-queue*.json` files are recovery data inside render batches.
+They contain absolute input, output and Python-runtime paths; inspect or remove
+them before sharing a render folder.
 
 ## Notices and provenance
 

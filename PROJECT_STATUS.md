@@ -5,6 +5,14 @@ in [README.md](README.md).
 
 ## Local review fixes verified (2026-09-12)
 
+- Durable queue recovery now writes an atomic journal before shared, isolated or
+  parallel workers start and records each job transition. Recovery is explicit,
+  skips completion markers, blocks changed job/input records, and preserves any
+  partial output by restarting into a fresh sibling directory. An interrupted
+  two-job lifecycle regression passed without overwriting its partial PNG. A real
+  two-job parallel FuouM GUI render also completed on the RTX 5090; its audited
+  journal reported two complete jobs and no input changes. Retained batch:
+  `gui_controller_20260912_145553_068664`.
 - Rendered-video export is implemented for both engines. Rendering settings and
   projects retain an enable switch, 0.1-240 FPS value and optional separate audio
   path. Workers encode an atomic H.264/AAC `render.mp4` after PNG/auxiliary saving
@@ -58,10 +66,12 @@ in [README.md](README.md).
   relevant loaded native extensions, and expanded adapter/package provenance.
   Requested settings remain available separately. Native Auto backend decisions
   and geometry-dependent pyramid clamping are not introspected.
-- Full maintained suite: **237 tests passed in 31.272 seconds**. This includes
-  default dual-engine setup, optional-flow readiness and provenance, new timing/
-  completion tests, custom-kernel readiness, and metadata regressions. Expected
-  upstream deprecation/offscreen Qt warnings remain; no test failed.
+- Full maintained suite: **243 tests passed in 31.923 seconds**. This includes
+  default dual-engine setup, queue recovery, optional-flow readiness and
+  provenance, timing/completion tests, custom-kernel readiness, and metadata
+  regressions. Expected upstream deprecation/offscreen Qt warnings remain; no
+  maintained test failed. The two upstream root demo scripts are not unittest
+  modules and retain hard-coded paths outside this checkout.
 - New bounded 256x144 GPU smoke checks passed for image, three-frame video and
   grouped jobs, including previews, error arrays, frame numbering, completion and
   shared-worker exit. Legacy used compiled RAFT. Retained reports:
