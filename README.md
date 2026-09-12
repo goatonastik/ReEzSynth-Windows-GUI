@@ -79,6 +79,16 @@ from every tab, including while a worker is running.
   blocked for review. An unchanged unfinished job can resume, while a job with
   partial output restarts in a new `_recovered` sibling so existing files are
   never overwritten. The last unfinished journal is noted at the next startup.
+- **Reusable precomputations:** video jobs automatically keep validated optical
+  flow and computed edge maps under the selected project's `.reezsynth-cache`.
+  Cache identities include processed frame content and shape, engine/revision,
+  edge method, and the selected flow checkpoint's SHA-256; changing synthesis
+  settings alone can therefore reuse safe results. Files are checksum, shape,
+  type and finiteness checked before use and written atomically for parallel workers. Cached flow is
+  memory-mapped during synthesis to reduce resident RAM on longer clips. Source,
+  style and final result frames are still held in memory, so this is not a fully
+  streaming renderer. Close all workers before manually deleting the cache to
+  reclaim disk space; it will be rebuilt when needed.
 - **Settings:** includes optional
   discovery, automatic start, parallel rendering, notifications and startup choices.
 - **Diagnostics / Log:** retains all queue runs for the open application session.
@@ -105,6 +115,7 @@ version and field validation as JSON; job files and worker protocol remain JSON.
 Queue journals are local recovery records, not shareable presets: they contain
 absolute input and runtime paths and should be removed or reviewed before sharing
 a render folder.
+Precomputation caches are also local generated data and are ignored by Git.
 
 ### Presets and startup behavior
 

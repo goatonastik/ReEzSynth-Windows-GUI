@@ -31,7 +31,8 @@ def until(app, predicate, seconds, failure):
     raise RuntimeError(failure)
 
 
-def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=False, fuoum=False, frames=None):
+def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=False, fuoum=False,
+         frames=None, cache_reuse=False):
     root = Path(__file__).resolve().parent
     base = root / 'diagnostic_outputs' / ('gui_controller_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     video, keys, project = base / 'video', base / 'keys', base / 'project'
@@ -118,6 +119,22 @@ def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=
                 raise RuntimeError('GUI queue did not produce a completion marker.')
             if window.process is not None or window.parallel_queue is not None:
                 raise RuntimeError('GUI queue did not finalize its worker process.')
+            if cache_reuse:
+                controls = window.options.widgets['render']
+                controls['uniformity'].setValue(controls['uniformity'].value() + 1)
+                before = len(window.log.toPlainText())
+                if not window.rebuild_queue(show_error=True):
+                    raise RuntimeError('Could not rebuild the cache-reuse queue.')
+                window.run_rows(list(window.rows))
+                until(app, lambda: window.busy, 10, 'Cache-reuse queue did not start.')
+                until(app, lambda: not window.busy, 120, 'Cache-reuse queue did not finish.')
+                second_log = window.log.toPlainText()[before:]
+                if '[Cache] Reused' not in second_log or 'optical-flow pair' not in second_log:
+                    raise RuntimeError('Second GUI queue did not report validated flow-cache reuse.')
+                if window.batch is None or len(list(window.batch.rglob('COMPLETE.txt'))) != expected_jobs:
+                    raise RuntimeError('Cache-reuse queue did not complete every job.')
+                print('GUI cache-reuse diagnostic passed.')
+                print('Second output folder:', window.batch)
             print('GUI controller diagnostic passed.')
             print('Output folder:', output)
         finally:
@@ -143,6 +160,8 @@ if __name__ == '__main__':
                         help='Close the window during synthesis and accept the stop confirmation.')
     parser.add_argument('--cancel-restart', action='store_true',
                         help='Stop a queue after synthesis begins, then rebuild and complete a new queue.')
+    parser.add_argument('--cache-reuse', action='store_true',
+                        help='Run a second queue with changed synthesis settings and require cache reuse.')
     args = parser.parse_args()
     try:
         if sum(bool(option) for option in (args.parallel, args.cancel, args.close, args.cancel_restart)) > 1:
@@ -152,7 +171,8 @@ if __name__ == '__main__':
         from diagnose_reezsynth_engines import gpu_memory
         print('Aggregate GPU memory before cycles:', gpu_memory(), flush=True)
         for cycle in range(args.cycles):
-            main(args.parallel, args.cancel, args.close, args.cancel_restart, args.fuoum, args.frames)
+            main(args.parallel, args.cancel, args.close, args.cancel_restart, args.fuoum, args.frames,
+                 args.cache_reuse)
             print(f'Cycle {cycle + 1}/{args.cycles}; aggregate GPU memory: {gpu_memory()}', flush=True)
     except Exception as exc:
         print(f'GUI controller diagnostic failed: {exc}', file=sys.stderr)

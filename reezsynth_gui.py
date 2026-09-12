@@ -1204,6 +1204,7 @@ class MainWindow(QMainWindow):
                     "max_width": self.processing_max_width(),
                     "processing_size": self.processing_size(),
                     "output": str(destination),
+                    "precompute_cache": str((project_root / '.reezsynth-cache').resolve()),
                     **(group_plan or {}),
                     "render_options": render_options,
                     "engine_runtime": engine_runtime,

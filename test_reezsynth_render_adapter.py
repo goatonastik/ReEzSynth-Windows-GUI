@@ -59,10 +59,15 @@ class RenderAdapterTests(unittest.TestCase):
             def __init__(self, **kwargs):
                 captured["engine"] = kwargs
                 self.frames = kwargs["img_frs_seq"]
+                self.masked_frs_seq = []
+                self.edge_guides = []
+                self.rafter = types.SimpleNamespace(_compute_flow=lambda source, target:
+                    np.zeros((*source.shape[:2], 2), np.float32))
                 self.eb = types.SimpleNamespace(backends={"cuda": 17, "auto": 18, "cpu": 19}, backend=None, run=lambda: None)
                 captured["runner"] = self
             def run_sequences(self):
-                for _ in self.frames[1:]:
+                for source, target in zip(self.frames, self.frames[1:]):
+                    self.rafter._compute_flow(source, target)
                     self.eb.run()
                 return self.frames, None
         self.enterContext(patch.dict(sys.modules, {
@@ -71,6 +76,29 @@ class RenderAdapterTests(unittest.TestCase):
             "ezsynth.main_ez": types.SimpleNamespace(EzsynthBase=Engine),
         }))
         return captured
+
+    def test_validated_precomputations_are_reused_across_jobs(self):
+        captured = self.fake_engine()
+        self.job['precompute_cache'] = str(self.root / '.reezsynth-cache')
+        counts = {'edges': 0, 'flow': 0}
+        def edges(frames, method):
+            counts['edges'] += 1
+            return [np.full(frame.shape[:2], 127, np.uint8) for frame in frames]
+        engine = sys.modules['ezsynth.main_ez'].EzsynthBase
+        original_init = engine.__init__
+        def initialize(instance, **kwargs):
+            original_init(instance, **kwargs)
+            def flow(source, target):
+                counts['flow'] += 1
+                return np.zeros((*source.shape[:2], 2), np.float32)
+            instance.rafter._compute_flow = flow
+        computations = types.SimpleNamespace(precompute_edge_guides=edges)
+        with patch.object(engine, '__init__', initialize), \
+             patch.dict(sys.modules, {'ezsynth.aux_computations': computations}):
+            self.run_job()
+            self.run_job()
+        self.assertEqual(counts, {'edges': 1, 'flow': 1})
+        self.assertEqual(len(captured['runner'].edge_guides), 2)
 
     def test_cuda_memory_failure_explains_resolution_and_preserves_failure(self):
         self.fake_engine()

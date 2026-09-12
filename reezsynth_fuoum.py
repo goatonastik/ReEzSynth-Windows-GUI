@@ -182,7 +182,7 @@ def render_fuoum_job(job, progress):
                         hsv[..., 2] = np.clip(magnitude * 255 / max(float(magnitude.max()), 1e-6), 0, 255).astype(np.uint8)
                         flow_images.append(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
             pipeline = extend_pipeline(config, data, masks, edges, weights['mask_wgt'] / weights['key_wgt'],
-                                       blend['only_mode'], capture_pass)
+                                       blend['only_mode'], capture_pass, cache_job=job, runtime=runtime)
             original = pipeline.synthesis_engine.run
             def tracked(style, guides, **kwargs):
                 nonlocal completed

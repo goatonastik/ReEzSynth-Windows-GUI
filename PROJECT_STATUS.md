@@ -5,6 +5,17 @@ in [README.md](README.md).
 
 ## Local review fixes verified (2026-09-12)
 
+- Both engines now share frontend-owned, project-local content-addressed caches
+  for computed edges and directional optical-flow pairs. Identities include
+  processed frame bytes/shape, engine revision, flow architecture/model and
+  actual checkpoint hashes. Loads validate artifact checksums, shape, numerical type and finiteness;
+  writes are atomic and tolerate identical parallel producers. Flow arrays are
+  memory-mapped during synthesis, including immediately after FuouM first computes
+  them. Real three-frame GUI runs for each engine then changed Uniformity and
+  completed a second queue with all three edges and both flow pairs reused.
+  Retained final-format diagnostics: `gui_controller_20260912_151314_436376`
+  (Legacy) and `gui_controller_20260912_151327_547807` (FuouM). This reduces repeated work and
+  resident flow memory but is not full source/result-frame streaming.
 - Durable queue recovery now writes an atomic journal before shared, isolated or
   parallel workers start and records each job transition. Recovery is explicit,
   skips completion markers, blocks changed job/input records, and preserves any
@@ -66,10 +77,10 @@ in [README.md](README.md).
   relevant loaded native extensions, and expanded adapter/package provenance.
   Requested settings remain available separately. Native Auto backend decisions
   and geometry-dependent pyramid clamping are not introspected.
-- Full maintained suite: **243 tests passed in 31.923 seconds**. This includes
-  default dual-engine setup, queue recovery, optional-flow readiness and
+- Full maintained suite: **249 tests passed in 31.226 seconds**. This includes
+  default dual-engine setup, validated precomputation caching, queue recovery, optional-flow readiness and
   provenance, timing/completion tests, custom-kernel readiness, and metadata
-  regressions. Expected upstream deprecation/offscreen Qt warnings remain; no
+  regressions, including simultaneous cache publishers. Expected upstream deprecation/offscreen Qt warnings remain; no
   maintained test failed. The two upstream root demo scripts are not unittest
   modules and retain hard-coded paths outside this checkout.
 - New bounded 256x144 GPU smoke checks passed for image, three-frame video and

@@ -248,6 +248,11 @@ def _render_legacy_job(job_path):
     import numpy as np
 
     job = json.loads(Path(job_path).read_text(encoding="utf-8"))
+    if isinstance(job.get('engine_runtime'), dict):
+        engine_runtime = job['engine_runtime']
+    else:
+        from reezsynth_engines import LEGACY, prepare_runtime
+        engine_runtime = prepare_runtime({'engine': LEGACY}, {})
     if job.get('type') == 'image_synthesis':
         from reezsynth_image import render_image_job
         return render_image_job(job, progress)
@@ -426,6 +431,7 @@ def _render_legacy_job(job_path):
             **{name: value for name, value in blend_options.items() if not name.startswith('fuoum_')},
         )
 
+        cache_enabled = bool(job.get('precompute_cache'))
         runner = EzsynthBase(
             style_frs=styles,
             style_idxes=[numbers.index(n) for n, _ in style_entries],
@@ -436,10 +442,64 @@ def _render_legacy_job(job_path):
             flow_arch=options["flow_arch"],
             do_mask=options["do_mask"],
             msk_frs_seq=masks or None,
-            do_compute_edge=not options['custom_edge_guides'],
+            do_compute_edge=not options['custom_edge_guides'] and not cache_enabled,
         )
         if edge_guides:
             runner.edge_guides = edge_guides
+        elif cache_enabled:
+            from ezsynth.aux_computations import precompute_edge_guides
+            from reezsynth_precompute_cache import (array_digest, cache_entry_from_digests,
+                edge_identity, load_array, store_array)
+            cache_frames = (getattr(runner, 'masked_frs_seq', None)
+                            if options['do_mask'] and options['pre_mask'] else frames)
+            frame_digests = [array_digest(frame) for frame in cache_frames]
+            identity = edge_identity(engine_runtime['engine'], engine_runtime['revision'],
+                                     options['edge_method'])
+            cached_edges, missing = [None] * count, []
+            for index, digest in enumerate(frame_digests):
+                directory = cache_entry_from_digests(job, 'edges', [digest], identity)
+                value = None if directory is None else load_array(
+                    directory / 'edge.npy', cache_frames[index].shape[:2], kinds=('u', 'i'))
+                if value is None:
+                    missing.append((index, directory))
+                else:
+                    cached_edges[index] = value
+            if missing:
+                computed = precompute_edge_guides(
+                    [cache_frames[index] for index, _ in missing], options['edge_method'])
+                for (index, directory), value in zip(missing, computed):
+                    cached_edges[index] = value
+                    if directory is not None:
+                        store_array(directory / 'edge.npy', value)
+            runner.edge_guides = cached_edges
+            if not missing:
+                print(f'[Cache] Reused {count} validated edge maps.', flush=True)
+
+        original_compute_flow = None
+        flow_hits = 0
+        if cache_enabled:
+            from reezsynth_precompute_cache import (array_digest, cache_entry_from_digests,
+                flow_identity, load_array, store_array)
+            flow_frames = (getattr(runner, 'masked_frs_seq', None)
+                           if options['do_mask'] and options['pre_mask'] else frames)
+            flow_digests = {id(frame): array_digest(frame) for frame in flow_frames}
+            flow_cache_identity = flow_identity(options, engine_runtime)
+            original_compute_flow = runner.rafter._compute_flow
+
+            def cached_compute_flow(source, target):
+                nonlocal flow_hits
+                source_digest, target_digest = flow_digests[id(source)], flow_digests[id(target)]
+                directory = cache_entry_from_digests(
+                    job, 'flow', [source_digest, target_digest], flow_cache_identity)
+                cached = load_array(directory / 'flow.npy', (*source.shape[:2], 2), mmap=True)
+                if cached is not None:
+                    flow_hits += 1
+                    return cached
+                value = original_compute_flow(source, target)
+                store_array(directory / 'flow.npy', value)
+                return value
+
+            runner.rafter._compute_flow = cached_compute_flow
 
         # Requires the backend-forwarding edits from the earlier diagnostics.
         runner.eb.backend = runner.eb.backends[options["ebsynth_backend"]]
@@ -530,6 +590,10 @@ def _render_legacy_job(job_path):
             raise
         finally:
             runner.eb.run = original_run
+            if original_compute_flow is not None:
+                runner.rafter._compute_flow = original_compute_flow
+            if flow_hits:
+                print(f'[Cache] Reused {flow_hits} validated optical-flow pair(s).', flush=True)
             print(f'[Timing] Synthesis loop {time.perf_counter() - loop_started:.3f}s; '
                   f'native EbSynth {native_seconds:.3f}s; preview capture {preview_publisher.seconds:.3f}s', flush=True)
 

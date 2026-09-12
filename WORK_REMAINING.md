@@ -118,9 +118,15 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    rejects changed job JSON or input path/size/time fingerprints, and restarts
    partial jobs in fresh sibling folders. Interrupted lifecycle and real parallel
    FuouM GUI checks passed; no recovery starts without confirmation.
-5. [ ] **Cache reuse and longer-clip memory management:** reuse validated flow/
-   edge data across settings changes, then consider chunking or streaming long
-   sequences. Cache keys must include engine, checkpoint, inputs and resolution.
+5. **Cache reuse and longer-clip memory management:**
+   - [x] Automatically reuse content-addressed per-frame edges and directional
+     flow pairs across settings changes. Keys cover engine/revision, actual
+     checkpoint hashes, processed input content and resolution. Arrays are
+     validated and atomically published; FuouM and Legacy reuse memory-mapped
+     flows. Unit/adapter tests and two-run real GUI checks passed for both engines.
+   - [ ] True chunked/streaming source, style and result-frame processing remains
+     a separate redesign for very long clips. Current memory mapping reduces flow
+     residency without changing keyframe-boundary or grouped-blending semantics.
 6. [ ] **GPU-aware parallel scheduling:** limit concurrent jobs by measured or
    estimated memory demand and show useful per-worker resource information.
    Current scheduling uses a fixed worker limit, including an unlimited option.
@@ -168,9 +174,9 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite after the fixes: 243 maintained tests passed in 31.923 seconds with
-  normal temporary-directory/Qt access. The focused recovery selection and a real
-  two-job parallel FuouM journal audit also passed.
+- Full suite after the fixes: 249 maintained tests passed in 31.226 seconds with
+  normal temporary-directory/Qt access. Focused recovery/cache selections, a real
+  parallel FuouM journal audit, and two-run cache checks for both engines passed.
 - Synthetic CUDA correlation checks passed, followed by real 256x144 Preview
   image/video/grouped smoke checks for both engines. Legacy used compiled RAFT.
   Completion, previews, image errors, numbering, worker exit and the new component

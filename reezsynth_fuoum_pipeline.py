@@ -119,14 +119,43 @@ def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config):
     return reconstructor.run(hist, fwd, rev, masks)
 
 
-def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass):
+def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, cache_job=None, runtime=None):
     from ezsynth.pipeline import SynthesisPipeline
+    from reezsynth_precompute_cache import (array_digest, cache_entry_from_digests,
+        edge_identity, flow_identity, load_array, store_array)
+    content_frames = data._content_frames
+    frame_digests = [array_digest(frame) for frame in content_frames]
+    cache_job = cache_job or {}
+    runtime = runtime or {'engine': 'FuouM/ReEzSynth', 'revision': 'unknown', 'source': '.'}
+    cache_enabled = bool(cache_job.get('precompute_cache'))
+    flow_cache_identity = (flow_identity(cache_job.get('render_options', {}), runtime)
+                           if cache_enabled else None)
+    flow_directories = ([cache_entry_from_digests(
+        cache_job, 'flow', frame_digests[index:index + 2], flow_cache_identity)
+        for index in range(max(0, len(content_frames) - 1))] if cache_enabled else
+        [None] * max(0, len(content_frames) - 1))
+    edge_cache_identity = edge_identity(runtime['engine'], runtime['revision'],
+                                        config.precomputation.edge_method)
+    edge_directories = ([cache_entry_from_digests(
+        cache_job, 'edges', [digest], edge_cache_identity) for digest in frame_digests]
+        if cache_enabled else [None] * len(frame_digests))
+
     class FrontendPipeline(SynthesisPipeline):
         def _compute_edge_maps(self, frames):
             if edges:
                 self._edge_maps = edges
-            else:
-                super()._compute_edge_maps(frames)
+                return
+            shape = (*frames[0].shape[:2], 3)
+            cached = [None if directory is None else load_array(
+                directory / 'edge.npy', shape, kinds=('u', 'i')) for directory in edge_directories]
+            if all(value is not None for value in cached):
+                self._edge_maps = cached
+                print(f'[Cache] Reused {len(cached)} validated edge maps.', flush=True)
+                return
+            super()._compute_edge_maps(frames)
+            for directory, value in zip(edge_directories, self._edge_maps):
+                if directory is not None:
+                    store_array(directory / 'edge.npy', value)
 
         def _prepare_guides_for_frame(self, *args, **kwargs):
             guides = super()._prepare_guides_for_frame(*args, **kwargs)
@@ -135,21 +164,37 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass):
             return guides
 
         def _compute_optical_flow(self, frames):
-            if self.config.precomputation.flow_engine != 'NeuFlow':
-                return super()._compute_optical_flow(frames)
-            # NeuFlow v2 initializes fixed 1/16-resolution grids: pad, then unpad.
-            import cv2
-            import torch
-            from ezsynth.engines.flow_engine import NeuFlowEngine
             h, w = frames[0].shape[:2]
-            padded = [cv2.copyMakeBorder(f, 0, (-h) % 16, 0, (-w) % 16,
-                                        cv2.BORDER_REPLICATE) for f in frames]
-            engine = NeuFlowEngine(model_name=self.config.precomputation.flow_model)
-            try:
-                self._fwd_flows = [f[:h, :w].copy() for f in engine.compute(padded)]
-            finally:
-                del engine
-                torch.cuda.empty_cache()
+            cached = [None if directory is None else load_array(
+                directory / 'flow.npy', (h, w, 2), mmap=True) for directory in flow_directories]
+            if all(value is not None for value in cached):
+                self._fwd_flows = cached
+                print(f'[Cache] Reused {len(cached)} validated optical-flow pair(s).', flush=True)
+                return
+            if self.config.precomputation.flow_engine != 'NeuFlow':
+                super()._compute_optical_flow(frames)
+            else:
+                # NeuFlow v2 initializes fixed 1/16-resolution grids: pad, then unpad.
+                import cv2
+                import torch
+                from ezsynth.engines.flow_engine import NeuFlowEngine
+                padded = [cv2.copyMakeBorder(f, 0, (-h) % 16, 0, (-w) % 16,
+                                            cv2.BORDER_REPLICATE) for f in frames]
+                engine = NeuFlowEngine(model_name=self.config.precomputation.flow_model)
+                try:
+                    self._fwd_flows = [f[:h, :w].copy() for f in engine.compute(padded)]
+                finally:
+                    del engine
+                    torch.cuda.empty_cache()
+            for directory, value in zip(flow_directories, self._fwd_flows):
+                if directory is not None:
+                    store_array(directory / 'flow.npy', value)
+            if flow_directories and all(directory is not None for directory in flow_directories):
+                # Release computed arrays and retain read-only maps for long synthesis passes.
+                import gc
+                self._fwd_flows = [load_array(directory / 'flow.npy', (h, w, 2), mmap=True)
+                                   for directory in flow_directories]
+                gc.collect()
 
         def _run_synthesis(self, content_frames, style_frames):
             return run_sequences(self, content_frames, style_frames, config.project.style_indices, mode,

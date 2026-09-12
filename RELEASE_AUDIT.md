@@ -38,6 +38,9 @@ release was uploaded. A GitHub source archive is not yet a cleared binary packag
 Generated `.reezsynth-queue*.json` files are recovery data inside render batches.
 They contain absolute input, output and Python-runtime paths; inspect or remove
 them before sharing a render folder.
+Project `.reezsynth-cache` directories contain generated NumPy flow/edge arrays
+and identity records with checkpoint paths/hashes. They are ignored and must not
+be packaged; stop workers before deleting them to reclaim disk space.
 
 ## Notices and provenance
 

@@ -212,7 +212,8 @@ def write_engine_manifest(job):
                                                  'reezsynth_engines.py', 'reezsynth_provenance.py',
                                                  'reezsynth_config.py', 'reezsynth_video_plan.py',
                                                  'reezsynth_artifacts.py', 'reezsynth_video_export.py',
-                                                 'reezsynth_preview_transport.py')},
+                                                 'reezsynth_preview_transport.py',
+                                                 'reezsynth_precompute_cache.py')},
                     render_options=job.get('render_options', {}), guide_weights=job.get('guide_weights', {}),
                     blend_options=job.get('blend_options', {}),
                     video_export=job.get('video_export', {}))
