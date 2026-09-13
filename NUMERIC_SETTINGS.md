@@ -80,9 +80,11 @@ remaining low-level options keep their previous documented limits:
   Enabled modulation therefore rejects Legacy CPU and Auto, even on a CUDA host.
   Arbitrary separate per-channel maps and float modulation are not exposed.
 - FuouM's PyTorch synthesis backend uses a separate patch-search implementation
-  and optional residual-transfer path. Its availability in source does not
-  establish equivalence with the validated CUDA backend. It remains unexposed
-  pending dedicated correctness/performance tests.
+  with two refinement paths. Dedicated constant-style/cost probes now show that
+  it fails retargeting, gray/black modulation and high-cost weighted voting while
+  CUDA passes the same nine cases. It remains unexposed pending substantive
+  repairs and follow-up correctness/performance validation. Additional source
+  concerns and the reproducible gate are in TORCH_BACKEND_AUDIT.md.
 
 ## Dual-engine decisions (2026-09-12)
 

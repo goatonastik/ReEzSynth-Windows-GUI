@@ -3,6 +3,33 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Alternate PyTorch backend fails readiness (2026-09-12)
+
+- Audited the pinned FuouM alternate synthesis backend before exposing controls.
+  Added `diagnose_reezsynth_torch_backend.py`, which runs separate CUDA/PyTorch
+  workers against nine independent constant-style/cost/shape/NNF invariants.
+  It retains incremental reports, native exceptions, source/extension/diagnostic
+  hashes, output hashes, device, timings and allocator peaks; failures return a
+  nonzero exit status. It is not a production quality/performance comparison.
+- CUDA passed all nine; the alternate backend failed four. Retargeting 19x17 to
+  23x21 crashes with a tensor-size mismatch; gray and black modulation are
+  ignored; high-cost weighted voting changes a constant 127 style into values
+  6-19. Repeated reports: `torch_backend_20260912_211602_747745` and the final
+  hash-recorded `torch_backend_20260912_211813_699042`.
+- Source review identifies incorrect source-sized error buffers, unused
+  modulation and denominator clamping. Additional propagation/occupancy,
+  single-active-target, iteration semantics and unfolded-memory concerns require
+  targeted tests. See TORCH_BACKEND_AUDIT.md for exact evidence and repair scope.
+- The canonical maintained suite passed **303 tests in 39.902 seconds**. Five
+  new CPU-only tests check the independent cost oracle, ignored modulation,
+  constant-color corruption, nonfinite/wrong-grid errors, invalid NNF centers
+  and continued report collection after a native exception.
+- No installed engine files or rendering defaults were changed. No alternate
+  backend selector was added, and the feature is not marked implemented.
+  Repairing the algorithm remains high-reasoning work; a repair-versus-deferral
+  decision is pending before moving to routine validation on a lower-reasoning
+  model.
+
 ## Guide modulation verified (2026-09-12)
 
 - Both CUDA engines now accept optional target-grid grayscale modulation for

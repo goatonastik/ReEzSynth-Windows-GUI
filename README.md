@@ -382,7 +382,12 @@ For small real CUDA checks of the frontend adapter, run
 `python -B diagnose_reezsynth_adapter.py --image` for Image Synthesis, or
 `python -B diagnose_reezsynth_adapter.py --grouped` for grouped blending. They use
 bundled examples and write ignored output under `diagnostic_outputs/`.
-Add `--shared-worker` to any of those commands to run it through the persistent
+The separate `python -B diagnose_reezsynth_torch_backend.py` command compares
+FuouM's CUDA and alternate PyTorch backends against controlled mathematical
+invariants. The pinned alternate backend currently fails this gate and remains
+disabled; a nonzero result is expected for `torch`/`both`. See
+[TORCH_BACKEND_AUDIT.md](TORCH_BACKEND_AUDIT.md) for failures and repair scope.
+Add `--shared-worker` to the adapter diagnostic commands to run through the persistent
 worker protocol and verify its completion event and normal cleanup/exit.
 For the video diagnostic, also add `--live-preview` to renew a preview-window
 lease and verify that a synthesis-stage thumbnail is produced by the worker.
