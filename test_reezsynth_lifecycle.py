@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QEvent, QProcess
 from PySide6.QtGui import QImage
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 
 from test_reezsynth_gui import GuiFixture, gui
 
@@ -82,6 +82,39 @@ class LifecycleFixture(GuiFixture):
 
 
 class LifecycleTests(LifecycleFixture):
+    def test_recovery_during_maintenance_preserves_existing_queue(self):
+        self.mode('slow')
+        self.run_queue(shared=False)
+        self.until(lambda: 'MOCK_STARTED' in self.w.log.toPlainText())
+        journal = Path(self.w.preferences.value('last_queue_journal'))
+        batch = self.w.batch
+        output = self.w.current['output']
+        self.w.stop_queue()
+        self.until(lambda: not self.w.busy)
+        (output / 'partial.png').write_bytes(b'preserve me')
+        rows = list(self.w.rows)
+        states = [row['state'].text() for row in rows]
+        journal_before = journal.read_bytes()
+        siblings_before = sorted(batch.glob(output.name + '_recovered*'))
+
+        self.w.options.engine_action_pending = True
+        try:
+            with patch.object(gui.QFileDialog, 'getOpenFileName') as select, \
+                 patch.object(gui.QMessageBox, 'information') as notice:
+                self.w.recover_queue()
+            notice.assert_called_once()
+            select.assert_not_called()
+        finally:
+            self.w.options.engine_action_pending = False
+
+        self.assertEqual(self.w.rows, rows)
+        self.assertEqual([row['state'].text() for row in self.w.rows], states)
+        self.assertEqual(self.w.table.rowCount(), len(rows))
+        self.assertEqual(journal.read_bytes(), journal_before)
+        self.assertEqual(sorted(batch.glob(output.name + '_recovered*')), siblings_before)
+        self.assertFalse(self.w.busy)
+        self.assertIsNone(self.w.process)
+
     def test_interrupted_queue_recovers_without_overwriting_partial_output(self):
         self.mode('slow')
         self.run_queue(shared=False)
@@ -231,6 +264,162 @@ class LifecycleTests(LifecycleFixture):
             self.w.close()
         self.assertTrue(self.w.busy)
         self.assertFalse(self.w.cancelled)
+
+
+class AuditLifecycleTests(LifecycleFixture):
+    def test_second_shared_running_journal_failure_finalizes_worker(self):
+        from reezsynth_queue_recovery import audit_journal, update_journal
+        running = []
+        exits = []
+        def update(path, job_path=None, state=None, **kwargs):
+            if state == 'running':
+                running.append(job_path)
+                if len(running) == 2:
+                    self.assertEqual(self.w.process.state(), QProcess.ProcessState.Running)
+                    exits.append(QSignalSpy(self.w.process.finished))
+                    raise OSError('second running update failed')
+            return update_journal(path, job_path, state, **kwargs)
+        with patch('reezsynth_queue_recovery.update_journal', side_effect=update):
+            self.run_queue()
+            journal = self.w.queue_journal
+            self.until(lambda: not self.w.busy)
+        self.assertEqual(len(running), 2)
+        self.assertEqual(exits[0].count(), 1)
+        self.assertIsNone(self.w.process)
+        self.assertEqual([row['state'].text() for row in self.w.rows], ['Complete', 'Failed'])
+        self.assertTrue(self.w.run_all.isEnabled())
+        self.assertEqual(audit_journal(journal)['data']['state'], 'failed')
+
+    def test_refused_deferred_close_restores_ui_without_unlocking_maintenance(self):
+        self.mode('slow')
+        self.w.show()
+        options = self.w.options
+        notice = self.enterContext(patch.object(gui.QMessageBox, 'information'))
+        def finish_maintenance():
+            process = getattr(options, 'engine_process', None)
+            if process is not None:
+                process.write(b'\n')
+                process.closeWriteChannel()
+                self.until(lambda: not options.installation_active())
+        self.addCleanup(finish_maintenance)
+        original = self.w.end_queue
+        def end_then_maintain(message):
+            original(message)  # Posts the deferred close, which has not run yet.
+            options.start_engine_action('test maintenance', gui.sys.executable,
+                                        ['-c', 'import sys; sys.stdin.readline()'])
+        self.run_queue()
+        self.until(lambda: 'MOCK_STARTED' in self.w.log.toPlainText())
+        with patch.object(self.w, 'end_queue', side_effect=end_then_maintain), \
+             patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes):
+            self.assertFalse(self.w.close())
+            self.assertTrue(self.w.close_when_idle)
+            self.until(lambda: notice.called)
+        self.assertTrue(self.w.isVisible())
+        self.assertFalse(self.w.busy)
+        self.assertIsNone(self.w.process)
+        self.assertFalse(self.w.close_when_idle)
+        self.assertTrue(self.w.project_dir.isEnabled())
+        self.assertTrue(options.installation_active())
+        self.assertFalse(options.widgets['render']['engine'].isEnabled())
+        self.assertTrue(all(not b.isEnabled() for b in options.engine_setup_buttons))
+        finish_maintenance()
+        self.assertTrue(options.widgets['render']['engine'].isEnabled())
+        self.assertTrue(all(b.isEnabled() for b in options.engine_setup_buttons))
+        self.assertTrue(self.w.run_all.isEnabled())
+
+    def test_common_queue_start_refuses_active_component_maintenance(self):
+        with patch.object(self.w.options, 'installation_active', return_value=True), \
+             patch.object(gui.QMessageBox, 'information') as notice, \
+             patch('reezsynth_queue_recovery.create_journal') as create:
+            self.w.start_records([], self.root, True, False,
+                                 self.root / 'reezsynth_shared_worker.py', {})
+        notice.assert_called_once()
+        create.assert_not_called()
+        self.assertFalse(self.w.busy)
+        self.assertIsNone(self.w.process)
+
+    def exit_before_handshake(self, code):
+        worker = self.root / 'reezsynth_shared_worker.py'
+        text = (SOURCE / 'reezsynth_shared_worker.py').read_text(encoding='utf-8')
+        worker.write_text(text.replace('            render_job(job_path)',
+                          f'            render_job(job_path)\n            raise SystemExit({code})'), encoding='utf-8')
+
+    def test_shared_exit_after_completion_preserves_job_and_halts_pending(self):
+        from reezsynth_queue_recovery import audit_journal
+        self.exit_before_handshake(7)
+        self.run_queue()
+        record = self.w.current
+        journal = self.w.queue_journal
+        exits = QSignalSpy(self.w.process.finished)
+        self.until(lambda: not self.w.busy)
+        self.assertEqual(exits.count(), 1)
+        self.assertIsNone(self.w.process)
+        self.assertEqual([row['state'].text() for row in self.w.rows], ['Complete', 'Not run'])
+        self.assertEqual(self.w.completed_work, record['weight'])
+        self.assertLess(self.w.overall.value(), 100)
+        audited = audit_journal(journal)
+        self.assertEqual(audited['data']['entries'][0]['state'], 'complete')
+        self.assertEqual(audited['data']['state'], 'failed')
+        self.assertTrue(audited['entries'][0]['complete'])
+        self.assertIn('completion handshake', self.w.log.toPlainText())
+
+    def test_protocol_failure_does_not_rescue_completion_marker(self):
+        worker = self.root / 'reezsynth_shared_worker.py'
+        text = worker.read_text(encoding='utf-8')
+        worker.write_text(text.replace(
+            'send_event("job_done", job=str(job_path))',
+            'send_event("job_done", job=str(job_path.with_name("wrong-job.json")))'),
+            encoding='utf-8')
+        self.run_queue()
+        output = self.w.current['output']
+        self.until(lambda: not self.w.busy)
+        self.assertTrue((output / 'COMPLETE.txt').is_file())
+        self.assertIsNone(self.w.process)
+        self.assertEqual([row['state'].text() for row in self.w.rows], ['Failed', 'Not run'])
+        self.assertEqual(self.w.completed_work, 0)
+        self.assertIn('unexpected job', self.w.log.toPlainText())
+
+    def test_last_shared_job_with_marker_completes_with_shutdown_warning(self):
+        from reezsynth_queue_recovery import audit_journal
+        for code in (0, 7):
+            with self.subTest(exit_code=code):
+                self.exit_before_handshake(code)
+                self.w.run_rows([self.w.rows[0]])
+                journal = self.w.queue_journal
+                self.until(lambda: not self.w.busy)
+                self.assertIsNone(self.w.process)
+                self.assertEqual(self.w.rows[0]['state'].text(), 'Complete')
+                self.assertEqual(self.w.completed_work, self.w.total_work)
+                self.assertEqual(self.w.overall.value(), 100)
+                self.assertIn('shutdown warning', self.w.status.text())
+                self.assertEqual(audit_journal(journal)['data']['state'], 'complete')
+
+    def test_pending_storage_marker_is_not_committed_completion(self):
+        self.exit_before_handshake(7)
+        renderer = self.root / 'reezsynth_jobs.py'
+        renderer.write_text(MOCK_RENDERER.replace('"COMPLETE.txt"', '".COMPLETE.storage-pending"'), encoding='utf-8')
+        self.run_queue()
+        output = self.w.current['output']
+        self.until(lambda: not self.w.busy)
+        self.assertIsNone(self.w.process)
+        self.assertTrue((output / '.COMPLETE.storage-pending').is_file())
+        self.assertFalse((output / 'COMPLETE.txt').exists())
+        self.assertEqual([row['state'].text() for row in self.w.rows], ['Failed', 'Not run'])
+        self.assertEqual(self.w.completed_work, 0)
+
+    def test_explicit_cancellation_keeps_stopped_semantics_after_marker(self):
+        worker = self.root / 'reezsynth_shared_worker.py'
+        worker.write_text(worker.read_text(encoding='utf-8').replace('            render_job(job_path)',
+            '            render_job(job_path)\n            print("COMMITTED_WAITING", flush=True)\n            time.sleep(30)'), encoding='utf-8')
+        self.run_queue()
+        output = self.w.current['output']
+        self.until(lambda: 'COMMITTED_WAITING' in self.w.log.toPlainText())
+        self.w.stop_queue()
+        self.until(lambda: not self.w.busy)
+        self.assertTrue((output / 'COMPLETE.txt').is_file())
+        self.assertEqual(self.w.rows[0]['state'].text(), 'Stopped')
+        self.assertEqual(self.w.completed_work, 0)
+        self.assertIsNone(self.w.process)
 
 
 if __name__ == "__main__":

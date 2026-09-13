@@ -432,6 +432,30 @@ class IntegrationTests(LifecycleFixture):
             self.w.busy = False
             run.assert_not_called()
 
+    def test_auto_start_retries_after_component_maintenance(self):
+        o = self.w.options
+        o.auto_timer.stop()
+        o.widgets['application']['auto_start'].setChecked(True)
+        o.auto_armed = True
+        o.engine_action_pending = True
+        with patch.object(gui.QMessageBox, 'information') as notice:
+            o.maybe_start()
+        self.assertTrue(o.auto_armed)
+        self.assertIsNone(o.last_auto)
+        self.assertTrue(o.auto_timer.isActive())
+        self.assertFalse(self.w.busy)
+        self.assertIsNone(self.w.process)
+        notice.assert_not_called()
+
+        o.engine_action_pending = False
+        with patch.object(self.w, 'start_next'):
+            o.maybe_start()
+        self.assertFalse(o.auto_armed)
+        self.assertIsNotNone(o.last_auto)
+        self.assertTrue(self.w.busy)
+        self.assertTrue(self.w.pending)
+        self.w.stop_queue()
+
     def test_apply_names_confirmation_preserves_or_replaces_manual_names(self):
         self.w.rows[0]["folder"].setText("manual")
         self.w.job_name_pattern.setText("paint_{key:04d}")

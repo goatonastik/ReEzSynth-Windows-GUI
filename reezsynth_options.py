@@ -887,6 +887,8 @@ class Options(QObject):
         fuoum = widgets['engine'].currentText() == FUOUM
         self.engine_note.setVisible(fuoum)
         editable = not self.w.busy and not self.w.close_when_idle
+        engine_pending = getattr(self, 'engine_action_pending', False)
+        widgets['engine'].setEnabled(editable and not engine_pending)
         if 'modulation_guide' in widgets:
             widgets['modulation_guide'].setEnabled(editable)
             enabled = editable and widgets['modulation_guide'].currentText() != 'Off'
@@ -919,9 +921,11 @@ class Options(QObject):
         for name, path in default_runtime().items():
             if name in self.widgets.get('application', {}):
                 self.widgets['application'][name].setPlaceholderText(path)
-                self.widgets['application'][name].setEnabled(editable and fuoum)
+                self.widgets['application'][name].setEnabled(editable and fuoum and not engine_pending)
         for button in getattr(self, 'optional_flow_buttons', ()):
-            button.setEnabled(editable and not fuoum and not getattr(self, 'timm_install_pending', False))
+            button.setEnabled(editable and not fuoum and not self.installation_active())
+        for button in getattr(self, 'engine_setup_buttons', ()):
+            button.setEnabled(editable and not self.installation_active())
         if hasattr(self.w, 'grouped'):
             self.w.grouped.refresh_engine_controls(fuoum)
 
@@ -1087,6 +1091,9 @@ class Options(QObject):
 
     def maybe_start(self):
         if self.loading or self.w.loading_project or self.w.busy or self.w.close_when_idle or not self.auto_armed:
+            return
+        if self.installation_active():
+            self.auto_timer.start()
             return
         if QApplication.activeModalWidget() is not None:
             self.auto_timer.start()

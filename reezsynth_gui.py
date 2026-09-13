@@ -1320,6 +1320,11 @@ class MainWindow(QMainWindow):
     def recover_queue(self):
         if self.busy or self.process is not None or self.parallel_queue is not None:
             return
+        if self.options.installation_active():
+            QMessageBox.information(
+                self, 'Component maintenance',
+                'Wait for the current component operation to finish before recovering a queue.')
+            return
         initial = self.preferences.value('last_queue_journal', '', type=str)
         selected, _ = QFileDialog.getOpenFileName(
             self, 'Recover interrupted queue', initial,
@@ -1395,6 +1400,11 @@ class MainWindow(QMainWindow):
 
     def start_records(self, records, batch, shared, parallel, worker_script, application,
                       journal_name='.reezsynth-queue.json'):
+        if self.options.installation_active():
+            QMessageBox.information(
+                self, 'Component maintenance',
+                'Wait for the current component operation to finish before starting a render.')
+            return
         self.gpu_memory_error_reported = False
         self.scan_timer.stop()
         self.shutdown_timer.stop()
@@ -1492,9 +1502,7 @@ class MainWindow(QMainWindow):
         self.current = self.pending.pop(0)
         self.job_sent = False
         if not self.journal_state(self.current, 'running'):
-            self.current['row']['state'].setText('Failed')
-            self.session_error = 'Recovery journal could not record the running job.'
-            self.end_queue('Queue halted because its recovery journal could not be updated.')
+            self.fail_worker('Recovery journal could not record the running job.')
             return
         self.preview_window.activate(self.current)
 
@@ -1800,6 +1808,15 @@ class MainWindow(QMainWindow):
             return
 
         if self.shared_this_run:
+            if (record is not None and self.job_sent and self.session_error is None
+                    and (record['output'] / 'COMPLETE.txt').is_file()):
+                # The final marker commits all artifacts, including frame-storage
+                # finalization. A lost handshake must not discard that completion.
+                self.log.appendPlainText(
+                    '[Session warning] Worker exited before the completion handshake; '
+                    'COMPLETE.txt confirms the current render completed.')
+                self.complete_current_job()
+                record = None
             all_jobs_done = (
                 self.current is None
                 and not self.pending
@@ -2213,6 +2230,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self.options.installation_active():
             event.ignore()
+            if self.close_when_idle:
+                self.close_when_idle = False
+                self.set_busy(self.busy)
             QMessageBox.information(
                 self,
                 "Component maintenance",
