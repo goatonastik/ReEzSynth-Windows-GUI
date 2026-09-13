@@ -75,6 +75,16 @@ in [README.md](README.md).
   supports bounded cycles or a deadline-based overnight campaign. A bounded
   128x128 Preview cycle passed all six cases; post-exit drift was 154-292 MiB.
   Retained report: `diagnostic_outputs/stability_20260912_165159_943355`.
+- An attempted eight-hour 384x216 Standard campaign completed 94 passing
+  isolated render cases before its 95th case was marked failed solely by the
+  device-wide post-exit guardrail (+2,448 MiB versus a 2,048 MiB limit).
+  That child render itself passed. The host was an active WDDM desktop with
+  Photoshop, browsers, ChatGPT, Docker and other graphics clients, and
+  `nvidia-smi` showed total device use varying from 4.1 to 7.1 GiB; this is
+  therefore inconclusive rather than renderer-attributable leak evidence.
+  Retained report: `diagnostic_outputs/stability_20260912_193422_040460`.
+  Repeat the overnight campaign on an otherwise idle host, or with an
+  attributable per-process metric, before treating it as release evidence.
 - `diagnose_reezsynth_quality.py` validates user-supplied numbered frames,
   keyframes and optional masks, then produces a both-engine Standard/Highest
   review matrix with videos, auxiliary maps/flow and descriptive key-boundary

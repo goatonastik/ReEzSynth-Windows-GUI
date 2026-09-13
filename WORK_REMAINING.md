@@ -163,8 +163,14 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
     Automated stability and user-input quality-matrix harnesses are now present.
     A bounded six-case alternating-engine run passed with post-exit GPU drift no
     higher than 292 MiB. Separate 11-frame Standard renders passed for both engines;
-    the run exposed and fixed FuouM's final-3x3 missing-mode bug. Overnight,
-    multi-GPU and broader visual review remain open.
+    the run exposed and fixed FuouM's final-3x3 missing-mode bug. An attempted
+    eight-hour 384x216 Standard campaign reached 94 passing isolated cases, but
+    its 95th was rejected by the device-wide guardrail at +2,448 MiB. Its child
+    render passed; concurrent WDDM desktop graphics use rose from 4.1 to 7.1 GiB,
+    so the result is inconclusive, not a renderer leak finding. Retained report:
+    `stability_20260912_193422_040460`. Repeat on an idle host (or add an
+    attributable metric); overnight, multi-GPU and broader visual review remain
+    open.
 10. [x] **Automated regression checks:** a canonical maintained-suite runner and
     Windows GitHub Actions workflow now use CPU PyTorch with CUDA hidden for normal
     push/PR checks. Real Legacy/FuouM diagnostics require an explicit manual input
@@ -230,6 +236,10 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 - The new bounded stability campaign passed all six Legacy/FuouM and
   painting/poster/flat cases at 128x128 Preview. Post-exit GPU drift ranged from
   154 to 292 MiB. Retained report: `stability_20260912_165159_943355`.
+- The attempted eight-hour Standard stability campaign is retained as
+  `stability_20260912_193422_040460`. It stopped after 94 passing child renders
+  when shared desktop GPU usage exceeded the device-wide guardrail; it is not
+  evidence of a renderer memory leak or a completed overnight validation.
 - Standard 256x144 quality renders passed on the bundled 11-frame/three-key input
   for Legacy and FuouM. The retained FuouM pass is
   `quality_20260912_165006_794209`; general visual judgment is still manual.
