@@ -29,6 +29,7 @@ MODULES = (
     "test_reezsynth_video_export",
     "test_reezsynth_sequence",
     "test_reezsynth_iterations",
+    "test_reezsynth_modulation",
 )
 
 

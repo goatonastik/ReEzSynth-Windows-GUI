@@ -19,16 +19,20 @@ def file_sha256(path):
 def _paths(job, job_path):
     values = []
     image = job.get('image_synthesis', {})
-    for name in ('style', 'source', 'target'):
+    for name in ('style', 'source', 'target', 'modulation'):
         if image.get(name):
             values.append(image[name])
     for guide in image.get('guides', []):
         values.extend([guide.get('source'), guide.get('target')])
+        if guide.get('modulation'):
+            values.append(guide['modulation'])
     for name in ('style',):
         if job.get(name):
             values.append(job[name])
     for name in ('frames', 'styles', 'masks', 'edge_guides'):
         values.extend(entry[1] for entry in job.get(name, []) if isinstance(entry, list) and len(entry) == 2)
+    if job.get('render_options', {}).get('modulation_guide', 'Off') != 'Off':
+        values.extend(entry[1] for entry in job.get('modulation_frames', []))
     audio = job.get('video_export', {}).get('audio')
     if audio:
         values.append(audio)

@@ -39,13 +39,16 @@ def selected_keyframes(frames, anchors, style_family):
 
 def make_jobs(base, engine, count, repeats, extended, style_family='poster', images=False,
               size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False,
-              iteration_schedules=False):
+              iteration_schedules=False, modulation=False):
     inputs = base / 'inputs'
     inputs.mkdir()
+    modulation_inputs = inputs / 'modulation'
+    if modulation:
+        modulation_inputs.mkdir()
     sources = sorted((ROOT / 'examples/input').glob('*.jpg'))
     if len(sources) < 3:
         raise RuntimeError('Bundled video example is missing.')
-    frames, styles, masks, edges, anchors = [], {}, [], [], []
+    frames, styles, masks, edges, anchors, modulation_frames = [], {}, [], [], [], []
     width, height = size
     paintings = {0: ROOT / 'examples/gui_keyframes_v03/style000.jpg',
                  6: ROOT / 'examples/gui_keyframes_v03/style006.png',
@@ -68,12 +71,26 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
         mask[:, width // 4:3 * width // 4] = 255
         masks.append([100 + i, write(inputs / f'mask_{i:04d}.png', mask)])
         edges.append([100 + i, write(inputs / f'edge_{i:04d}.png', cv2.Canny(image, 50, 150))])
+        if modulation:
+            values = np.broadcast_to(np.linspace(0, 255, width, dtype=np.uint8), (height, width)).copy()
+            values = np.roll(values, i * 7, axis=1)
+            modulation_frames.append([100 + i, write(modulation_inputs / f'map{100 + i:04d}.png', values)])
     options = validate_render(dict(quality_profile(quality), engine=engine,
                                    fuoum_bidirectional_flow=bidirectional, stream_frames=stream_frames))
     if iteration_schedules:
         options.update(searchvote_schedule=[8, 4, 2], patchmatch_schedule=[4, 2, 1])
+    if modulation:
+        options.update(modulation_guide='Video guide', modulation_dir=str(modulation_inputs))
     runtime = prepare_runtime(options, {})
     cases = [('video', {}, {}), ('grouped', {}, {})]
+    if modulation:
+        cases += [('modulation_' + mode.split()[0].lower(), dict(modulation_guide=mode), {})
+                  for mode in ('All guides', 'Edge guide', 'Position guide', 'Warped-style guide')]
+        cases += [('modulation_reverse', dict(modulation_guide='All guides', do_mask=True,
+                                             pre_mask=True, custom_edge_guides=True), {'only_mode': 'reverse'})]
+        if engine == FUOUM:
+            cases += [('modulation_ncc', dict(modulation_guide='All guides', fuoum_cost_function='ncc',
+                                             fuoum_search_pruning_threshold=0), {})]
     if iteration_schedules:
         cases += [('schedule_one_level', dict(pyramidlevels=1), {}),
                   ('schedule_auto', dict(pyramidlevels=-1), {}),
@@ -103,7 +120,8 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
             job = dict(output=str(output), quality=quality, processing_size=list(size), padding=3,
                 frames=frames, style=styles[keyframes[0]], key=keyframes[0], engine_runtime=runtime,
                 render_options=dict(options, **overrides), guide_weights={'mask_wgt': 2.0},
-                masks=masks, edge_guides=edges, exports={'maps': extended, 'flow': extended},
+                masks=masks, edge_guides=edges, modulation_frames=modulation_frames,
+                exports={'maps': extended, 'flow': extended},
                 blend_options=dict(use_lsqr=False, poisson_maxiter=12, **blend))
             if label != 'video' and label != 'compiled_raft':
                 job.update(type='grouped_video', styles=[[n, styles[n]] for n in keyframes])
@@ -123,6 +141,12 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
                 target=resized('target_' + primary + '.png', True),
                 guides=[dict(source=resized('source_' + extra + '.png'),
                              target=resized('target_' + extra + '.png', True), weight=1.0) for extra in extras])
+            if modulation:
+                map_path = write(inputs / (name + '_modulation.png'),
+                                 np.tile(np.linspace(0, 255, 384, dtype=np.uint8), (128, 1)))
+                settings['modulation'] = map_path
+                if settings['guides']:
+                    settings['guides'][-1]['modulation'] = map_path
             output = base / ('image_' + name)
             output.mkdir()
             job = dict(type='image_synthesis', output=str(output), quality=quality, max_width=0,
@@ -136,6 +160,17 @@ def verify(label, job):
     output = Path(job['output'])
     if not (output / 'COMPLETE.txt').is_file():
         raise RuntimeError(f'{label}: missing completion marker')
+    image_job = job.get('type') == 'image_synthesis'
+    image = job.get('image_synthesis', {})
+    if ((image_job and any(g.get('modulation') for g in [image, *image.get('guides', [])]))
+            or (not image_job and job['render_options'].get('modulation_guide', 'Off') != 'Off')):
+        metadata = json.loads((output / 'modulation_manifest.json').read_text())
+        if metadata['multiplier'] != 'value / 255' or not metadata['layouts']:
+            raise RuntimeError(f'{label}: missing modulation channel mapping')
+        if not image_job:
+            numbers = {n for n, _ in job['frames']}
+            if {item['frame'] for item in metadata['frames']} != numbers or not set(metadata['synthesis_targets']) <= numbers:
+                raise RuntimeError(f'{label}: modulation target identities differ from the source range')
     from reezsynth_iterations import active, resolve
     if active(job['render_options']):
         schedule = json.loads((output / 'iteration_schedule.json').read_text())
@@ -183,12 +218,12 @@ def verify(label, job):
 
 def run(engine, count, repeats, extended, style_family='poster', images=False,
         size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False,
-        iteration_schedules=False):
+        iteration_schedules=False, modulation=False):
     base = ROOT / 'diagnostic_outputs' / ('release_' + ('fuoum' if engine == FUOUM else 'legacy') +
                                          '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
     runtime, jobs = make_jobs(base, engine, count, repeats, extended, style_family, images, size, quality,
-                              bidirectional, stream_frames, iteration_schedules)
+                              bidirectional, stream_frames, iteration_schedules, modulation)
     process = subprocess.Popen([runtime['python'], '-B', '-X', 'utf8', '-u', str(ROOT / 'reezsynth_shared_worker.py')],
         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding='utf-8', errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -205,7 +240,7 @@ def run(engine, count, repeats, extended, style_family='poster', images=False,
     thread.start()
     report = dict(engine=engine, frames=count, repeats=repeats, style_family=style_family,
                   quality=quality, size=size, bidirectional=bidirectional, stream_frames=stream_frames,
-                  iteration_schedules=iteration_schedules,
+                  iteration_schedules=iteration_schedules, modulation=modulation,
                   gpu_before=gpu_memory(), jobs=[], passed=False)
     stop_samples, samples = threading.Event(), []
     def sample_gpu():
@@ -262,6 +297,7 @@ if __name__ == '__main__':
     parser.add_argument('--bidirectional', action='store_true', help='Estimate both FuouM flow directions.')
     parser.add_argument('--stream-frames', action='store_true', help='Use disk-backed clip arrays.')
     parser.add_argument('--iteration-schedules', action='store_true', help='Exercise nonuniform per-level iteration counts.')
+    parser.add_argument('--modulation', action='store_true', help='Exercise per-guide image and target-frame video modulation.')
     parser.add_argument('--images', action='store_true', help='Include three multiguide image retargeting examples.')
     parser.add_argument('--size', nargs=2, type=int, default=[256, 144], metavar=('WIDTH', 'HEIGHT'))
     args = parser.parse_args()
@@ -271,4 +307,4 @@ if __name__ == '__main__':
         parser.error('Multi-frame flow requires dimensions of at least 128 pixels.')
     run(FUOUM if args.engine == 'fuoum' else LEGACY, args.frames, args.repeats, args.extended,
         args.style, args.images, tuple(args.size), args.quality, args.bidirectional, args.stream_frames,
-        args.iteration_schedules)
+        args.iteration_schedules, args.modulation)

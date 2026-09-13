@@ -225,6 +225,33 @@ schedules. Projects and named render presets retain them. A scheduled render
 records its resolved counts in `iteration_schedule.json`; FuouM's extra 3x3
 pass uses the finest counts, while Legacy retains its DLL's polishing behavior.
 
+### Guide modulation
+
+Optional grayscale maps vary guide strength across the target image: white keeps
+the normal weight, black removes that guide's local cost, and intermediate values
+multiply it by `value / 255`. This changes matching costs, not output opacity or
+mask compositing. Leave modulation off/blank to preserve the existing behavior.
+Both engines support this through CUDA. Legacy **CPU and Auto are rejected** when
+modulation is enabled because its CPU implementation ignores these maps.
+
+For video, select **Video modulation** under Rendering and a numbered modulation
+folder whose frame numbers exactly match the source sequence. Apply the map to
+Edge, Video, Position, Warped-style, or All guides. All includes active sparse and
+mask guides. Maps follow the actual target frame through forward, reverse and
+grouped passes. Single-frame keyframe copies perform no synthesis or modulation.
+For still images, select an optional **Primary modulation** map and/or maps in the
+additional-guide table; each affects only its corresponding logical guide.
+
+Maps must be single-channel, 8-bit grayscale images matching the original target
+dimensions (use lossless PNG). RGB and 16-bit maps are rejected. Processing-size
+changes resize maps with area interpolation; native engines handle their own
+pyramid resizing. A map is repeated across all channels of its logical guide;
+guides without maps retain full weight. Projects/presets preserve selections,
+queued jobs freeze numbered paths, and recovery checks the map inputs.
+`modulation_manifest.json` records processed-map hashes, native channel layouts
+and video target identities. Video map arrays support disk-backed frame storage;
+the packed native modulation buffer still requires per-frame memory.
+
 ### Output naming
 
 Output naming sits to the right of the directory inputs. By default outputs go

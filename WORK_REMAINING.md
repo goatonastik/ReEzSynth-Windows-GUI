@@ -155,8 +155,13 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    - [x] Optional per-level search/vote and patch-match schedules in both engines,
      with finest-level alignment, native mapping, GUI/preset persistence and
      resolved output metadata. Scalar defaults and six-decimal caps remain.
-     Modulation guides and alternate synthesis backend still require native
-     validation; see NUMERIC_SETTINGS.md.
+   - [x] Target-grid grayscale modulation for image guides and numbered video
+     guide groups, including grouped/reverse passes and bounded storage. Both
+     CUDA engines passed native multiplier/channel-order checks and real renders.
+     Legacy CPU/Auto are explicitly rejected because CPU ignores maps. Presets,
+     queue snapshots, recovery and processed-map/channel manifests are covered.
+     Alternate synthesis backend still requires dedicated validation; see
+     NUMERIC_SETTINGS.md.
 9. [ ] **Stronger quality/stability evidence:** overnight repeated-job testing,
     isolated performance comparisons, multi-GPU coverage, and investigation of
     true backward flow in place of FuouM's negative-forward-flow approximation.
@@ -213,12 +218,18 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
+- Modulation passed controlled native multiplier/channel tests in both CUDA
+  engines and 13 real Standard image/video/grouped cases per engine, including
+  masks, reverse mode, bounded storage and iteration schedules. An additional
+  eight-case FuouM run covered NCC and scalar defaults on intermediate frames.
+  Legacy CPU was shown to ignore maps, so CPU/Auto modulation is rejected.
+  Exact reports and limitations are recorded in PROJECT_STATUS.md.
 - Per-level schedules passed eight real Standard cases per engine at 257x145,
   including one-level/Automatic pyramids, scalar fallback and three multiguide
   image retargeting jobs. Both used bounded storage; FuouM also used measured
   backward flow. Reports: `release_legacy_20260912_205556_943246` and
   `release_fuoum_20260912_205631_250465`.
-- Full suite through the canonical CI runner: 284 maintained tests passed in 36.586 seconds with
+- Full suite through the canonical CI runner: 298 maintained tests passed in 41.230 seconds with
   normal temporary-directory/Qt access. Both cache publication races are now fixed;
   50 concurrent-producer stress rounds also passed. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
@@ -268,6 +279,8 @@ are finished. A lower-reasoning model can handle routine campaign execution,
 report collection and documentation updates. Remaining evidence needs an actual
 overnight run, representative production frame/keyframe folders, and another
 Windows/GPU system. Remote CI has not run because these commits are not pushed.
-Per-level iteration schedules are now implemented. Keep a high-reasoning model
-for the remaining modulation-channel workflow or alternate synthesis-backend
-implementation; their mapping constraints are in NUMERIC_SETTINGS.md.
+Per-level iteration schedules and the modulation-guide workflow are implemented.
+Keep a high-reasoning model for the remaining alternate synthesis-backend
+implementation; its mapping constraints are in NUMERIC_SETTINGS.md. Switch to a
+lower-reasoning model once that implementation checkpoint is complete for the
+routine evidence/installation/release-checklist work above.

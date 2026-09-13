@@ -44,6 +44,8 @@ def effective_settings(job):
         iteration_settings(result, options)
         settings = validate_image_settings(job.get('image_synthesis'))
         result['image_synthesis'] = settings
+        if any(g.get('modulation') for g in [settings, *settings['guides']]):
+            result['modulation'] = dict(file='modulation_manifest.json', mode='per_image_guide')
         result['normalized_guide_weights'] = [settings['source_weight'] / settings['key_weight'],
             *(guide['weight'] / settings['key_weight'] for guide in settings['guides'])]
         result['native_style_weight'] = 1.0
@@ -51,6 +53,11 @@ def effective_settings(job):
 
     resolved = dict(options)
     resolved.pop('engine')
+    # The frozen frame list is authoritative, not a directory rescanned later.
+    resolved.pop('modulation_dir')
+    if options['modulation_guide'] != 'Off':
+        result['modulation'] = dict(file='modulation_manifest.json', mode=options['modulation_guide'],
+                                   frames=job.get('modulation_frames', []))
     if fuoum:
         for name in ('flow_arch', 'flow_model', 'memory_efficient_raft'):
             resolved.pop(name)

@@ -3,7 +3,7 @@ import math
 from pathlib import Path
 
 IMAGE_DEFAULTS = dict(style='', source='', target='', source_weight=6.0,
-                      key_weight=1.0, guides=[], folder='image_synthesis')
+                      key_weight=1.0, guides=[], folder='image_synthesis', modulation='')
 SYNTHESIS_FIELDS = ('uniformity', 'patchsize', 'pyramidlevels', 'searchvoteiters',
                     'patchmatchiters', 'extrapass3x3')
 
@@ -13,7 +13,7 @@ def validate_image_settings(data=None):
     if not isinstance(data, dict) or set(data) - set(IMAGE_DEFAULTS):
         raise ValueError('Invalid image synthesis settings.')
     result = dict(IMAGE_DEFAULTS, **data)
-    for name in ('style', 'source', 'target', 'folder'):
+    for name in ('style', 'source', 'target', 'folder', 'modulation'):
         if not isinstance(result[name], str):
             raise ValueError(f'Image {name} must be text.')
         result[name] = result[name].strip()
@@ -27,11 +27,16 @@ def validate_image_settings(data=None):
         raise ValueError('Image synthesis supports at most 24 guide pairs including the primary pair.')
     guides = []
     for item in result['guides']:
-        if not isinstance(item, dict) or set(item) != {'source', 'target', 'weight'}:
+        if (not isinstance(item, dict) or not {'source', 'target', 'weight'} <= set(item)
+                or set(item) - {'source', 'target', 'weight', 'modulation'}):
             raise ValueError('Each guide needs source, target and weight.')
         if not isinstance(item['source'], str) or not isinstance(item['target'], str):
             raise ValueError('Guide paths must be text.')
         guides.append(dict(source=item['source'].strip(), target=item['target'].strip(), weight=weight(item['weight'])))
+        if 'modulation' in item:
+            if not isinstance(item['modulation'], str):
+                raise ValueError('Guide modulation path must be text.')
+            guides[-1]['modulation'] = item['modulation'].strip()
     result['guides'] = guides
     return result
 
@@ -47,6 +52,12 @@ def image_job_settings(data):
             if not guide[name] or not Path(guide[name]).expanduser().is_file():
                 raise ValueError(f'Select an existing additional guide {name} image.')
             guide[name] = str(Path(guide[name]).expanduser().resolve())
+    for guide in [result, *result['guides']]:
+        if guide.get('modulation'):
+            path = Path(guide['modulation']).expanduser()
+            if not path.is_file():
+                raise ValueError('Select an existing modulation image or leave it blank.')
+            guide['modulation'] = str(path.resolve())
     return result
 
 
@@ -63,6 +74,8 @@ def render_image_job(job, progress):
     options = dict(quality_profile(job['quality']))
     options.update(job.get('render_options', {}))
     options = validate_render(options)
+    from reezsynth_modulation import require_backend
+    require_backend(options, any(g.get('modulation') for g in [settings, *settings['guides']]))
     def read(path, style=False):
         image = cv2.imdecode(np.frombuffer(Path(path).read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
         if image is None or image.dtype != np.uint8 or image.ndim not in (2, 3):
@@ -99,6 +112,10 @@ def render_image_job(job, progress):
         return image
     style = resize(style)
     pairs = [(resize(a), resize(b), weight / settings['key_weight']) for a, b, weight in pairs]
+    from reezsynth_modulation import read_map, pack_maps, legacy_modulation, channel_layout, map_info, write_manifest
+    paths = [settings['modulation'], *(g.get('modulation', '') for g in settings['guides'])]
+    maps = [read_map(path, target_shape, pairs[0][1].shape[1::-1]) if path else None for path in paths]
+    modulated = any(value is not None for value in maps)
     validate_synthesis_dimensions(options['patchsize'], style.shape[1::-1], pairs[0][1].shape[1::-1])
     progress(10, 'Initializing image synthesis')
     backend = options['ebsynth_backend']
@@ -106,7 +123,8 @@ def render_image_job(job, progress):
     from reezsynth_engines import FUOUM
     if options['engine'] == FUOUM:
         from reezsynth_fuoum import synthesize_image
-        result, error = synthesize_image(style, pairs, options, output=job['output'])
+        result, error = synthesize_image(style, pairs, options, output=job['output'],
+                                         modulation=pack_maps(pairs, maps))
     else:
         from ezsynth.aux_classes import RunConfig
         from ezsynth.main_ez import ImageSynthBase
@@ -115,7 +133,10 @@ def render_image_job(job, progress):
         runner.eb.backend = runner.eb.backends[backend]
         # Always pass a fresh list: upstream appends the primary pair to this list.
         from reezsynth_iterations import legacy_schedule, ScheduleRecorder
-        with legacy_schedule(runner.eb, options, ScheduleRecorder(job['output'])):
+        # Legacy appends the primary guide after the additional guides.
+        packed = pack_maps([*pairs[1:], pairs[0]], [*maps[1:], maps[0]])
+        with legacy_schedule(runner.eb, options, ScheduleRecorder(job['output'])), \
+             legacy_modulation(runner.eb, packed):
             result, error = runner.run(guides=list(pairs[1:]))
     expected_shape = (*pairs[0][1].shape[:2], 3)
     if not isinstance(result, np.ndarray) or result.shape != expected_shape or not np.isfinite(result).all():
@@ -140,6 +161,13 @@ def render_image_job(job, progress):
         np.save(stream, error, allow_pickle=False)
     temporary.replace(output / 'error.npy')
     from reezsynth_config import atomic_json
+    if modulated:
+        order = list(range(len(pairs))) if options['engine'] == FUOUM else [*range(1, len(pairs)), 0]
+        labels = ['Primary guide', *(f'Additional guide {i + 1}' for i in range(len(pairs) - 1))]
+        write_manifest(job['output'], mode='per_image_guide',
+            maps=[dict(guide=labels[i], **map_info(paths[i], maps[i])) for i in range(len(paths)) if paths[i]],
+            layouts=[channel_layout([pairs[i] for i in order], [labels[i] for i in order],
+                [j for j, i in enumerate(order) if maps[i] is not None])])
     atomic_json(output / 'image_manifest.json', dict(version=1, image='image.png', error='error.npy',
         error_dtype=str(error.dtype), output_shape=list(result.shape),
         original_style_shape=list(original_style_shape), original_target_shape=list(target_shape),

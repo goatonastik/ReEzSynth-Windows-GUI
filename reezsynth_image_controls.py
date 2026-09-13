@@ -56,6 +56,12 @@ class ImageSynthesisControls(QWidget):
         form.addRow('Styled image', style_row)
         form.addRow('Source guide', source_row)
         form.addRow('Target guide', target_row)
+        self.modulation, modulation_row = self.file_row('Primary guide modulation (optional)')
+        self.modulation.setPlaceholderText('Optional 8-bit grayscale map matching the target')
+        self.modulation.setToolTip('Multiplies all channels of the primary guide by grayscale / 255. '
+                                   'White preserves weight; black removes the local guide cost. '
+                                   'Legacy requires explicit CUDA; its CPU backend ignores maps.')
+        form.addRow('Primary modulation', modulation_row)
         self.source_weight = self.weight(6)
         self.key_weight = self.weight(1, .001)
         form.addRow('Primary guide weight', self.source_weight)
@@ -69,12 +75,13 @@ class ImageSynthesisControls(QWidget):
                              'Saves image.png, numerical error.npy, and image_manifest.json in a new output subfolder.')
         output_note.setWordWrap(True)
         self.layout.addWidget(output_note)
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(['Additional source guide', 'Additional target guide', 'Weight', ''])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(['Additional source guide', 'Additional target guide', 'Weight', 'Modulation (optional)', ''])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.setColumnWidth(2, 100)
-        self.table.setColumnWidth(3, 90)
+        self.table.setColumnWidth(4, 90)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().hide()
         self.layout.addWidget(self.table, 1)
         window.locked.append(self.table)
@@ -141,13 +148,18 @@ class ImageSynthesisControls(QWidget):
         self.table.setCellWidget(row, 2, weight)
         remove = QPushButton('Remove')
         remove.clicked.connect(lambda: self.remove_guide(remove))
-        self.table.setCellWidget(row, 3, remove)
+        self.table.setCellWidget(row, 4, remove)
+        modulation, container = self.file_row('Guide modulation (optional)')
+        modulation.setText(data.get('modulation', ''))
+        modulation.setPlaceholderText('Optional grayscale target map')
+        modulation.setToolTip('8-bit grayscale image at the original target size; applies to every channel of this guide only.')
+        self.table.setCellWidget(row, 3, container)
         self.table.setRowHeight(row, 38)
         self.changed()
 
     def remove_guide(self, button):
         for row in range(self.table.rowCount()):
-            if self.table.cellWidget(row, 3) is button:
+            if self.table.cellWidget(row, 4) is button:
                 self.table.removeRow(row)
                 self.changed()
                 return
@@ -157,14 +169,15 @@ class ImageSynthesisControls(QWidget):
         for row in range(self.table.rowCount()):
             guides.append(dict(source=self.table.cellWidget(row, 0).findChild(ImageFileEdit).text(),
                                target=self.table.cellWidget(row, 1).findChild(ImageFileEdit).text(),
-                               weight=self.table.cellWidget(row, 2).value()))
+                               weight=self.table.cellWidget(row, 2).value(),
+                               modulation=self.table.cellWidget(row, 3).findChild(ImageFileEdit).text()))
         return validate_image_settings(dict(style=self.style.text(), source=self.source.text(), target=self.target.text(),
             source_weight=self.source_weight.value(), key_weight=self.key_weight.value(),
-            folder=self.folder.text(), guides=guides))
+            folder=self.folder.text(), guides=guides, modulation=self.modulation.text()))
 
     def set_settings(self, data):
         data = validate_image_settings(data)
-        for name in ('style', 'source', 'target', 'folder'):
+        for name in ('style', 'source', 'target', 'folder', 'modulation'):
             getattr(self, name).setText(data[name])
         self.source_weight.setValue(data['source_weight'])
         self.key_weight.setValue(data['key_weight'])

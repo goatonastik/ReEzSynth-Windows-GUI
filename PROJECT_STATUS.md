@@ -3,6 +3,42 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Guide modulation verified (2026-09-12)
+
+- Both CUDA engines now accept optional target-grid grayscale modulation for
+  individual image guides and numbered video guide groups. Video supports Edge,
+  Video, Position, Warped-style and All (including active sparse/mask guides),
+  actual target identities in reverse/grouped passes, and bounded frame storage.
+  Blank/off defaults preserve existing behavior. Original dimensions, uint8
+  grayscale inputs and exact numbered source correspondence are validated.
+- Each map repeats across its logical guide's native channels. Legacy images
+  pack additional guides before the primary guide; FuouM packs primary first.
+  Manifests record processed hashes, channel layouts and video synthesis targets.
+  Presets/projects, queue snapshots, recovery fingerprints and GUI busy-state
+  locks include map inputs. Manifest failure prevents completion publication.
+- Controlled native CUDA probes verified white = unchanged, black = zero local
+  guide error, gray 128 = 128/255, and independent 1/3-channel guide weighting in
+  both engines: `modulation_20260912_210537_668201`. The Legacy CPU probe proved
+  that CPU silently ignores maps: `modulation_20260912_210543_866781` is an
+  intentionally failed diagnostic. Enabled Legacy modulation therefore requires
+  explicit CUDA and rejects both CPU and Auto before synthesis.
+- Real 257x145 Standard five-frame runs passed 13 cases per engine, combining
+  per-level schedules, every video modulation mode, grouped/reverse synthesis,
+  masks/custom edges and three multiguide image examples. Both used disk-backed
+  arrays; FuouM also used measured backward flow. Reports:
+  `release_legacy_20260912_210306_031727` and
+  `release_fuoum_20260912_210429_083016`. An additional eight-case FuouM run
+  covered scalar defaults and NCC on intermediate frames:
+  `release_fuoum_20260912_210929_788513`. These establish execution/mapping on
+  this host, not general artistic quality improvements.
+- The canonical maintained suite passed **298 tests in 41.230 seconds**.
+  New tests cover packed channel order, target mapping, map type/size validation,
+  CPU/Auto rejection, native-buffer lifetime/restoration, manifest failure,
+  bounded storage, GUI persistence and durable queue inputs. Both new control
+  layouts were inspected with a real Windows font in offscreen Qt captures.
+  Alternate FuouM synthesis-backend implementation remains the next
+  high-reasoning checkpoint; external validation/release gates remain open.
+
 ## Per-level iteration schedules verified (2026-09-12)
 
 - Both engines support optional search/vote and patch-match schedules, ordered

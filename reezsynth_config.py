@@ -13,6 +13,7 @@ from reezsynth_artifacts import validate_exports
 from reezsynth_image import validate_image_settings
 from reezsynth_engines import LEGACY, FUOUM, validate_engine, validate_revision
 from reezsynth_iterations import SCHEDULE_FIELDS, validate_schedule
+from reezsynth_modulation import VIDEO_MODES
 
 WEIGHTS = {"edg_wgt": 1.0, "img_wgt": 6.0, "pos_wgt": 2.0, "wrp_wgt": 0.5,
            "key_wgt": 1.0, "mask_wgt": 0.0}
@@ -29,7 +30,8 @@ RENDER = dict(engine=LEGACY, **STANDARD, edge_method="Classic", do_mask=False, p
               fuoum_vote_mode="weighted", fuoum_cost_function="ssd", fuoum_stop_threshold=5,
               fuoum_search_pruning_threshold=50.0, fuoum_sparse_anchor_weight=10.0,
               fuoum_flow_engine='RAFT', fuoum_neuflow_model='neuflow_sintel', fuoum_raft_model='sintel',
-              fuoum_bidirectional_flow=False, stream_frames=False)
+              fuoum_bidirectional_flow=False, stream_frames=False,
+              modulation_guide='Off', modulation_dir='')
 APPLICATION = dict(discover=False, keys_prefix="keys", video_prefix="video",
     auto_start=False, wait_for_mask=False, parallel=False, parallel_limit=2,
     sound_enabled=True, sound_each=False, sound_queue=True, sound_file="",
@@ -218,6 +220,13 @@ def validate_render(data=None):
         elif isinstance(default, bool):
             if type(value) is not bool:
                 raise ValueError(f"{name} must be true or false.")
+        elif name == 'modulation_guide':
+            if value not in VIDEO_MODES:
+                raise ValueError('Unknown video modulation guide.')
+        elif name == 'modulation_dir':
+            if not isinstance(value, str):
+                raise ValueError('Modulation directory must be text.')
+            result[name] = value.strip()
         elif name == "engine":
             validate_engine(value)
         elif name == "edge_method":

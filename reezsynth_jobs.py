@@ -363,6 +363,8 @@ def _render_legacy_job(job_path):
     options = dict(RENDER, **quality_profile(job["quality"]))
     options.update(job.get("render_options", {}))
     options = validate_render(options)
+    from reezsynth_modulation import VideoModulation, legacy_modulation
+    modulation = VideoModulation(job, options, numbers, original_shape, size)
     if count > 1:
         validate_synthesis_dimensions(options['patchsize'], size)
         validate_flow_model_available(options['flow_model'], options['flow_arch'])
@@ -435,7 +437,8 @@ def _render_legacy_job(job_path):
                if name not in ("edge_method", "custom_edge_guides", "memory_efficient_raft",
                                "flow_arch", "flow_model", "ebsynth_backend", "engine",
                                "temporal_nnf", "sparse_features", "stream_frames",
-                               "searchvote_schedule", "patchmatch_schedule") and not name.startswith('fuoum_')},
+                               "searchvote_schedule", "patchmatch_schedule", "modulation_guide",
+                               "modulation_dir") and not name.startswith('fuoum_')},
             **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
             **{name: value for name, value in blend_options.items() if not name.startswith('fuoum_')},
         )
@@ -549,7 +552,10 @@ def _render_legacy_job(job_path):
                 kwargs['guides'] = guides
             native_started = time.perf_counter()
             preparation_seconds = native_started - last_finished
-            result = original_run(*args, **kwargs)
+            guides = kwargs.get('guides', [])
+            target = number_of(guides[1][1], frame_lookup) if modulation.active else None
+            with legacy_modulation(runner.eb, modulation.for_guides(guides, target)):
+                result = original_run(*args, **kwargs)
             native_elapsed = time.perf_counter() - native_started
             native_seconds += native_elapsed
             completed += 1
@@ -622,6 +628,7 @@ def _render_legacy_job(job_path):
             f"Expected {count} output frames, received {len(results)}."
         )
 
+    modulation.finish(output)
     progress(90, f"Saving 0/{count}")
 
     for index, (number, image) in enumerate(zip(numbers, results)):

@@ -64,10 +64,21 @@ remaining low-level options keep their previous documented limits:
 - Six-decimal editors remain deliberate; native float conversion cannot provide
   arbitrary decimal precision. Higher-precision UI round trips need a separate
   representation policy before widening the editors.
-- Modulation data is per-guide-channel target-grid data in the native interface.
-  Legacy currently supplies NULL, and FuouM's sequence pass does not pass the
-  data-manager modulation frames into synthesis. A usable workflow needs explicit
-  channel mapping, image/video shape validation and native tests.
+- Modulation is supported by both CUDA engines. The frontend accepts one optional
+  uint8 grayscale target-sized map per image guide, or a numbered video map folder
+  applied to a selected guide group/all guides. A map repeats across the group's
+  channels; unselected channels receive 255. Native matching costs are multiplied
+  by `value / 255`. Legacy image guides are ordered additional-first/primary-last;
+  FuouM uses primary-first. Video maps follow actual target identities, including
+  reverse/grouped passes and active sparse/mask guides. Original dimensions,
+  grayscale type, consecutive frame identities and the 24-channel cap are checked.
+  Processing resizing uses INTER_AREA; pyramid resizing remains engine-native.
+  Output `modulation_manifest.json` records actual channel layouts, processed map
+  hashes and synthesis targets. Blank/off settings preserve the existing path.
+  Real CUDA probes verified white/black/128 and independent guide weighting in
+  both engines; the Legacy CPU probe proved that CPU silently ignores maps.
+  Enabled modulation therefore rejects Legacy CPU and Auto, even on a CUDA host.
+  Arbitrary separate per-channel maps and float modulation are not exposed.
 - FuouM's PyTorch synthesis backend uses a separate patch-search implementation
   and optional residual-transfer path. Its availability in source does not
   establish equivalence with the validated CUDA backend. It remains unexposed

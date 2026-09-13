@@ -1109,6 +1109,8 @@ class MainWindow(QMainWindow):
                                   exports=self.options.snapshot('render')['exports'])
             masks = validate_masks(self.mask_dir.text(), video) if render_options["do_mask"] else {}
             edge_guides = validate_edge_guides(self.edge_dir.text(), video) if render_options['custom_edge_guides'] else {}
+            from reezsynth_modulation import validate_video_maps
+            modulation_frames = validate_video_maps(render_options, video)
             planned = []
             folders = set()
             group_plan = None
@@ -1213,6 +1215,7 @@ class MainWindow(QMainWindow):
                     "guide_weights": guide_weights,
                     "masks": [[number, str(masks[number])] for number, _ in frames] if masks else [],
                     "edge_guides": [[number, str(edge_guides[number])] for number, _ in frames] if edge_guides else [],
+                    "modulation_frames": [[number, str(modulation_frames[number])] for number, _ in frames] if modulation_frames else [],
                 }
 
                 job_path = destination / "job.json"
@@ -1256,6 +1259,8 @@ class MainWindow(QMainWindow):
             from reezsynth_engines import prepare_runtime, validate_capabilities
             engine_runtime = prepare_runtime(options, application)
             validate_capabilities(options, image=True)
+            from reezsynth_modulation import require_backend
+            require_backend(options, any(g.get('modulation') for g in [settings, *settings['guides']]))
             parallel = application['parallel']
             shared = self.reuse_worker.isChecked() and not parallel
             worker_script = ROOT / ('reezsynth_shared_worker.py' if shared else 'reezsynth_jobs.py')

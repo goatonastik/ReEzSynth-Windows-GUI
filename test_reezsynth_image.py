@@ -227,7 +227,7 @@ class ImageGuiTests(LifecycleFixture):
         widget.source.dropEvent(event)
         self.assertEqual(Path(widget.source.text()), path)
         widget.add_guide()
-        widget.remove_guide(widget.table.cellWidget(0,3))
+        widget.remove_guide(widget.table.cellWidget(0,4))
         self.assertEqual(widget.settings()['guides'], [])
 
     def test_render_failure_does_not_report_completion(self):

@@ -22,6 +22,7 @@ from reezsynth_engines import LEGACY, FUOUM, default_runtime, engine_revision
 from reezsynth_engine_setup import (readiness_command, rebuild_command,
                                     version_summary)
 from reezsynth_iterations import SCHEDULE_FIELDS, parse_schedule
+from reezsynth_modulation import VIDEO_MODES
 
 
 class IterationScheduleEdit(QLineEdit):
@@ -49,7 +50,8 @@ LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (po
     sound_queue="Play when the queue completes", sound_file="Custom WAV sound (blank = bundled sound)")
 LABELS["preview_limit"] = "Maximum live previews"
 LABELS.update(searchvote_schedule='Search/vote schedule (coarse to fine)',
-              patchmatch_schedule='Patch-match schedule (coarse to fine)')
+              patchmatch_schedule='Patch-match schedule (coarse to fine)',
+              modulation_guide='Video modulation', modulation_dir='Modulation frame directory')
 LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
               stream_frames='Store clip frames on disk to limit RAM',
               fuoum_flow_engine='Optical flow engine (FuouM only)',
@@ -218,6 +220,17 @@ class Options(QObject):
                     widget.setAccessibleName(LABELS[name])
                     widget.setToolTip(LABELS[name])
                     field.parentWidget().layout().insertWidget(1, widget)
+                elif name == 'modulation_dir':
+                    row = QWidget()
+                    row_layout = QHBoxLayout(row)
+                    row_layout.setContentsMargins(0, 0, 0, 0)
+                    row_layout.addWidget(widget, 1)
+                    self.modulation_browse = QPushButton('Select...')
+                    self.modulation_browse.clicked.connect(self.choose_modulation_directory)
+                    row_layout.addWidget(self.modulation_browse)
+                    window.locked.append(self.modulation_browse)
+                    fields.addRow(LABELS[name], row)
+                    widget.setPlaceholderText('Numbered 8-bit grayscale maps matching source frames')
                 else:
                     fields.addRow(LABELS[name], widget)
                 if name == 'key_wgt':
@@ -353,6 +366,14 @@ class Options(QObject):
             widget = QCheckBox()
             widget.setChecked(default)
             widget.toggled.connect(self.changed)
+        elif name == 'modulation_guide':
+            widget = QComboBox()
+            widget.addItems(VIDEO_MODES)
+            widget.setToolTip('Video only: multiply the selected guide group by the target-frame grayscale map / 255. '
+                              'White preserves weight; black removes local guide cost. All guides includes mask/sparse guides when present. '
+                              'This changes matching, not output compositing. Image Synthesis has separate per-guide maps. '
+                              'Legacy modulation requires explicit CUDA; its CPU backend ignores maps.')
+            widget.currentTextChanged.connect(self.changed)
         elif name == 'engine':
             widget = QComboBox()
             widget.addItems([LEGACY, FUOUM])
@@ -858,6 +879,11 @@ class Options(QObject):
         fuoum = widgets['engine'].currentText() == FUOUM
         self.engine_note.setVisible(fuoum)
         editable = not self.w.busy and not self.w.close_when_idle
+        if 'modulation_guide' in widgets:
+            widgets['modulation_guide'].setEnabled(editable)
+            enabled = editable and widgets['modulation_guide'].currentText() != 'Off'
+            widgets['modulation_dir'].setEnabled(enabled)
+            self.modulation_browse.setEnabled(enabled)
         for schedule, scalar in zip(SCHEDULE_FIELDS, ('searchvoteiters', 'patchmatchiters')):
             if schedule in widgets:
                 widgets[schedule].setEnabled(editable)
@@ -890,6 +916,12 @@ class Options(QObject):
             button.setEnabled(editable and not fuoum and not getattr(self, 'timm_install_pending', False))
         if hasattr(self.w, 'grouped'):
             self.w.grouped.refresh_engine_controls(fuoum)
+
+    def choose_modulation_directory(self):
+        field = self.widgets['render']['modulation_dir']
+        path = QFileDialog.getExistingDirectory(self.w, 'Modulation frame directory', field.text())
+        if path:
+            field.setText(path)
 
     def persist(self):
         if self.loading:

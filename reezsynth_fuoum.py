@@ -75,13 +75,14 @@ def render_cache(output):
         yield path
 
 
-def synthesize_image(style, pairs, options, output=None):
+def synthesize_image(style, pairs, options, output=None, modulation=None):
     from ezsynth.engines.synthesis_engine import EbsynthEngine
     native, pipeline, _ = build_configs(options)
     engine = EbsynthEngine(native, pipeline)
     original = install_final_pass_compatibility(engine)
     try:
-        return fuoum_synthesize(engine, style, native_guides(pairs), options, ScheduleRecorder(output))
+        return fuoum_synthesize(engine, style, native_guides(pairs), options, ScheduleRecorder(output),
+                                modulation_map=modulation)
     finally:
         engine.backend.run_level = original
 
@@ -161,6 +162,8 @@ def render_fuoum_job(job, progress):
         return values
     masks = load_guides('masks', options['do_mask'], cv2.INTER_NEAREST)
     edges = load_guides('edge_guides', options['custom_edge_guides'], cv2.INTER_AREA)
+    from reezsynth_modulation import VideoModulation
+    modulation = VideoModulation(job, options, numbers, original_shape, size)
     weights = validate_weights(job.get('guide_weights'))
     originals = frames
     if masks and options['pre_mask']:
@@ -236,10 +239,12 @@ def render_fuoum_job(job, progress):
             def tracked(style, guides, **kwargs):
                 nonlocal completed
                 started = time.perf_counter()
+                target = number_of(guides[1][1], lookup)
+                if modulation.active:
+                    kwargs['modulation_map'] = modulation.for_guides(guides, target)
                 result = fuoum_synthesize(pipeline.synthesis_engine, style, native_guides(guides),
                                           options, iteration_recorder, synthesize=original, **kwargs)
                 completed += 1
-                target = number_of(guides[1][1], lookup)
                 origin = number_of(style, origins)
                 preview = None
                 if target is not None and origin is not None:
@@ -258,6 +263,7 @@ def render_fuoum_job(job, progress):
                 raise RuntimeError(f'FuouM produced {completed} synthesis calls; expected {expected}.')
     if len(results) != len(frames):
         raise RuntimeError(f'FuouM returned {len(results)} frames; expected {len(frames)}.')
+    modulation.finish(output)
     for index, (number, image) in enumerate(zip(numbers, results)):
         if masks:
             mask = masks[index]
