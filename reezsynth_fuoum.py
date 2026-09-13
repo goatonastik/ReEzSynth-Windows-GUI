@@ -116,6 +116,7 @@ def render_fuoum_job(job, progress):
     import cv2
     import numpy as np
     processing = validate_processing_settings(job)
+    from reezsynth_sequence import array_sequence, number_lookup, number_of, completion_path
     entries = job['frames']
     numbers = [entry[0] for entry in entries]
     if not numbers or any(type(n) is not int for n in numbers) or numbers != list(range(numbers[0], numbers[-1] + 1)):
@@ -131,23 +132,26 @@ def render_fuoum_job(job, progress):
         if image is None:
             raise ValueError(f'Cannot decode image: {path}')
         return image
-    frames = [read(path) for _, path in entries]
-    styles = [read(path) for _, path in style_entries]
-    original_shape = frames[0].shape
-    if any(frame.shape != original_shape for frame in frames + styles):
-        raise ValueError('Source and styled frames must have matching dimensions.')
+    original_shape = read(entries[0][1]).shape
     width, height = original_shape[1], original_shape[0]
     scale = min(1.0, processing['max_width'] / width) if processing['max_width'] else 1.0
     size = tuple(processing['processing_size'] or (max(1, round(width * scale)), max(1, round(height * scale))))
-    frames = [cv2.resize(frame, size, interpolation=cv2.INTER_AREA) for frame in frames]
-    styles = [cv2.resize(frame, size, interpolation=cv2.INTER_AREA) for frame in styles]
+    def load_frames(entries):
+        values = array_sequence(numbers=[number for number, _ in entries])
+        for _, path in entries:
+            frame = read(path)
+            if frame.shape != original_shape:
+                raise ValueError('Source and styled frames must have matching dimensions.')
+            values.append(cv2.resize(frame, size, interpolation=cv2.INTER_AREA))
+        return values
+    frames, styles = load_frames(entries), load_frames(style_entries)
     def load_guides(field, enabled, interpolation):
         if not enabled:
             return []
         entries = job.get(field, [])
         if [entry[0] for entry in entries] != numbers:
             raise ValueError(f'Job {field} frame numbers must match source frames.')
-        values = []
+        values = array_sequence()
         for number, path in entries:
             gray = cv2.cvtColor(read(path), cv2.COLOR_BGR2GRAY)
             if gray.shape != original_shape[:2]:
@@ -159,11 +163,11 @@ def render_fuoum_job(job, progress):
     weights = validate_weights(job.get('guide_weights'))
     originals = frames
     if masks and options['pre_mask']:
-        frames = [(frame * (mask[..., None].astype(np.float32) / 255)).astype(np.uint8)
-                  for frame, mask in zip(frames, masks)]
-        styles = [(style * (masks[numbers.index(key)][..., None].astype(np.float32) / 255)).astype(np.uint8)
-                  for key, style in zip(key_numbers, styles)]
-    records, error_maps, flow_images = [], [], []
+        frames = array_sequence(((frame * (mask[..., None].astype(np.float32) / 255)).astype(np.uint8)
+                  for frame, mask in zip(frames, masks)), numbers=numbers)
+        styles = array_sequence(((style * (masks[numbers.index(key)][..., None].astype(np.float32) / 255)).astype(np.uint8)
+                  for key, style in zip(key_numbers, styles)), numbers=key_numbers)
+    records, error_maps, flow_images = [], array_sequence(), array_sequence()
     if len(frames) > 1:
         if min(size) < 128:
             raise ValueError('RAFT video dimensions must both be at least 128 pixels.')
@@ -182,8 +186,8 @@ def render_fuoum_job(job, progress):
         positions = [numbers.index(number) for number in key_numbers]
         expected = work_count(len(frames), positions, blend['only_mode'])
         completed = 0
-        lookup = {id(frame): number for frame, number in zip(frames, numbers)}
-        origins = {id(style): number for style, number in zip(styles, key_numbers)}
+        lookup = number_lookup(frames, numbers)
+        origins = number_lookup(styles, key_numbers)
         progress(10, 'Initializing FuouM synthesis')
         with render_cache(output) as cache:
             config = MainConfig(
@@ -232,8 +236,8 @@ def render_fuoum_job(job, progress):
                 started = time.perf_counter()
                 result = original(style, guides=native_guides(guides), **kwargs)
                 completed += 1
-                target = lookup.get(id(guides[1][1]))
-                origin = origins.get(id(style))
+                target = number_of(guides[1][1], lookup)
+                origin = number_of(style, origins)
                 preview = None
                 if target is not None and origin is not None:
                     preview = publisher.publish(origin, 'Backward' if target < origin else 'Forward', target, result[0])
@@ -278,5 +282,5 @@ def render_fuoum_job(job, progress):
         from reezsynth_video_export import export_rendered_video
         export_rendered_video(output, numbers, job['padding'], video_export,
                               ffmpeg_exe=video_ffmpeg)
-    (output / 'COMPLETE.txt').write_text(f'Engine: {FUOUM}\nSaved frames: {len(frames)}\n', encoding='utf-8')
+    completion_path(output).write_text(f'Engine: {FUOUM}\nSaved frames: {len(frames)}\n', encoding='utf-8')
     progress(99, 'Finishing FuouM synthesis')

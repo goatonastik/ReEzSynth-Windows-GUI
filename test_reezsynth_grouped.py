@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parent
 def upstream_engine(captured):
     # Execute the live upstream sequence/pass methods, replacing only expensive
     # initialization, optical flow, native synthesis and blend reconstruction.
-    ns = dict(np=np, time=time)
+    from reezsynth_sequence import array_sequence
+    ns = dict(np=np, time=time, array_sequence=array_sequence)
     exec(compile((ROOT / 'ezsynth/sequences.py').read_text(), 'sequences.py', 'exec'), ns)
     ns.update(tqdm=types.SimpleNamespace(tqdm=lambda items, *a, **k: items),
               Warp=lambda image: None,

@@ -39,6 +39,7 @@ LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (po
     sound_queue="Play when the queue completes", sound_file="Custom WAV sound (blank = bundled sound)")
 LABELS["preview_limit"] = "Maximum live previews"
 LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
+              stream_frames='Store clip frames on disk to limit RAM',
               fuoum_flow_engine='Optical flow engine (FuouM only)',
               fuoum_bidirectional_flow='Estimate both flow directions [FuouM only]',
               fuoum_raft_model='RAFT checkpoint (FuouM only)',
@@ -214,6 +215,8 @@ class Options(QObject):
                     widget.setToolTip('Choices follow the selected flow architecture. Optional architectures need their own model files. Image Synthesis does not use optical flow.')
                 elif name == 'fuoum_bidirectional_flow':
                     widget.setToolTip('Estimates both directions independently for image, coordinate and NNF warping. Roughly doubles flow computation on a cold cache. Off preserves existing flow behavior. Video only.')
+                elif name == 'stream_frames':
+                    widget.setToolTip('Video only. Stores decoded source/intermediate/result arrays in a temporary folder beside the output, with a 64 MiB / 8-array read cache. Uses extra disk space and I/O; does not reduce per-frame GPU allocation.')
                 elif name == 'flow_arch':
                     widget.setToolTip('RAFT is bundled and supported by default. EF-RAFT and FlowDiffuser need their optional dependencies and weights before a queue can start.')
                 elif name == 'ebsynth_backend':

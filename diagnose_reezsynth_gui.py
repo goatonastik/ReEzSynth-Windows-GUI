@@ -32,7 +32,7 @@ def until(app, predicate, seconds, failure):
 
 
 def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=False, fuoum=False,
-         frames=None, cache_reuse=False):
+         frames=None, cache_reuse=False, stream_frames=False):
     root = Path(__file__).resolve().parent
     base = root / 'diagnostic_outputs' / ('gui_controller_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     video, keys, project = base / 'video', base / 'keys', base / 'project'
@@ -58,6 +58,7 @@ def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=
             window.keyframe_dir.setText(str(keys))
             window.quality.setCurrentText('Preview')
             window.set_processing_size([512, 288])
+            window.options.widgets['render']['stream_frames'].setChecked(stream_frames)
             if fuoum:
                 from reezsynth_engines import FUOUM
                 window.options.widgets['render']['engine'].setCurrentText(FUOUM)
@@ -169,6 +170,7 @@ if __name__ == '__main__':
                         help='Stop a queue after synthesis begins, then rebuild and complete a new queue.')
     parser.add_argument('--cache-reuse', action='store_true',
                         help='Run a second queue with changed synthesis settings and require cache reuse.')
+    parser.add_argument('--stream-frames', action='store_true', help='Use bounded disk-backed frame storage.')
     args = parser.parse_args()
     try:
         if sum(bool(option) for option in (args.parallel, args.cancel, args.close, args.cancel_restart)) > 1:
@@ -179,7 +181,7 @@ if __name__ == '__main__':
         print('Aggregate GPU memory before cycles:', gpu_memory(), flush=True)
         for cycle in range(args.cycles):
             main(args.parallel, args.cancel, args.close, args.cancel_restart, args.fuoum, args.frames,
-                 args.cache_reuse)
+                 args.cache_reuse, args.stream_frames)
             print(f'Cycle {cycle + 1}/{args.cycles}; aggregate GPU memory: {gpu_memory()}', flush=True)
     except Exception as exc:
         print(f'GUI controller diagnostic failed: {exc}', file=sys.stderr)

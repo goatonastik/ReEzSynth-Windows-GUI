@@ -223,8 +223,14 @@ def validate_edge_guides(folder, video):
 
 
 def render_job(job_path):
-    from reezsynth_engines import LEGACY, FUOUM, validate_engine, write_engine_manifest
+    from reezsynth_sequence import frame_storage
     job = json.loads(Path(job_path).read_text(encoding='utf-8'))
+    with frame_storage(job):
+        return _dispatch_render_job(job_path, job)
+
+
+def _dispatch_render_job(job_path, job):
+    from reezsynth_engines import LEGACY, FUOUM, validate_engine, write_engine_manifest
     engine = validate_engine(job.get('render_options', {}).get('engine', LEGACY))
     if engine == FUOUM:
         from reezsynth_fuoum import render_fuoum_job
@@ -246,6 +252,7 @@ def _render_legacy_job(job_path):
 
     import cv2
     import numpy as np
+    from reezsynth_sequence import array_sequence, number_lookup, number_of, completion_path
 
     job = json.loads(Path(job_path).read_text(encoding="utf-8"))
     if isinstance(job.get('engine_runtime'), dict):
@@ -307,7 +314,7 @@ def _render_legacy_job(job_path):
     print(f"Frames in this job: {count}", flush=True)
     print(f"Keyframe position within job: {key_position}", flush=True)
 
-    frames = []
+    frames = array_sequence(numbers=numbers)
     original_shape = None
     size = None
 
@@ -340,7 +347,7 @@ def _render_legacy_job(job_path):
         frames.append(image)
         progress(10 * (index + 1) / count, f"Loading {index + 1}/{count}")
 
-    styles = []
+    styles = array_sequence(numbers=[number for number, _ in style_entries])
     for number, path in style_entries:
         style = read_image(path)
         if style.shape != original_shape:
@@ -363,7 +370,7 @@ def _render_legacy_job(job_path):
     print('[Settings] ' + json.dumps(dict(quality=job['quality'], processing_size=list(size),
         render_options=options, guide_weights=weights, blend_options=blend_options,
         exports=exports), sort_keys=True), flush=True)
-    masks = []
+    masks = array_sequence()
     if options["do_mask"]:
         entries_mask = job.get("masks", [])
         if [entry[0] for entry in entries_mask] != numbers:
@@ -376,7 +383,7 @@ def _render_legacy_job(job_path):
                 mask = cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST)
             masks.append(mask)
 
-    edge_guides = []
+    edge_guides = array_sequence()
     if options['custom_edge_guides']:
         entries_edge = job.get('edge_guides', [])
         if [entry[0] for entry in entries_edge] != numbers:
@@ -427,7 +434,7 @@ def _render_legacy_job(job_path):
             **{name: value for name, value in options.items()
                if name not in ("edge_method", "custom_edge_guides", "memory_efficient_raft",
                                "flow_arch", "flow_model", "ebsynth_backend", "engine",
-                               "temporal_nnf", "sparse_features") and not name.startswith('fuoum_')},
+                               "temporal_nnf", "sparse_features", "stream_frames") and not name.startswith('fuoum_')},
             **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
             **{name: value for name, value in blend_options.items() if not name.startswith('fuoum_')},
         )
@@ -456,7 +463,7 @@ def _render_legacy_job(job_path):
             frame_digests = [array_digest(frame) for frame in cache_frames]
             identity = edge_identity(engine_runtime['engine'], engine_runtime['revision'],
                                      options['edge_method'])
-            cached_edges, missing = [None] * count, []
+            cached_edges, missing = array_sequence([None] * count), []
             for index, digest in enumerate(frame_digests):
                 directory = cache_entry_from_digests(job, 'edges', [digest], identity)
                 value = None if directory is None else load_array(
@@ -467,7 +474,7 @@ def _render_legacy_job(job_path):
                     cached_edges[index] = value
             if missing:
                 computed = precompute_edge_guides(
-                    [cache_frames[index] for index, _ in missing], options['edge_method'])
+                    array_sequence(cache_frames[index] for index, _ in missing), options['edge_method'])
                 for (index, directory), value in zip(missing, computed):
                     cached_edges[index] = value
                     if directory is not None:
@@ -483,16 +490,17 @@ def _render_legacy_job(job_path):
                 flow_identity, load_array, store_array)
             flow_frames = (getattr(runner, 'masked_frs_seq', None)
                            if options['do_mask'] and options['pre_mask'] else frames)
-            flow_numbers = {id(frame): number for frame, number in zip(flow_frames, numbers)}
-            flow_digests = {id(frame): array_digest(frame) for frame in flow_frames} if cache_enabled else {}
+            flow_numbers = number_lookup(flow_frames, numbers)
+            flow_digests = {number: array_digest(frame) for number, frame in zip(numbers, flow_frames)} if cache_enabled else {}
             flow_cache_identity = flow_identity(options, engine_runtime) if cache_enabled else None
             original_compute_flow = runner.rafter._compute_flow
 
             def cached_compute_flow(source, target):
                 nonlocal flow_hits
                 directory = None
+                source_number, target_number = number_of(source, flow_numbers), number_of(target, flow_numbers)
                 if cache_enabled:
-                    source_digest, target_digest = flow_digests[id(source)], flow_digests[id(target)]
+                    source_digest, target_digest = flow_digests[source_number], flow_digests[target_number]
                     directory = cache_entry_from_digests(
                         job, 'flow', [source_digest, target_digest], flow_cache_identity)
                 cached = None if directory is None else load_array(
@@ -504,7 +512,7 @@ def _render_legacy_job(job_path):
                     value = original_compute_flow(source, target)
                     if directory is not None:
                         store_array(directory / 'flow.npy', value)
-                vectors.add(flow_numbers[id(source)], flow_numbers[id(target)], value)
+                vectors.add(source_number, target_number, value)
                 return value
 
             runner.rafter._compute_flow = cached_compute_flow
@@ -519,27 +527,23 @@ def _render_legacy_job(job_path):
         style_lookup = {}
         for sequence in (getattr(runner, 'img_frs_seq', frames),
                          getattr(runner, 'masked_frs_seq', None) or []):
-            frame_lookup.update((id(image), number) for number, image in zip(numbers, sequence))
+            frame_lookup.update(number_lookup(sequence, numbers))
         for sequence in (getattr(runner, 'style_frs', styles),
                          getattr(runner, 'style_masked_frs', None) or []):
-            style_lookup.update((id(image), number) for (number, _), image in zip(style_entries, sequence))
+            style_lookup.update(number_lookup(sequence, [number for number, _ in style_entries]))
         native_seconds = 0.0
         loop_started = last_finished = time.perf_counter()
-        mask_lookup = {}
-        if masks and weights['mask_wgt']:
-            for source_sequence in (getattr(runner, 'img_frs_seq', frames),
-                                    getattr(runner, 'masked_frs_seq', []) or []):
-                for source_frame, mask in zip(source_sequence, masks):
-                    mask_lookup[id(source_frame)] = mask
+        mask_lookup = {number: index for index, number in enumerate(numbers)} if masks and weights['mask_wgt'] else {}
 
         def tracked_run(*args, **kwargs):
             nonlocal completed, native_seconds, last_finished
             if mask_lookup:
                 guides = list(kwargs['guides'])
                 source, target, _ = guides[1]
-                if id(source) not in mask_lookup or id(target) not in mask_lookup:
+                source_number, target_number = number_of(source, frame_lookup), number_of(target, frame_lookup)
+                if source_number not in mask_lookup or target_number not in mask_lookup:
                     raise RuntimeError('Cannot match mask guides to source frames.')
-                guides.append((mask_lookup[id(source)], mask_lookup[id(target)],
+                guides.append((masks[mask_lookup[source_number]], masks[mask_lookup[target_number]],
                                weights['mask_wgt'] / weights['key_wgt']))
                 kwargs['guides'] = guides
             native_started = time.perf_counter()
@@ -554,8 +558,8 @@ def _render_legacy_job(job_path):
             # argument identifies its keyframe, even for reversed/grouped passes.
             guides = kwargs.get('guides', [])
             if args and len(guides) > 1:
-                origin = style_lookup.get(id(args[0]))
-                target = frame_lookup.get(id(guides[1][1]))
+                origin = number_of(args[0], style_lookup)
+                target = number_of(guides[1][1], frame_lookup)
                 if origin is not None and target is not None:
                     direction = 'Backward' if target < origin else 'Forward'
                     preview = preview_publisher.publish(origin, direction, target, result[0])
@@ -651,7 +655,7 @@ def _render_legacy_job(job_path):
 
     vectors.finish()
 
-    (output / "COMPLETE.txt").write_text(
+    completion_path(output).write_text(
         f"Keyframe: {key}\n"
         f"Range: {numbers[0]} to {numbers[-1]}\n"
         f"Saved frames: {count}\n",

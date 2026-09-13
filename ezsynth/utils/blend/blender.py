@@ -2,6 +2,7 @@ import time
 
 import numpy as np
 import tqdm
+from reezsynth_sequence import array_sequence, storage_enabled
 
 from ..flow_utils.warp import Warp
 from .histogram_blend import hist_blender
@@ -38,7 +39,7 @@ class Blend:
         err_masks: list[np.ndarray],
     ):
         # use err_masks with flow to create final err_masks
-        warped_masks = []
+        warped_masks = array_sequence()
         warp = Warp(sample_fr)
 
         for i in tqdm.tqdm(range(len(err_masks)), desc="Warping masks"):
@@ -64,6 +65,15 @@ class Blend:
     def _create_selection_mask(
         self, err_forward_lst: list[np.ndarray], err_backward_lst: list[np.ndarray]
     ) -> list[np.ndarray]:
+        if storage_enabled():
+            if len(err_forward_lst) != len(err_backward_lst):
+                return []
+            result = array_sequence()
+            for forward, backward in zip(err_forward_lst, err_backward_lst):
+                if forward.shape != backward.shape:
+                    return []
+                result.append(np.where(forward < backward, 0, 1).astype(np.uint8))
+            return result
         err_forward = np.array(err_forward_lst)
         err_backward = np.array(err_backward_lst)
 
@@ -89,7 +99,7 @@ class Blend:
         err_masks: list[np.ndarray],
     ) -> list[np.ndarray]:
         st = time.time()
-        hist_blends: list[np.ndarray] = []
+        hist_blends = array_sequence()
         for i in tqdm.tqdm(range(len(err_masks)), desc="Hist blending: "):
             if self.use_gpu:
                 hist_blend = hist_blend_cupy(
@@ -126,5 +136,6 @@ class Blend:
             poisson_maxiter=self.poisson_maxiter,
         )
         final_blends = blends._create()
-        final_blends = [blend for blend in final_blends if blend is not None]
+        if not storage_enabled():
+            final_blends = [blend for blend in final_blends if blend is not None]
         return final_blends

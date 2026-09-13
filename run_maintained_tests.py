@@ -27,6 +27,7 @@ MODULES = (
     "test_reezsynth_queue_recovery",
     "test_reezsynth_precompute_cache",
     "test_reezsynth_video_export",
+    "test_reezsynth_sequence",
 )
 
 

@@ -3,6 +3,43 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Bounded frame storage verified (2026-09-12)
+
+- Added opt-in disk-backed source, style, mask, edge, intermediate and result
+  arrays for both video engines. The decoded cache is limited to 64 MiB/eight
+  arrays. Full propagation and grouped boundaries are preserved; slices share
+  immutable references and explicit frame identities survive eviction. Legacy
+  selection/reconstruction and FuouM sparse guides/passes/reconstruction avoid
+  whole-clip pixel allocations. Details and limits: FRAME_STORAGE.md.
+- The 11-frame Standard matrix passed for both engines with maps, visual and
+  numerical flow exports, video encoding and bidirectional FuouM:
+  `quality_20260912_171451_703914`. Each decoded-cache peak was 2,359,296 bytes.
+- FuouM's 19-case Standard matrix at 257x145 passed with masks/custom edges,
+  PST/PAGE, direction modes, temporal/sparse toggles, SSD/NCC, all reconstruction
+  solvers and three NeuFlow checkpoints:
+  `release_fuoum_20260912_171533_939907`. Legacy's six-case Standard matrix passed
+  masks/custom edges, directions and compiled RAFT:
+  `release_legacy_20260912_171721_464871`.
+- A 101-frame FuouM Preview video/grouped pair passed in 16.875/21.125 seconds:
+  `release_fuoum_20260912_171816_458952`. Both decoded-cache peaks remained
+  2,359,296 bytes. Scratch writes were 148,222,720 / 259,605,376 bytes, cleaned on
+  completion. Process-tree RSS after the jobs was about 1,606 / 1,632 MiB;
+  these measurements include native/runtime memory beyond the decoded cache.
+- Real 13-frame GUI preview/cache-reuse checks passed for both engines:
+  `gui_controller_20260912_171924_604873` (Legacy) and
+  `gui_controller_20260912_172011_471202` (FuouM). A 24-frame FuouM cancellation
+  after native synthesis and subsequent restart passed:
+  `gui_controller_20260912_172128_932523`. Forced termination can retain private
+  scratch data in an incomplete output; restart uses a new output folder.
+- Completion publication is deferred until scratch cleanup succeeds. Tests
+  cover cache eviction/bounds, lossless values, source identities, exact legacy
+  sequence boundaries, exception cleanup and cleanup failure. The final canonical
+  suite passed **277 tests in 36.027 seconds**.
+- Numeric/advanced-control decisions are recorded in NUMERIC_SETTINGS.md.
+  Per-level iteration lists, modulation-channel input and alternate FuouM
+  synthesis backend remain deferred; overnight/production/other-hardware and
+  release validation remain separate outstanding work.
+
 ## Bidirectional flow and numerical exports verified (2026-09-12)
 
 - FuouM now offers opt-in independently estimated forward/backward RAFT or

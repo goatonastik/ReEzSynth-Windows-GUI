@@ -334,6 +334,11 @@ independently estimated FuouM flow directions, and `--fuoum-flow-engine NeuFlow`
 to exercise NeuFlow. In Rendering, **Estimate both flow directions** is opt-in;
 **Export numerical flow vectors** saves lossless dx/dy arrays and explicit frame
 direction metadata under `flow_vectors/`.
+Rendering also has an opt-in **Store clip frames on disk to limit RAM** switch.
+It keeps complete propagation/blending sequences while using a bounded decoded
+array cache and temporary disk storage. It needs additional disk space and I/O;
+per-frame GPU requirements are unchanged. See [FRAME_STORAGE.md](FRAME_STORAGE.md)
+for its memory scope, cleanup behavior and diagnostic commands.
 For small real CUDA checks of the frontend adapter, run
 `python -B diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
 `python -B diagnose_reezsynth_adapter.py --image` for Image Synthesis, or

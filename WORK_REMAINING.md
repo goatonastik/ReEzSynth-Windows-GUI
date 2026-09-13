@@ -124,9 +124,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
      checkpoint hashes, processed input content and resolution. Arrays are
      validated and atomically published; FuouM and Legacy reuse memory-mapped
      flows. Unit/adapter tests and two-run real GUI checks passed for both engines.
-   - [ ] True chunked/streaming source, style and result-frame processing remains
-     a separate redesign for very long clips. Current memory mapping reduces flow
-     residency without changing keyframe-boundary or grouped-blending semantics.
+   - [x] Optional disk-backed source/style/intermediate/result processing for both
+     engines, with a 64 MiB/eight-array decoded cache. Full sequence propagation
+     and grouped boundaries are preserved. A 101-frame FuouM video/grouped pair
+     retained the same decoded-cache peak as 11-frame cases. See FRAME_STORAGE.md
+     for per-frame native-memory, disk-space and forced-termination limits.
 6. [x] **GPU-aware parallel scheduling:** parallel admission now combines current
    NVIDIA free-memory telemetry with conservative per-job VRAM reservations based
    on processed resolution, engine, flow path and GPU blending. Zero selects
@@ -168,7 +170,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
     push/PR checks. Real Legacy/FuouM diagnostics require an explicit manual input
     and a preconfigured self-hosted `reezsynth-gpu` runner. The canonical command
     initially passed all 258 tests locally both normally and with the CI environment
-    flags; the expanded suite now passes 263 tests after adding the harness coverage;
+    flags; the suite has since expanded with flow and bounded-storage regressions;
     the workflow itself remains unrun until this commit is pushed to GitHub.
 
 ### Excluded by user preference
@@ -201,10 +203,15 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite through the canonical CI runner: 270 maintained tests passed in 35.192 seconds with
+- Full suite through the canonical CI runner: 277 maintained tests passed in 36.027 seconds with
   normal temporary-directory/Qt access. Both cache publication races are now fixed;
   50 concurrent-producer stress rounds also passed. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
+- Optional bounded frame storage passed a two-engine Standard matrix, 19 FuouM
+  and six Legacy extended cases, both GUI cache-reuse checks, and FuouM GUI
+  cancellation/restart. A 101-frame video/grouped pair kept the decoded-cache peak
+  at 2,359,296 bytes, matching the 11-frame sample. Native memory is additional;
+  exact reports and scratch-space observations are in PROJECT_STATUS.md.
 - Automatic GPU-aware admission also passed a real two-job 512x288 FuouM GUI run.
   Each worker reserved an estimated 2.4 GiB against 28.2 GiB initially free with a
   3.2 GiB safety reserve; both completed, logged their PIDs/resource snapshots and
@@ -234,3 +241,14 @@ Setup/capabilities: [DUAL_ENGINE.md](DUAL_ENGINE.md).
 Numeric/indexing decisions: [NUMERIC_SETTINGS.md](NUMERIC_SETTINGS.md).
 Release gates: [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
 Detailed evidence: [PROJECT_STATUS.md](PROJECT_STATUS.md).
+
+## Next model handoff
+
+The backward-flow/vector-export and bounded-storage implementation checkpoints
+are finished. A lower-reasoning model can handle routine campaign execution,
+report collection and documentation updates. Remaining evidence needs an actual
+overnight run, representative production frame/keyframe folders, and another
+Windows/GPU system. Remote CI has not run because these commits are not pushed.
+Keep a high-reasoning model for any new per-level iteration schema, modulation
+channel workflow or alternate synthesis-backend implementation; those features
+are still deferred, with their mapping constraints in NUMERIC_SETTINGS.md.

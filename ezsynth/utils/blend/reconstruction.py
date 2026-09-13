@@ -5,6 +5,7 @@ import numpy as np
 import scipy.sparse
 import scipy.sparse.linalg
 import tqdm
+from reezsynth_sequence import array_sequence, storage_enabled
 
 try:
     from .cupy_accelerated import construct_A_cupy, poisson_fusion_cupy
@@ -42,7 +43,8 @@ class reconstructor:
     def _create(self):
         num_blends = len(self.hist_blends)
         h, w, c = self.hist_blends[0].shape
-        self.blends = np.zeros((num_blends, h, w, c))
+        self.blends = (array_sequence([None] * num_blends) if storage_enabled()
+                       else np.zeros((num_blends, h, w, c)))
 
         a = construct_A(h, w, [2.5, 0.5, 0.5], self.use_gpu, self.use_poisson_cupy)
         for i in tqdm.tqdm(range(num_blends)):

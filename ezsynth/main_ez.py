@@ -2,6 +2,7 @@ import time
 
 import numpy as np
 import tqdm
+from reezsynth_sequence import array_sequence
 
 from .aux_flow_viz import flow_to_image
 
@@ -149,9 +150,9 @@ class EzsynthBase:
 
         no_skip_rev = False
 
-        stylized_frames = []
-        err_frames = []
-        flow_frames = []
+        stylized_frames = array_sequence()
+        err_frames = array_sequence()
+        flow_frames = array_sequence()
 
         img_seq = (
             self.masked_frs_seq
@@ -202,7 +203,7 @@ class EzsynthBase:
                 self.img_frs_seq, stylized_frames, self.msk_frs_seq, self.cfg.feather
             )
 
-        final_flows: list[np.ndarray] = []
+        final_flows = array_sequence()
         if return_flow:
             for flow in tqdm.tqdm(flow_frames, desc="Converting flows"):
                 final_flows.append(flow_to_image(flow, convert_to_bgr=True))

@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import tqdm
+from reezsynth_sequence import array_sequence
 
 from .aux_classes import PositionalGuide, RunConfig
 from .utils._ebsynth import ebsynth
@@ -20,8 +21,8 @@ def run_a_pass(
     rafter: RAFT_flow,
     eb: ebsynth,
 ):
-    stylized_frames: list[np.ndarray] = [style]
-    err_list: list[np.ndarray] = []
+    stylized_frames = array_sequence([style])
+    err_list = array_sequence()
     ORIGINAL_SIZE = img_frs_seq[0].shape[1::-1]
 
     start, end, step, is_forward = (
@@ -29,8 +30,8 @@ def run_a_pass(
     )
     warp = Warp(img_frs_seq[start])
     print(f"{'Forward' if is_forward else 'Reverse'} mode. {start=}, {end=}, {step=}")
-    flows = []
-    poses = []
+    flows = array_sequence()
+    first_poster = None
     pos_guider = PositionalGuide()
 
     for i in tqdm.tqdm(range(start, end, step), "Generating"):
@@ -38,7 +39,8 @@ def run_a_pass(
         flows.append(flow)
 
         poster = pos_guider.create_from_flow(flow, ORIGINAL_SIZE, warp)
-        poses.append(poster)
+        if first_poster is None:
+            first_poster = poster
         warped_img = get_warped_img(stylized_frames, ORIGINAL_SIZE, step, warp, flow)
 
         stylized_img, err = eb.run(
@@ -46,7 +48,7 @@ def run_a_pass(
             guides=[
                 (edge[start], edge[i + step], cfg.edg_wgt),  # Slower with premask
                 (img_frs_seq[start], img_frs_seq[i + step], cfg.img_wgt),
-                (poses[0], poster, cfg.pos_wgt),
+                (first_poster, poster, cfg.pos_wgt),
                 (style, warped_img, cfg.wrp_wgt),  # Slower with premask
             ],
         )

@@ -43,6 +43,27 @@ guaranteed to survive a GUI round trip unchanged. Advanced low-level inputs such
 as per-level arrays and detector-internal tuning need a deliberate adapter/API design.
 No render defaults were changed by this audit.
 
+## Advanced controls reviewed after the flow/storage work (2026-09-12)
+
+Numerical flow export and opt-in bounded frame storage are now implemented. The
+remaining low-level options keep their previous documented limits:
+
+- Per-level iteration lists require a new schema defining coarse-to-fine order
+  and what happens when patch geometry clamps the pyramid depth. Legacy currently
+  broadcasts scalars into native C-int arrays; FuouM's config and backend accept
+  scalar iteration counts. A shared array-valued editor alone would be misleading.
+- Six-decimal editors remain deliberate; native float conversion cannot provide
+  arbitrary decimal precision. Higher-precision UI round trips need a separate
+  representation policy before widening the editors.
+- Modulation data is per-guide-channel target-grid data in the native interface.
+  Legacy currently supplies NULL, and FuouM's sequence pass does not pass the
+  data-manager modulation frames into synthesis. A usable workflow needs explicit
+  channel mapping, image/video shape validation and native tests.
+- FuouM's PyTorch synthesis backend uses a separate patch-search implementation
+  and optional residual-transfer path. Its availability in source does not
+  establish equivalence with the validated CUDA backend. It remains unexposed
+  pending dedicated correctness/performance tests.
+
 ## Dual-engine decisions (2026-09-12)
 
 - Keep scalar iteration controls and existing six-decimal policy caps; do not

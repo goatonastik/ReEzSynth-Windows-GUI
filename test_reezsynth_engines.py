@@ -189,6 +189,8 @@ class EngineGuiTests(GuiFixture):
         controls = o.widgets['render']
         controls['flow_model'].setCurrentText('kitti')
         controls['engine'].setCurrentText(FUOUM)
+        controls['fuoum_bidirectional_flow'].setChecked(True)
+        controls['stream_frames'].setChecked(True)
         controls['fuoum_raft_model'].setCurrentText('sintel')
         self.assertFalse(controls['flow_model'].isEnabled())
         self.assertTrue(controls['fuoum_raft_model'].isEnabled())
@@ -203,6 +205,8 @@ class EngineGuiTests(GuiFixture):
         o.apply('render', o.store.groups['render']['Flow split'])
         self.assertEqual(o.render()['fuoum_flow_engine'], 'NeuFlow')
         self.assertEqual(o.render()['fuoum_raft_model'], 'sintel')
+        self.assertTrue(o.render()['fuoum_bidirectional_flow'])
+        self.assertTrue(o.render()['stream_frames'])
         self.assertFalse(w.grouped.poisson_gpu.isEnabled())
 
     def test_engine_and_options_round_trip_in_presets(self):

@@ -1,11 +1,12 @@
 import cv2
 import numpy as np
 import tqdm
+from reezsynth_sequence import array_sequence, copy_number
 
 
 def apply_mask(image: np.ndarray, mask: np.ndarray):
     masked_image = cv2.bitwise_and(image, image, mask=mask)
-    return masked_image.astype(np.uint8)
+    return copy_number(masked_image.astype(np.uint8), image)
 
 
 def apply_masks(images: list[np.ndarray], masks: list[np.ndarray]):
@@ -14,7 +15,7 @@ def apply_masks(images: list[np.ndarray], masks: list[np.ndarray]):
     if len_img != len_msk:
         raise ValueError(f"[{len_img=}], [{len_msk=}]")
 
-    masked_images = []
+    masked_images = array_sequence()
     for i in range(len_img):
         masked_images.append(apply_mask(images[i], masks[i]))
 
@@ -24,7 +25,7 @@ def apply_masks(images: list[np.ndarray], masks: list[np.ndarray]):
 def apply_masks_idxes(
     images: list[np.ndarray], masks: list[np.ndarray], img_idxes: list[int]
 ):
-    masked_images = []
+    masked_images = array_sequence()
     for i, idx in enumerate(img_idxes):
         masked_images.append(apply_mask(images[i], masks[idx]))
     return masked_images
@@ -76,7 +77,7 @@ def apply_masked_back_seq(
     if len_img != len_stl != len_msk:
         raise ValueError(f"Lengths not match. [{len_img=}, {len_stl=}, {len_msk=}]")
 
-    backed_seq = []
+    backed_seq = array_sequence()
 
     for i in tqdm.tqdm(range(len_img), desc="Adding masked back"):
         backed_seq.append(

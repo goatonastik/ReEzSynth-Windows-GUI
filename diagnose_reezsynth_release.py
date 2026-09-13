@@ -38,7 +38,7 @@ def selected_keyframes(frames, anchors, style_family):
 
 
 def make_jobs(base, engine, count, repeats, extended, style_family='poster', images=False,
-              size=(256, 144), quality='Preview', bidirectional=False):
+              size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False):
     inputs = base / 'inputs'
     inputs.mkdir()
     sources = sorted((ROOT / 'examples/input').glob('*.jpg'))
@@ -68,7 +68,7 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
         masks.append([100 + i, write(inputs / f'mask_{i:04d}.png', mask)])
         edges.append([100 + i, write(inputs / f'edge_{i:04d}.png', cv2.Canny(image, 50, 150))])
     options = validate_render(dict(quality_profile(quality), engine=engine,
-                                   fuoum_bidirectional_flow=bidirectional))
+                                   fuoum_bidirectional_flow=bidirectional, stream_frames=stream_frames))
     runtime = prepare_runtime(options, {})
     cases = [('video', {}, {}), ('grouped', {}, {})]
     if extended:
@@ -169,11 +169,12 @@ def verify(label, job):
 
 
 def run(engine, count, repeats, extended, style_family='poster', images=False,
-        size=(256, 144), quality='Preview', bidirectional=False):
+        size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False):
     base = ROOT / 'diagnostic_outputs' / ('release_' + ('fuoum' if engine == FUOUM else 'legacy') +
                                          '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
-    runtime, jobs = make_jobs(base, engine, count, repeats, extended, style_family, images, size, quality, bidirectional)
+    runtime, jobs = make_jobs(base, engine, count, repeats, extended, style_family, images, size, quality,
+                              bidirectional, stream_frames)
     process = subprocess.Popen([runtime['python'], '-B', '-X', 'utf8', '-u', str(ROOT / 'reezsynth_shared_worker.py')],
         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding='utf-8', errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -189,7 +190,7 @@ def run(engine, count, repeats, extended, style_family='poster', images=False,
     thread = threading.Thread(target=reader, daemon=True)
     thread.start()
     report = dict(engine=engine, frames=count, repeats=repeats, style_family=style_family,
-                  quality=quality, size=size, bidirectional=bidirectional,
+                  quality=quality, size=size, bidirectional=bidirectional, stream_frames=stream_frames,
                   gpu_before=gpu_memory(), jobs=[], passed=False)
     stop_samples, samples = threading.Event(), []
     def sample_gpu():
@@ -244,6 +245,7 @@ if __name__ == '__main__':
     parser.add_argument('--style', choices=['poster', 'painting', 'flat'], default='poster')
     parser.add_argument('--quality', choices=['Preview', 'Standard', 'Highest'], default='Preview')
     parser.add_argument('--bidirectional', action='store_true', help='Estimate both FuouM flow directions.')
+    parser.add_argument('--stream-frames', action='store_true', help='Use disk-backed clip arrays.')
     parser.add_argument('--images', action='store_true', help='Include three multiguide image retargeting examples.')
     parser.add_argument('--size', nargs=2, type=int, default=[256, 144], metavar=('WIDTH', 'HEIGHT'))
     args = parser.parse_args()
@@ -252,4 +254,4 @@ if __name__ == '__main__':
     if min(args.size) < 128:
         parser.error('Multi-frame flow requires dimensions of at least 128 pixels.')
     run(FUOUM if args.engine == 'fuoum' else LEGACY, args.frames, args.repeats, args.extended,
-        args.style, args.images, tuple(args.size), args.quality, args.bidirectional)
+        args.style, args.images, tuple(args.size), args.quality, args.bidirectional, args.stream_frames)

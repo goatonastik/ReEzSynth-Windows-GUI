@@ -81,6 +81,7 @@ def main(argv=None):
     parser.add_argument("--engine", choices=("legacy", "fuoum", "both"), default="both")
     parser.add_argument("--quality", choices=("Standard", "Highest", "both"), default="both")
     parser.add_argument("--bidirectional", action="store_true", help="Use independently estimated FuouM flow directions.")
+    parser.add_argument("--stream-frames", action="store_true", help="Store clip arrays on disk with bounded decoded caching.")
     parser.add_argument("--fuoum-flow-engine", choices=("RAFT", "NeuFlow"), default="RAFT")
     parser.add_argument("--size", nargs=2, type=int, metavar=("WIDTH", "HEIGHT"),
                         help="Optional exact processing size; default keeps original resolution.")
@@ -100,7 +101,7 @@ def main(argv=None):
                 keyframe_dir=str(Path(args.keyframe_dir).resolve()),
                 mask_dir=str(Path(args.mask_dir).resolve()) if args.mask_dir else None,
                 frames=len(video), keyframes=sorted(keys), processing_size=args.size,
-                fps=args.fps, cases=cases, bidirectional=args.bidirectional,
+                fps=args.fps, cases=cases, bidirectional=args.bidirectional, stream_frames=args.stream_frames,
                 fuoum_flow_engine=args.fuoum_flow_engine,
                 review_focus=["styled-keyframe boundaries", "occlusion", "fast motion",
                               "fine detail", "temporal stability", "feathered mask edges"])
@@ -122,6 +123,7 @@ def main(argv=None):
         engine = engine_names[case["engine"]]
         options = validate_render(dict(quality_profile(case["quality"]), engine=engine,
                                        fuoum_bidirectional_flow=args.bidirectional,
+                                       stream_frames=args.stream_frames,
                                        fuoum_flow_engine=args.fuoum_flow_engine,
                                        do_mask=bool(masks), feather=9 if masks else 0))
         application = dict(fuoum_source=args.fuoum_source, fuoum_python=args.fuoum_python)

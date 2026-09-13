@@ -26,7 +26,7 @@ RENDER = dict(engine=LEGACY, **STANDARD, edge_method="Classic", do_mask=False, p
               fuoum_vote_mode="weighted", fuoum_cost_function="ssd", fuoum_stop_threshold=5,
               fuoum_search_pruning_threshold=50.0, fuoum_sparse_anchor_weight=10.0,
               fuoum_flow_engine='RAFT', fuoum_neuflow_model='neuflow_sintel', fuoum_raft_model='sintel',
-              fuoum_bidirectional_flow=False)
+              fuoum_bidirectional_flow=False, stream_frames=False)
 APPLICATION = dict(discover=False, keys_prefix="keys", video_prefix="video",
     auto_start=False, wait_for_mask=False, parallel=False, parallel_limit=2,
     sound_enabled=True, sound_each=False, sound_queue=True, sound_file="",

@@ -4,6 +4,7 @@ Keep frame/error correspondence explicit; retain styled keyframes exactly.
 Imported only by the FuouM worker, except for the engine-independent planner.
 """
 from types import SimpleNamespace
+from reezsynth_sequence import array_sequence, storage_enabled
 
 
 def segments(count, indices):
@@ -23,7 +24,7 @@ def work_count(count, indices, mode='none'):
 
 def run_sequences(pipeline, frames, styles, indices, mode, blend_frames, on_pass):
     """Pass errors omit their origin keyframe; intersect by target frame number."""
-    output = [None] * len(frames)
+    output = array_sequence([None] * len(frames))
     for number, (start, end, kind, left, right) in enumerate(segments(len(frames), indices)):
         seq = SimpleNamespace(start_frame=start, end_frame=end)
         def run(forward):
@@ -40,7 +41,9 @@ def run_sequences(pipeline, frames, styles, indices, mode, blend_frames, on_pass
                            else pipeline._fwd_flows)
             middle = blend_frames(fwd[0][1:-1], rev[0][1:-1], fwd[1][:-1], rev[1][1:],
                                   blend_flows[start + 1:end - 1])
-            rendered = [styles[left], *middle, styles[right]]
+            rendered = array_sequence([styles[left]])
+            rendered.extend(middle)
+            rendered.append(styles[right])
         else:
             forward = (mode == 'forward') if kind == 'blend' else kind == 'forward'
             rendered = run(forward)[0]
@@ -76,7 +79,7 @@ def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config, *, pull_flows
         return []
     h, w = fwd[0].shape[:2]
     warp = Warp(h, w)
-    masks, hist = [], []
+    masks, hist = array_sequence(), array_sequence()
     previous = None
     for i, (a, b, ea, eb) in enumerate(zip(fwd, rev, fwd_errors, rev_errors)):
         mask = (np.asarray(ea) >= np.asarray(eb)).astype(np.uint8)
@@ -104,6 +107,15 @@ def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config, *, pull_flows
     if settings['poisson_solver'] == 'amg' and maximum is None:
         maximum = 100
     class AlignedReconstructor(Reconstructor):
+        def run(self, hist_blends, forward, backward, error_masks):
+            if not storage_enabled():
+                return super().run(hist_blends, forward, backward, error_masks)
+            result = array_sequence()
+            for index in range(len(hist_blends)):
+                result.append(super().run([hist_blends[index]], [forward[index]],
+                    [backward[index]], [error_masks[index]])[0])
+            return result
+
         def _prepare_cache_for_size(self, h, w):
             if (h, w) not in self._cache:
                 cache = {}
@@ -145,18 +157,37 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
         if cache_enabled else [None] * len(frame_digests))
 
     class FrontendPipeline(SynthesisPipeline):
+        def _compute_all_data(self, frames):
+            if not storage_enabled():
+                return super()._compute_all_data(frames)
+            self._compute_optical_flow(frames)
+            self._compute_edge_maps(frames)
+            if config.pipeline.use_sparse_feature_guide:
+                from ezsynth.utils.feature_utils import generate_tracked_features, render_gaussian_guide
+                tracked = generate_tracked_features(frames[0], self._fwd_flows)
+                h, w = frames[0].shape[:2]
+                self._sparse_guides = array_sequence(render_gaussian_guide(h, w, points) for points in tracked)
+
         def _compute_edge_maps(self, frames):
             if edges:
                 self._edge_maps = edges
                 return
             shape = (*frames[0].shape[:2], 3)
-            cached = [None if directory is None else load_array(
-                directory / 'edge.npy', shape, kinds=('u', 'i')) for directory in edge_directories]
+            cached = array_sequence(None if directory is None else load_array(
+                directory / 'edge.npy', shape, kinds=('u', 'i')) for directory in edge_directories)
             if all(value is not None for value in cached):
                 self._edge_maps = cached
                 print(f'[Cache] Reused {len(cached)} validated edge maps.', flush=True)
                 return
-            super()._compute_edge_maps(frames)
+            if storage_enabled():
+                from ezsynth.engines.edge_engine import EdgeEngine
+                engine = EdgeEngine(method=config.precomputation.edge_method)
+                for index, frame in enumerate(frames):
+                    if cached[index] is None:
+                        cached[index] = engine.compute([frame])[0]
+                self._edge_maps = cached
+            else:
+                super()._compute_edge_maps(frames)
             for directory, value in zip(edge_directories, self._edge_maps):
                 if directory is not None:
                     store_array(directory / 'edge.npy', value)
@@ -174,7 +205,7 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
             h, w = frames[0].shape[:2]
             neuflow = config.precomputation.flow_engine == 'NeuFlow'
             engine, hits = None, 0
-            self._fwd_flows, self._bwd_flows = [], []
+            self._fwd_flows, self._bwd_flows = array_sequence(), array_sequence()
             try:
                 for index in range(len(frames) - 1):
                     directions = [(index, index + 1, self._fwd_flows)]
@@ -213,6 +244,9 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
             if bidirectional:
                 from reezsynth_flow import run_bidirectional_pass
                 return run_bidirectional_pass(self, seq, style_img, is_forward, content_frames)
+            if storage_enabled():
+                from reezsynth_flow import run_compatible_pass
+                return run_compatible_pass(self, seq, style_img, is_forward, content_frames)
             return super()._run_a_pass(seq, style_img, is_forward, content_frames)
 
         def _run_synthesis(self, content_frames, style_frames):
