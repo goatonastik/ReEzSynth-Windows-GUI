@@ -14,6 +14,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import check_reezsynth_engines
+import diagnose_reezsynth_quality
+import diagnose_reezsynth_stability
 import run_maintained_tests
 
 from check_reezsynth import EF_RAFT_MODELS, FLOW_DIFFUSION_MODEL, flow_extra_readiness, verify_assets
@@ -27,6 +29,28 @@ ROOT = Path(__file__).resolve().parent
 
 
 class SetupTests(unittest.TestCase):
+    def test_stability_campaign_plan_is_no_write_and_covers_both_engines(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            result = diagnose_reezsynth_stability.main([
+                '--plan', '--cycles', '1', '--hours', '1', '--frames', '3'])
+        plan = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual({case['engine'] for case in plan['cases']}, {'legacy', 'fuoum'})
+        self.assertTrue(all('--quality' in case['command'] for case in plan['cases']))
+
+    def test_quality_campaign_plan_validates_bundled_numbered_inputs(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            result = diagnose_reezsynth_quality.main([
+                '--plan', '--video-dir', str(ROOT / 'examples/input'),
+                '--keyframe-dir', str(ROOT / 'examples/gui_keyframes_v03'),
+                '--size', '256', '144'])
+        plan = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(plan['frames'], 11)
+        self.assertEqual(plan['keyframes'], [0, 6, 10])
+        self.assertEqual(len(plan['cases']), 4)
+        self.assertIn('temporal stability', plan['review_focus'])
+
     def test_maintained_runner_excludes_upstream_and_real_gpu_diagnostics(self):
         self.assertIn('test_reezsynth_gui', run_maintained_tests.MODULES)
         self.assertIn('test_reezsynth_video_export', run_maintained_tests.MODULES)

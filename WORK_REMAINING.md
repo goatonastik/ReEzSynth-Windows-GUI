@@ -150,11 +150,17 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 9. [ ] **Stronger quality/stability evidence:** overnight repeated-job testing,
     isolated performance comparisons, multi-GPU coverage, and investigation of
     true backward flow in place of FuouM's negative-forward-flow approximation.
+    Automated stability and user-input quality-matrix harnesses are now present.
+    A bounded six-case alternating-engine run passed with post-exit GPU drift no
+    higher than 292 MiB. Separate 11-frame Standard renders passed for both engines;
+    the run exposed and fixed FuouM's final-3x3 missing-mode bug. Overnight,
+    multi-GPU and broader visual review remain open.
 10. [x] **Automated regression checks:** a canonical maintained-suite runner and
     Windows GitHub Actions workflow now use CPU PyTorch with CUDA hidden for normal
     push/PR checks. Real Legacy/FuouM diagnostics require an explicit manual input
     and a preconfigured self-hosted `reezsynth-gpu` runner. The canonical command
-    passed all 258 tests locally both normally and with the CI environment flags;
+    initially passed all 258 tests locally both normally and with the CI environment
+    flags; the expanded suite now passes 263 tests after adding the harness coverage;
     the workflow itself remains unrun until this commit is pushed to GitHub.
 
 ### Excluded by user preference
@@ -187,8 +193,9 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite through the canonical CI runner: 258 maintained tests passed in 35.498 seconds with
-  normal temporary-directory/Qt access. Focused recovery/cache selections, a real
+- Full suite through the canonical CI runner: 263 maintained tests passed in 35.050 seconds with
+  normal temporary-directory/Qt access. One initial Windows cache-publisher sharing
+  violation passed three immediate focused reruns before the clean full run. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
 - Automatic GPU-aware admission also passed a real two-job 512x288 FuouM GUI run.
   Each worker reserved an estimated 2.4 GiB against 28.2 GiB initially free with a
@@ -205,6 +212,12 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
   Completion, previews, image errors, numbering, worker exit and the new component
   hashes were verified; these small runs did not enable video auxiliary exports.
   Exact retained diagnostic names and limits are in PROJECT_STATUS.md.
+- The new bounded stability campaign passed all six Legacy/FuouM and
+  painting/poster/flat cases at 128x128 Preview. Post-exit GPU drift ranged from
+  154 to 292 MiB. Retained report: `stability_20260912_165159_943355`.
+- Standard 256x144 quality renders passed on the bundled 11-frame/three-key input
+  for Legacy and FuouM. The retained FuouM pass is
+  `quality_20260912_165006_794209`; general visual judgment is still manual.
 - The earlier default-setup verification passed 26 setup tests, real combined
   check-only, and a no-write compiler prerequisite check. No installed engine was
   replaced during the local-review fixes. Clean-machine testing remains open.

@@ -320,7 +320,15 @@ weights. Audio playback is mocked. The older
 test discovery for this lightweight suite.
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for results and remaining manual checks.
-Real GPU memory use, rendering quality and native audio playback remain unverified.
+Bounded GPU memory and output checks have passed; overnight/multi-GPU stability,
+general visual-quality review and native audio playback remain unverified.
+Use `python -B diagnose_reezsynth_stability.py --plan` to inspect the alternating
+Legacy/FuouM campaign, then omit `--plan` for the default eight-hour run. Use
+`--cycles 1` for one bounded pass through painting, poster and flat styles.
+For user-supplied numbered frames and styled keyframes, run
+`python -B diagnose_reezsynth_quality.py --video-dir <frames> --keyframe-dir <keys> --plan`,
+review the matrix, then omit `--plan` to render Standard and Highest outputs from
+both engines with videos, raw maps, flow visualizations and boundary metrics.
 For small real CUDA checks of the frontend adapter, run
 `python -B diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
 `python -B diagnose_reezsynth_adapter.py --image` for Image Synthesis, or

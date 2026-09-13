@@ -14,14 +14,21 @@ from unittest.mock import patch
 import numpy as np
 from reezsynth_config import RENDER, STANDARD, validate_render, validate_group
 from reezsynth_engines import LEGACY, FUOUM, FUOUM_REVISION, ROOT, prepare_runtime, validate_capabilities, activate_fuoum
-from reezsynth_fuoum import build_configs, native_guides
+from reezsynth_fuoum import (build_configs, install_final_pass_compatibility,
+                             native_guides, render_cache)
 from reezsynth_engine_setup import (configured_runtime, readiness_command,
                                     rebuild_command, version_summary)
 from test_reezsynth_gui import GuiFixture
 from test_reezsynth_lifecycle import LifecycleFixture
+from diagnose_reezsynth_release import selected_keyframes
 
 
 class EngineTests(unittest.TestCase):
+    def test_short_painting_diagnostic_uses_enough_grouped_keyframes(self):
+        frames = [[100, 'a'], [101, 'b'], [102, 'c']]
+        self.assertEqual(selected_keyframes(frames, [100], 'painting'), [100, 101, 102])
+        self.assertEqual(selected_keyframes(frames, [100, 106], 'painting'), [100, 106])
+
     def test_engine_setup_commands_use_configured_pinned_runtimes(self):
         application = {'fuoum_source': 'D:/custom/source',
                        'fuoum_python': 'D:/custom/venv/Scripts/python.exe'}
@@ -120,6 +127,29 @@ class EngineTests(unittest.TestCase):
         np.testing.assert_array_equal(target[:, :, 0], gray[:, ::-1])
         self.assertTrue(target.flags.c_contiguous)
         self.assertEqual(weight, .25)
+
+    def test_fuoum_final_pass_missing_modes_are_repaired_and_restorable(self):
+        calls = []
+        backend = types.SimpleNamespace(run_level=lambda *args, **kwargs: calls.append((args, kwargs)))
+        config = types.SimpleNamespace(vote_mode='weighted', cost_function='ncc')
+        engine = types.SimpleNamespace(
+            backend=backend, ebsynth_config=config,
+            vote_mode_map={'weighted': 7}, cost_function_map={'ncc': 9})
+        original = install_final_pass_compatibility(engine)
+        arguments = list(range(16))
+        arguments[9] = arguments[14] = None
+        backend.run_level(*arguments)
+        self.assertEqual(calls[0][0][9], 7)
+        self.assertEqual(calls[0][0][14], 9)
+        backend.run_level = original
+        self.assertIs(backend.run_level, original)
+
+    def test_fuoum_render_cache_is_writable_and_cleaned(self):
+        with render_cache(ROOT) as cache:
+            cache = Path(cache)
+            (cache / 'probe').write_text('ok', encoding='utf-8')
+            self.assertTrue((cache / 'probe').is_file())
+        self.assertFalse(cache.exists())
 
     def test_namespace_collision_is_rejected(self):
         runtime = dict(engine=FUOUM, revision=FUOUM_REVISION, source=str(ROOT), python=sys.executable)

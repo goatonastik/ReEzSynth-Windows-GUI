@@ -3,6 +3,30 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Quality and stability harnesses added (2026-09-12)
+
+- `diagnose_reezsynth_stability.py` alternates both engines across painting,
+  poster and flat styles, records each child report and GPU baseline/drift, and
+  supports bounded cycles or a deadline-based overnight campaign. A bounded
+  128x128 Preview cycle passed all six cases; post-exit drift was 154-292 MiB.
+  Retained report: `diagnostic_outputs/stability_20260912_165159_943355`.
+- `diagnose_reezsynth_quality.py` validates user-supplied numbered frames,
+  keyframes and optional masks, then produces a both-engine Standard/Highest
+  review matrix with videos, auxiliary maps/flow and descriptive key-boundary
+  metrics. Legacy and FuouM Standard both passed the bundled 11-frame input at
+  256x144. Retained FuouM report: `quality_20260912_165006_794209`.
+- That Standard FuouM run exposed two integration defects now covered by tests:
+  the pinned engine supplied `None` modes to its optional final 3x3 CUDA pass,
+  and Python temporary-directory ACL tightening could lock an isolated Windows
+  worker out of its cache. The adapter now repairs only missing final-pass modes
+  and uses a unique normally inherited cache directory with cleanup.
+- These are bounded functional observations. Overnight/multi-GPU behavior and
+  general visual-quality conclusions remain unverified.
+- The expanded canonical suite passed **263 tests in 35.050 seconds**. One earlier
+  run encountered an intermittent Windows sharing violation in the pre-existing
+  parallel cache-publisher test; that test passed three immediate repetitions and
+  the subsequent complete suite passed.
+
 ## Maintained-suite CI added (2026-09-12)
 
 - `run_maintained_tests.py` is now the single canonical module list, excluding the

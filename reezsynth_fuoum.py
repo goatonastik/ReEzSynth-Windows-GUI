@@ -1,7 +1,9 @@
 """Adapter for the pinned FuouM engine, executed only in its own worker runtime."""
 from pathlib import Path
-import tempfile
+from contextlib import contextmanager
+import shutil
 import time
+import uuid
 
 from reezsynth_engines import (FUOUM, activate_fuoum, preflight_flow,
                                validate_capabilities, write_engine_manifest)
@@ -41,6 +43,40 @@ def native_guides(pairs):
     def hwc(image):
         return np.ascontiguousarray(image[:, :, None] if image.ndim == 2 else image)
     return [(hwc(source), hwc(target), weight) for source, target, weight in pairs]
+
+
+def install_final_pass_compatibility(engine):
+    """Repair missing mode arguments in FuouM's optional final 3x3 pass."""
+    backend = engine.backend
+    original = backend.run_level
+    vote_mode = engine.vote_mode_map[engine.ebsynth_config.vote_mode]
+    cost_mode = engine.cost_function_map[engine.ebsynth_config.cost_function]
+
+    def compatible(*args, **kwargs):
+        values = list(args)
+        if len(values) > 9 and values[9] is None:
+            values[9] = vote_mode
+        elif len(values) <= 9 and kwargs.get('vote_mode') is None:
+            kwargs['vote_mode'] = vote_mode
+        if len(values) > 14 and values[14] is None:
+            values[14] = cost_mode
+        elif len(values) <= 14 and kwargs.get('cost_function_mode') is None:
+            kwargs['cost_function_mode'] = cost_mode
+        return original(*values, **kwargs)
+
+    backend.run_level = compatible
+    return original
+
+
+@contextmanager
+def render_cache(output):
+    """Create a worker-readable cache without TemporaryDirectory's Windows ACL reset."""
+    path = Path(output) / ('.fuoum-cache-' + uuid.uuid4().hex)
+    path.mkdir()
+    try:
+        yield str(path)
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def synthesize_image(style, pairs, options):
@@ -149,7 +185,7 @@ def render_fuoum_job(job, progress):
         lookup = {id(frame): number for frame, number in zip(frames, numbers)}
         origins = {id(style): number for style, number in zip(styles, key_numbers)}
         progress(10, 'Initializing FuouM synthesis')
-        with tempfile.TemporaryDirectory(prefix='.fuoum-cache-', dir=output) as cache:
+        with render_cache(output) as cache:
             config = MainConfig(
                 project=ProjectConfig(content_dir=str(output), style_path=[path for _, path in style_entries],
                                       style_indices=positions, output_dir=str(output), cache_dir=cache),
@@ -183,6 +219,7 @@ def render_fuoum_job(job, progress):
                         flow_images.append(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
             pipeline = extend_pipeline(config, data, masks, edges, weights['mask_wgt'] / weights['key_wgt'],
                                        blend['only_mode'], capture_pass, cache_job=job, runtime=runtime)
+            backend_run_level = install_final_pass_compatibility(pipeline.synthesis_engine)
             original = pipeline.synthesis_engine.run
             def tracked(style, guides, **kwargs):
                 nonlocal completed
@@ -203,6 +240,7 @@ def render_fuoum_job(job, progress):
                 results = pipeline.run()
             finally:
                 pipeline.synthesis_engine.run = original
+                pipeline.synthesis_engine.backend.run_level = backend_run_level
             if completed != expected:
                 raise RuntimeError(f'FuouM produced {completed} synthesis calls; expected {expected}.')
     if len(results) != len(frames):

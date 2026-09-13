@@ -10,7 +10,7 @@ import time
 
 import cv2
 import numpy as np
-from reezsynth_config import PREVIEW, atomic_json, validate_render
+from reezsynth_config import atomic_json, quality_profile, validate_render
 from reezsynth_engines import ROOT, LEGACY, FUOUM, prepare_runtime
 from diagnose_reezsynth_engines import gpu_memory
 
@@ -32,7 +32,13 @@ def write(path, value):
     return str(path)
 
 
-def make_jobs(base, engine, count, repeats, extended, style_family='poster', images=False, size=(256, 144)):
+def selected_keyframes(frames, anchors, style_family):
+    defaults = [frames[0][0], frames[len(frames) // 2][0], frames[-1][0]]
+    return anchors if style_family == 'painting' and len(anchors) >= 2 else defaults
+
+
+def make_jobs(base, engine, count, repeats, extended, style_family='poster', images=False,
+              size=(256, 144), quality='Preview'):
     inputs = base / 'inputs'
     inputs.mkdir()
     sources = sorted((ROOT / 'examples/input').glob('*.jpg'))
@@ -61,7 +67,7 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
         mask[:, width // 4:3 * width // 4] = 255
         masks.append([100 + i, write(inputs / f'mask_{i:04d}.png', mask)])
         edges.append([100 + i, write(inputs / f'edge_{i:04d}.png', cv2.Canny(image, 50, 150))])
-    options = validate_render(dict(PREVIEW, engine=engine))
+    options = validate_render(dict(quality_profile(quality), engine=engine))
     runtime = prepare_runtime(options, {})
     cases = [('video', {}, {}), ('grouped', {}, {})]
     if extended:
@@ -85,8 +91,8 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
         for label, overrides, blend in cases:
             output = base / f'{repeat:02d}_{label}'
             output.mkdir()
-            keyframes = anchors if style_family == 'painting' else [frames[0][0], frames[len(frames) // 2][0], frames[-1][0]]
-            job = dict(output=str(output), quality='Preview', processing_size=list(size), padding=3,
+            keyframes = selected_keyframes(frames, anchors, style_family)
+            job = dict(output=str(output), quality=quality, processing_size=list(size), padding=3,
                 frames=frames, style=styles[keyframes[0]], key=keyframes[0], engine_runtime=runtime,
                 render_options=dict(options, **overrides), guide_weights={'mask_wgt': 2.0},
                 masks=masks, edge_guides=edges, exports={'maps': extended, 'flow': extended},
@@ -111,7 +117,7 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
                              target=resized('target_' + extra + '.png', True), weight=1.0) for extra in extras])
             output = base / ('image_' + name)
             output.mkdir()
-            job = dict(type='image_synthesis', output=str(output), quality='Preview', max_width=0,
+            job = dict(type='image_synthesis', output=str(output), quality=quality, max_width=0,
                 render_options=options, engine_runtime=runtime, image_synthesis=settings)
             atomic_json(output / 'job.json', job)
             jobs.append(('image_' + name, job))
@@ -161,11 +167,12 @@ def verify(label, job):
     return dict(mean_adjacent_difference=float(np.mean(adjacent)), max_adjacent_difference=max(adjacent))
 
 
-def run(engine, count, repeats, extended, style_family='poster', images=False, size=(256, 144)):
+def run(engine, count, repeats, extended, style_family='poster', images=False,
+        size=(256, 144), quality='Preview'):
     base = ROOT / 'diagnostic_outputs' / ('release_' + ('fuoum' if engine == FUOUM else 'legacy') +
                                          '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
-    runtime, jobs = make_jobs(base, engine, count, repeats, extended, style_family, images, size)
+    runtime, jobs = make_jobs(base, engine, count, repeats, extended, style_family, images, size, quality)
     process = subprocess.Popen([runtime['python'], '-B', '-X', 'utf8', '-u', str(ROOT / 'reezsynth_shared_worker.py')],
         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding='utf-8', errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -180,7 +187,8 @@ def run(engine, count, repeats, extended, style_family='poster', images=False, s
         lines.put(None)
     thread = threading.Thread(target=reader, daemon=True)
     thread.start()
-    report = dict(engine=engine, frames=count, repeats=repeats, style_family=style_family, size=size,
+    report = dict(engine=engine, frames=count, repeats=repeats, style_family=style_family,
+                  quality=quality, size=size,
                   gpu_before=gpu_memory(), jobs=[], passed=False)
     stop_samples, samples = threading.Event(), []
     def sample_gpu():
@@ -233,6 +241,7 @@ if __name__ == '__main__':
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--extended', action='store_true')
     parser.add_argument('--style', choices=['poster', 'painting', 'flat'], default='poster')
+    parser.add_argument('--quality', choices=['Preview', 'Standard', 'Highest'], default='Preview')
     parser.add_argument('--images', action='store_true', help='Include three multiguide image retargeting examples.')
     parser.add_argument('--size', nargs=2, type=int, default=[256, 144], metavar=('WIDTH', 'HEIGHT'))
     args = parser.parse_args()
@@ -241,4 +250,4 @@ if __name__ == '__main__':
     if min(args.size) < 128:
         parser.error('Multi-frame flow requires dimensions of at least 128 pixels.')
     run(FUOUM if args.engine == 'fuoum' else LEGACY, args.frames, args.repeats, args.extended,
-        args.style, args.images, tuple(args.size))
+        args.style, args.images, tuple(args.size), args.quality)
