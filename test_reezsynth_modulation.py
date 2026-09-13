@@ -224,7 +224,7 @@ class ImageModulationAdapterTests(unittest.TestCase):
         self.settings['modulation'] = write(self.root / 'primary.png', np.zeros((80, 160), np.uint8))
         self.settings['guides'] = [dict(source=self.settings['source'], target=self.settings['target'], weight=2)]
         from reezsynth_engines import FUOUM
-        self.job['render_options'] = dict(engine=FUOUM)
+        self.job['render_options'] = dict(engine=FUOUM, fuoum_backend='torch')
         from reezsynth_image import render_image_job
         with patch('reezsynth_fuoum.synthesize_image', return_value=(
                 np.zeros((80, 160, 3), np.uint8), np.zeros((80, 160), np.float32))) as synthesize:
@@ -232,6 +232,7 @@ class ImageModulationAdapterTests(unittest.TestCase):
         packed = synthesize.call_args.kwargs['modulation']
         self.assertTrue(np.all(packed[..., 0] == 0))
         self.assertTrue(np.all(packed[..., 1] == 255))
+        self.assertEqual(json.loads((self.output / 'image_manifest.json').read_text())['backend'], 'torch')
 
 
 class ModulationGuiTests(GuiFixture):

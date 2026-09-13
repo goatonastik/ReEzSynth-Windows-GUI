@@ -42,7 +42,7 @@ def evaluate_result(image, error, nnf, *, target_size=(19, 17), patch=3,
 
 
 def render_case(backend, *, target_size=(19, 17), iterative=True,
-                modulation=None, weight=1, vote='weighted', cost='ssd', patch=3):
+                modulation=None, weight=1, vote='weighted', cost='ssd', patch=3, repaired=False):
     import numpy as np
     import torch
     from ezsynth.config import EbsynthParamsConfig, PipelineConfig
@@ -58,7 +58,7 @@ def render_case(backend, *, target_size=(19, 17), iterative=True,
         stop_threshold=0, search_pruning_threshold=0, vote_mode=vote, cost_function=cost)
     pipeline = PipelineConfig(pyramid_levels=1, use_residual_transfer=iterative)
     engine = EbsynthEngine(native, pipeline)
-    install_final_pass_compatibility(engine)
+    install_final_pass_compatibility(engine, repair_torch=repaired)
     mod = None if modulation is None else np.full(target.shape, modulation, np.uint8)
     if torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -88,7 +88,7 @@ CASES = (
 )
 
 
-def child(backend, output):
+def child(backend, output, repaired=False):
     runtime = prepare_runtime(dict(engine=FUOUM), {})
     activate_fuoum(runtime)
     source = Path(runtime['source'])
@@ -100,9 +100,12 @@ def child(backend, output):
     report = dict(backend=backend, revision=FUOUM_REVISION, cases=[], passed=False,
                   source_sha256={str(path.relative_to(source)): file_sha256(path) for path in inputs},
                   diagnostic_sha256=file_sha256(Path(__file__)))
+    if repaired and backend == 'torch':
+        from reezsynth_torch_backend import VERSION
+        report['repair'] = dict(version=VERSION, sha256=file_sha256(ROOT / 'reezsynth_torch_backend.py'))
     for label, options in CASES:
         try:
-            result = render_case(backend, **options)
+            result = render_case(backend, **options, repaired=repaired)
         except Exception as error:
             result = dict(passed=False, exception_type=type(error).__name__, exception=str(error))
         result['label'] = label
@@ -118,11 +121,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--backend', choices=('cuda', 'torch', 'both'), default='both')
     parser.add_argument('--child-output', type=Path)
+    parser.add_argument('--repaired', action='store_true', help='Use the versioned frontend PyTorch repairs.')
     args = parser.parse_args(argv)
     if args.child_output:
         if args.backend == 'both':
             parser.error('A child must select exactly one backend.')
-        return child(args.backend, args.child_output)
+        return child(args.backend, args.child_output, args.repaired)
     runtime = prepare_runtime(dict(engine=FUOUM), {})
     base = ROOT / 'diagnostic_outputs' / ('torch_backend_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
@@ -133,7 +137,8 @@ def main(argv=None):
         try:
             with (base / (backend + '.log')).open('w', encoding='utf-8') as log:
                 result = subprocess.run([runtime['python'], '-B', str(Path(__file__).resolve()),
-                    '--backend', backend, '--child-output', str(output)], cwd=ROOT, stdout=log,
+                    '--backend', backend, '--child-output', str(output),
+                    *(['--repaired'] if args.repaired else [])], cwd=ROOT, stdout=log,
                     stderr=subprocess.STDOUT, timeout=180,
                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             entry = json.loads(output.read_text(encoding='utf-8')) if output.is_file() else dict(passed=False)

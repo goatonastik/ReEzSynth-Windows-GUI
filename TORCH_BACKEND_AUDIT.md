@@ -2,15 +2,59 @@
 
 Reviewed 2026-09-12 at pinned FuouM revision
 `aaa8d06170e6cc59054410aa9c422edd789f7ab2` on this Windows/RTX 5090 host.
-The alternate `torch` backend remains **disabled in the frontend**. No installed
-engine files, render defaults or backend selections were changed by this audit.
+The original pinned `torch` backend fails the audit below. The frontend now
+offers an **experimental repaired implementation**, `frontend-torch-v1`, through
+Rendering > Synthesis backend > `torch`. The default remains `cuda`. No installed
+engine files are changed. Both choices currently require CUDA; this is not a
+CPU-only installation/fallback feature.
+
+## Repaired implementation
+
+The versioned [repair layer](reezsynth_torch_backend.py) replaces only an engine
+instance's level function inside the existing compatibility wrapper. Original
+methods are restored on completion/failure. The pinned pyramid construction,
+resampling, flow, guide preparation and NNF transport remain in use. It repairs:
+
+- Target-sized initial/recomputed/final errors, including retargeted images.
+- Spatial, per-channel target-grid modulation in SSD and NCC guide costs.
+- Weighted voting via overlap folding and ratio-preserving normalization; small
+  valid inverse-error weights no longer darken constant colors.
+- Active-mask and valid-source-center checks for candidate acceptance. Vertical
+  propagation sees the completed horizontal update. Occupancy is rebuilt from
+  the current NNF for each candidate batch, avoiding stale partial updates.
+- Rank-preserving random search, including a single active target and pruning.
+- Real alternating search/vote refinement with per-level counts, convergence
+  masks, and final errors recomputed against the actual returned image.
+
+Search is synchronous within each candidate batch and voting rounds to uint8.
+These are explicit implementation choices, not a claim of bit-identical CUDA
+results. The frontend exposes the iterative path only. The upstream flag's false
+single-vote path is repaired/tested for completeness but remains unexposed as a
+separate residual-transfer workflow.
+
+Patches are retained as uint8; float cost temporaries are chunked. Full patch
+storage and fold/unfold peaks still scale with source/target pixels, patch area
+and channel count. Parallel reservations include a conservative workspace
+estimate (video uses the 24-channel cap; images inspect guide headers), and every
+CUDA level checks estimated workspace plus 512 MiB against current free memory.
+Rejection recommends reducing processing/patch size or selecting native CUDA;
+there is no silent fallback. Disk-backed frame storage does not bound this GPU
+workspace. Estimates are safeguards, not allocation guarantees.
+
+Presets/projects retain `fuoum_backend`; old documents resolve to `cuda`.
+Engine manifests record implementation version, device and adapter hash, and
+image manifests record the selected backend. The control is FuouM-only and locked
+during work. The pinned CUDA extension remains required by standard setup/imports
+even when the repaired PyTorch search is selected.
 
 ## Reproduction and acceptance gate
 
 Run `python -B diagnose_reezsynth_torch_backend.py` from the configured Legacy
 environment. The diagnostic starts separate workers in the installed FuouM
 environment for `cuda` and `torch`. Use `--backend cuda` or `--backend torch`
-to select one. Both run on the GPU on this host; `torch` does not mean CPU here.
+to select one. Add `--repaired` to test the frontend repair layer; omit it to
+reproduce the original upstream failures. Both run on the GPU on this host;
+`torch` does not mean CPU here.
 
 The nine tiny cases use a constant 127 style, a zero-valued source guide and a
 255-valued target guide. Any patch assignment should preserve the constant style
@@ -46,7 +90,7 @@ The basic SSD, NCC, noniterative constant case, white modulation and plain-votin
 high-cost case passed. Passing constant cases does not verify general matching.
 Guide weight 100 is within the supported frontend domain, not a malformed input.
 
-## Source findings and repair scope
+## Original source findings and repair scope
 
 The failures correspond to the pinned implementation:
 
@@ -78,10 +122,38 @@ The upstream `use_residual_transfer` flag selects the two search-loop variants;
 its name alone is not evidence of an independently validated residual-transfer
 workflow. Do not expose it as a harmless on/off equivalent.
 
-Safe integration needs a deliberate, versioned repair layer (or a separately
-approved upstream revision), low-level cost/occupancy/mask/voting tests and real
-image/video/grouped runs with retargeting, schedules, temporal NNFs, masks,
-modulation, SSD/NCC, processing sizes and cancellation. Preserve the currently
-working CUDA path and record any repaired implementation's identity in output
-provenance. This is outstanding high-reasoning implementation work, not routine
-campaign execution. The repair-versus-deferral decision is pending.
+The user approved repairs after this audit. The versioned layer above and its
+independent CPU tests now cover these algorithmic concerns; the original
+upstream implementation remains unchanged and should not be enabled directly.
+
+## Verification of the repaired layer
+
+- `torch_backend_20260912_212429_874906`: all nine original gates pass with
+  `--repaired`, for both PyTorch and unchanged CUDA.
+- `release_fuoum_20260912_212621_248210`: 14 real Standard cases at 257x145,
+  five frames, three differently sized multiguide images, every modulation mode,
+  masks/custom edges/reverse passes, schedules, bounded storage and bidirectional
+  flow. Three output images were inspected for gross corruption. This does not
+  establish broad visual quality or parity.
+- `gui_controller_20260912_212834_678710`: real nine-frame 512x288 Preview
+  cancellation after synthesis began, followed by successful fresh-output restart
+  with disk-backed storage. Device-wide GPU usage was 5,339 MiB before and
+  5,342 MiB after; these are snapshots, not per-process leak or peak measurements.
+- `release_fuoum_20260912_212938_505364`: nine more real scalar Standard cases
+  cover the default temporal path, sparse/temporal toggles, plain NCC, feathered
+  masks, NeuFlow, auxiliary exports and three multiguide images with verified
+  `torch` image backend metadata.
+- The canonical maintained suite passed 317 tests in 45.954 seconds, including
+  scalar SSD/NCC/spatial-modulation oracles, brute-force occupancy and voting,
+  active-mask/rank/iteration checks, low-memory rejection, instance restoration,
+  GUI persistence and effective provenance. The selector layout was inspected.
+- `gui_controller_20260912_213219_627804`: two real 512x288 Preview jobs passed
+  automatic GPU-aware parallel admission/completion with bounded storage.
+
+To repeat real frontend checks, use `--synthesis-backend torch` with
+`diagnose_reezsynth_release.py --engine fuoum` or
+`diagnose_reezsynth_gui.py --fuoum`. Release diagnostics accept `--only LABEL ...`
+to select generated cases; other flags such as `--extended`/`--images` still
+determine the available labels.
+
+Production/overnight/other-hardware validation remains separate outstanding work.

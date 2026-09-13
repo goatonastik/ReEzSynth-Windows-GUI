@@ -53,6 +53,7 @@ LABELS.update(searchvote_schedule='Search/vote schedule (coarse to fine)',
               patchmatch_schedule='Patch-match schedule (coarse to fine)',
               modulation_guide='Video modulation', modulation_dir='Modulation frame directory')
 LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
+              fuoum_backend='Synthesis backend [FuouM only]',
               stream_frames='Store clip frames on disk to limit RAM',
               fuoum_flow_engine='Optical flow engine (FuouM only)',
               fuoum_bidirectional_flow='Estimate both flow directions [FuouM only]',
@@ -394,6 +395,13 @@ class Options(QObject):
         elif name == "ebsynth_backend":
             widget = QComboBox()
             widget.addItems(["cuda", "auto", "cpu"])
+            widget.currentTextChanged.connect(self.changed)
+        elif name == 'fuoum_backend':
+            widget = QComboBox()
+            widget.addItems(['cuda', 'torch'])
+            widget.setToolTip('cuda: existing native extension (default). torch: experimental repaired '
+                              'PyTorch search, also on CUDA. Different matching and greater memory/time '
+                              'requirements; not a CPU fallback. Presets retain this choice.')
             widget.currentTextChanged.connect(self.changed)
         elif name == 'fuoum_vote_mode':
             widget = QComboBox()
@@ -890,7 +898,7 @@ class Options(QObject):
                 widgets[scalar].setEnabled(editable and not widgets[schedule].text().strip())
         for name in ('temporal_nnf', 'sparse_features'):
             widgets[name].setEnabled(editable and fuoum)
-        for name in ('fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
+        for name in ('fuoum_backend', 'fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
                      'fuoum_search_pruning_threshold', 'fuoum_sparse_anchor_weight',
                      'fuoum_flow_engine', 'fuoum_neuflow_model', 'fuoum_bidirectional_flow'):
             widgets[name].setEnabled(editable and fuoum)

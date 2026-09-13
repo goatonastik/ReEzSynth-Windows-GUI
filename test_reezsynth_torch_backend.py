@@ -8,9 +8,39 @@ from unittest.mock import patch
 import numpy as np
 
 import diagnose_reezsynth_torch_backend as audit
+from reezsynth_config import validate_render, PresetStore
+from reezsynth_engines import FUOUM, LEGACY, validate_capabilities
+from reezsynth_provenance import effective_settings
+from reezsynth_resources import estimate_job_vram
+from test_reezsynth_gui import GuiFixture
 
 
 class TorchBackendAuditTests(unittest.TestCase):
+    def test_backend_defaults_validation_and_effective_identity(self):
+        self.assertEqual(validate_render()['fuoum_backend'], 'cuda')
+        options = validate_render(dict(engine=FUOUM, fuoum_backend='torch'))
+        validate_capabilities(options, image=True)
+        with self.assertRaises(ValueError):
+            validate_render(dict(fuoum_backend='cpu'))
+        with self.assertRaises(ValueError):
+            validate_capabilities(dict(options, ebsynth_backend='cpu'), image=True)
+        for kind in ('video', 'image_synthesis'):
+            result = effective_settings(dict(type=kind, frames=[[0, 'a'], [1, 'b']], render_options=options))
+            self.assertEqual(result['render_options']['fuoum_backend'], 'torch')
+            self.assertEqual(result['synthesis_implementation']['implementation'], 'frontend-torch-v1')
+        for job in (dict(render_options=dict(options, engine=LEGACY)),
+                    dict(frames=[[0, 'a']], render_options=options)):
+            self.assertNotIn('synthesis_implementation', effective_settings(job))
+
+    def test_parallel_reservation_includes_torch_patch_buffers(self):
+        job = dict(processing_size=[257, 145], render_options=dict(engine=FUOUM))
+        native = estimate_job_vram(job)['estimated_mib']
+        job['render_options']['fuoum_backend'] = 'torch'
+        alternate = estimate_job_vram(job)['estimated_mib']
+        self.assertGreater(alternate, native)
+        job['render_options']['patchsize'] = 11
+        self.assertGreater(estimate_job_vram(job)['estimated_mib'], alternate)
+
     def arrays(self, size=(19, 17), value=127, error=585225):
         return (np.full((*size[::-1], 3), value, np.uint8),
                 np.full(size[::-1], error, np.float32),
@@ -62,6 +92,28 @@ class TorchBackendAuditTests(unittest.TestCase):
             self.assertEqual(report['cases'][0]['exception'], 'wrong grid')
             self.assertTrue(report['cases'][1]['passed'])
             self.assertTrue(report['source_sha256'])
+
+
+class TorchBackendGuiTests(GuiFixture):
+    def test_disk_preset_engine_switch_and_busy_lock_preserve_backend(self):
+        window = self.window()
+        options = window.options
+        fields = options.widgets['render']
+        self.assertFalse(fields['fuoum_backend'].isEnabled())
+        fields['engine'].setCurrentText(FUOUM)
+        fields['fuoum_backend'].setCurrentText('torch')
+        options.store.save('render', 'PyTorch', options.snapshot('render'))
+        fields['fuoum_backend'].setCurrentText('cuda')
+        options.apply('render', PresetStore(options.store.path).groups['render']['PyTorch'])
+        self.assertEqual(options.render()['fuoum_backend'], 'torch')
+        fields['engine'].setCurrentText(LEGACY)
+        self.assertFalse(fields['fuoum_backend'].isEnabled())
+        fields['engine'].setCurrentText(FUOUM)
+        self.assertEqual(fields['fuoum_backend'].currentText(), 'torch')
+        window.set_busy(True)
+        self.assertFalse(fields['fuoum_backend'].isEnabled())
+        window.set_busy(False)
+        self.assertTrue(fields['fuoum_backend'].isEnabled())
 
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ def build_configs(options, weights=None, blend=None):
     native = EbsynthParamsConfig(
         uniformity=options['uniformity'], patch_size=options['patchsize'],
         search_vote_iters=options['searchvoteiters'], patch_match_iters=options['patchmatchiters'],
-        extra_pass_3x3=options['extrapass3x3'], backend='cuda',
+        extra_pass_3x3=options['extrapass3x3'], backend=options.get('fuoum_backend', 'cuda'),
         vote_mode=options['fuoum_vote_mode'], cost_function=options['fuoum_cost_function'],
         stop_threshold=options['fuoum_stop_threshold'],
         search_pruning_threshold=options['fuoum_search_pruning_threshold'],
@@ -45,10 +45,18 @@ def native_guides(pairs):
     return [(hwc(source), hwc(target), weight) for source, target, weight in pairs]
 
 
-def install_final_pass_compatibility(engine):
+def install_final_pass_compatibility(engine, *, repair_torch=True):
     """Repair missing mode arguments in FuouM's optional final 3x3 pass."""
     backend = engine.backend
     original = backend.run_level
+    execute = original
+    if repair_torch and getattr(engine, 'backend_type', None) == 'torch':
+        from types import MethodType
+        from reezsynth_torch_backend import run_level, VERSION
+        if not str(engine.device).startswith('cuda'):
+            raise ValueError('The frontend PyTorch backend currently requires CUDA; CPU portability is not validated.')
+        execute = MethodType(run_level, backend)
+        print(f'[Torch] Using {VERSION}; synchronous PyTorch search on {engine.device}.', flush=True)
     vote_mode = engine.vote_mode_map[engine.ebsynth_config.vote_mode]
     cost_mode = engine.cost_function_map[engine.ebsynth_config.cost_function]
 
@@ -62,7 +70,7 @@ def install_final_pass_compatibility(engine):
             values[14] = cost_mode
         elif len(values) <= 14 and kwargs.get('cost_function_mode') is None:
             kwargs['cost_function_mode'] = cost_mode
-        return original(*values, **kwargs)
+        return execute(*values, **kwargs)
 
     backend.run_level = compatible
     return original

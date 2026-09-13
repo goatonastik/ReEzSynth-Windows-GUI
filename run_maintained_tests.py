@@ -31,6 +31,7 @@ MODULES = (
     "test_reezsynth_iterations",
     "test_reezsynth_modulation",
     "test_reezsynth_torch_backend",
+    "test_reezsynth_torch_repairs",
 )
 
 

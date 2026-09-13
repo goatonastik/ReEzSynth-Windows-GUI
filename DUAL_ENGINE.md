@@ -30,9 +30,11 @@ CuPy blending, EF-RAFT/FlowDiffuser and compiled memory-efficient RAFT remain
 Trentonom0r3-only. Inapplicable controls are greyed out and labelled by engine.
 Saved values are retained but excluded from effective FuouM jobs. Direct CLI jobs
 that explicitly request incompatible capabilities are rejected. Image jobs ignore
-video-only settings. CUDA is the supported FuouM synthesis backend. The alternate
-PyTorch implementation failed dedicated readiness checks and remains disabled;
-see [TORCH_BACKEND_AUDIT.md](TORCH_BACKEND_AUDIT.md) for evidence and repair scope.
+video-only settings. CUDA remains the default FuouM synthesis backend. Rendering
+also offers experimental `torch`, using the versioned frontend repairs rather
+than the failing original level implementation. Both choices require CUDA and
+standard setup; CPU-only portability is not validated. See
+[TORCH_BACKEND_AUDIT.md](TORCH_BACKEND_AUDIT.md) for evidence and limits.
 
 ## Source and runtime isolation
 

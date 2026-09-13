@@ -109,6 +109,25 @@ def estimate_job_vram(job_or_path):
     if blend.get("use_poisson_cupy"):
         base += 600
     estimate = max(1024, int(round(base + per_mp * megapixels)))
+    if engine == FUOUM and options.get('fuoum_backend', 'cuda') == 'torch':
+        from reezsynth_torch_backend import working_bytes
+        source_size = (width, height)
+        channels = 24  # Conservative video/native channel cap, including sparse/mask guides.
+        if job.get('type') == 'image_synthesis':
+            image = job.get('image_synthesis', {})
+            source_size = processed_size(dict(job, image_synthesis={'target': image.get('style')}))
+            try:
+                from PIL import Image
+                channels = 0
+                for guide in [image, *image.get('guides', [])]:
+                    with Image.open(guide['target']) as handle:
+                        channels += len(handle.getbands())
+                channels = min(24, max(1, channels))
+            except (OSError, KeyError, ValueError):
+                channels = 24
+        from reezsynth_config import quality_profile
+        patch = options.get('patchsize', quality_profile(job.get('quality', 'Standard'))['patchsize'])
+        estimate += (working_bytes(source_size, (width, height), channels, patch) + 2 ** 20 - 1) // 2 ** 20
     return dict(estimated_mib=estimate, width=width, height=height,
                 engine=engine or "unknown", basis="conservative estimate")
 

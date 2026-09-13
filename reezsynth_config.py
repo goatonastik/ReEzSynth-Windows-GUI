@@ -31,7 +31,7 @@ RENDER = dict(engine=LEGACY, **STANDARD, edge_method="Classic", do_mask=False, p
               fuoum_search_pruning_threshold=50.0, fuoum_sparse_anchor_weight=10.0,
               fuoum_flow_engine='RAFT', fuoum_neuflow_model='neuflow_sintel', fuoum_raft_model='sintel',
               fuoum_bidirectional_flow=False, stream_frames=False,
-              modulation_guide='Off', modulation_dir='')
+              modulation_guide='Off', modulation_dir='', fuoum_backend='cuda')
 APPLICATION = dict(discover=False, keys_prefix="keys", video_prefix="video",
     auto_start=False, wait_for_mask=False, parallel=False, parallel_limit=2,
     sound_enabled=True, sound_each=False, sound_queue=True, sound_file="",
@@ -220,6 +220,9 @@ def validate_render(data=None):
         elif isinstance(default, bool):
             if type(value) is not bool:
                 raise ValueError(f"{name} must be true or false.")
+        elif name == 'fuoum_backend':
+            if value not in ('cuda', 'torch'):
+                raise ValueError('Unknown FuouM synthesis backend.')
         elif name == 'modulation_guide':
             if value not in VIDEO_MODES:
                 raise ValueError('Unknown video modulation guide.')

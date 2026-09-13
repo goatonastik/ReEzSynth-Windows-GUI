@@ -145,11 +145,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    never imply source/environment repair or replacement. Controls and window close
    are guarded while an operation runs. Command/UI regressions and the real combined
    check against this host's installed engines passed; no rebuild was needed.
-8. [ ] **Advanced controls/workflows:** consider per-pyramid-level iterations,
+8. [x] **Advanced controls/workflows:** reviewed per-pyramid-level iterations,
    finer numeric precision, supported modulation guides, numerical flow-vector
-   exports, or FuouM's alternate synthesis backend. Each needs explicit mapping
-   and validation. Some upstream configuration fields are unused by the selected
-   CUDA pipeline; do not turn those into misleading controls.
+   exports, and FuouM's alternate synthesis backend. Exposed options have explicit
+   mapping and validation; six-decimal policy caps remain deliberate. Some upstream
+   fields are unused by the selected pipeline and remain unexposed.
    - [x] Numerical flow-vector exports for both engines, with lossless arrays,
      ordered frame identities and explicit sampling-grid/pixel-unit metadata.
    - [x] Optional per-level search/vote and patch-match schedules in both engines,
@@ -160,12 +160,14 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
      CUDA engines passed native multiplier/channel-order checks and real renders.
      Legacy CPU/Auto are explicitly rejected because CPU ignores maps. Presets,
      queue snapshots, recovery and processed-map/channel manifests are covered.
-   - [ ] Alternate synthesis backend: readiness audit completed, integration
-     withheld. The pinned PyTorch implementation failed four of nine controlled
-     cases (retargeting, gray/black modulation, weighted constant preservation);
-     CUDA passed all nine. TORCH_BACKEND_AUDIT.md records the reproducible gate
-     and deeper search-loop/memory concerns. Repair versus explicit deferral
-     requires a decision; do not present this feature as implemented.
+   - [x] Alternate synthesis backend: user-approved repairs are implemented as
+     versioned, instance-local `frontend-torch-v1`. Original upstream failures
+     remain reproducible; the repaired path and unchanged CUDA pass all nine
+     invariant gates. Real 14-case and nine-case Standard matrices plus GUI
+     cancellation/restart and automatic parallel admission passed. The experimental
+     FuouM `torch` selector still
+     requires CUDA; no CPU fallback or quality parity is claimed. See
+     TORCH_BACKEND_AUDIT.md for algorithm differences and memory safeguards.
 9. [ ] **Stronger quality/stability evidence:** overnight repeated-job testing,
     isolated performance comparisons, multi-GPU coverage, and investigation of
     true backward flow in place of FuouM's negative-forward-flow approximation.
@@ -222,10 +224,13 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Alternate-backend readiness failed in both repeated runs. The final
+- Original alternate-backend readiness failed in both repeated runs. The final
   hash-recorded report is `torch_backend_20260912_211813_699042`: CUDA passed
-  nine of nine controlled cases, PyTorch five of nine. Integration remains
-  withheld; TORCH_BACKEND_AUDIT.md records the failures and repair scope.
+  nine of nine controlled cases, PyTorch five of nine. The user then approved
+  repairs: `torch_backend_20260912_212429_874906` passes nine of nine for both
+  CUDA and the repaired PyTorch layer. Two real Standard matrices passed 23 total
+  jobs, followed by successful GUI cancellation/restart. Exact reports and
+  experimental limitations are in PROJECT_STATUS.md and TORCH_BACKEND_AUDIT.md.
 - Modulation passed controlled native multiplier/channel tests in both CUDA
   engines and 13 real Standard image/video/grouped cases per engine, including
   masks, reverse mode, bounded storage and iteration schedules. An additional
@@ -237,7 +242,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
   image retargeting jobs. Both used bounded storage; FuouM also used measured
   backward flow. Reports: `release_legacy_20260912_205556_943246` and
   `release_fuoum_20260912_205631_250465`.
-- Full suite through the canonical CI runner: 303 maintained tests passed in 39.902 seconds with
+- Full suite through the canonical CI runner: 317 maintained tests passed in 45.954 seconds with
   normal temporary-directory/Qt access. Both cache publication races are now fixed;
   50 concurrent-producer stress rounds also passed. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
@@ -282,14 +287,14 @@ Detailed evidence: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ## Next model handoff
 
-The backward-flow/vector-export and bounded-storage implementation checkpoints
-are finished. A lower-reasoning model can handle routine campaign execution,
-report collection and documentation updates. Remaining evidence needs an actual
-overnight run, representative production frame/keyframe folders, and another
-Windows/GPU system. Remote CI has not run because these commits are not pushed.
-Per-level iteration schedules and the modulation-guide workflow are implemented.
-Keep a high-reasoning model for the remaining alternate synthesis-backend
-repairs: its readiness audit found correctness failures, so no selector was
-added. See TORCH_BACKEND_AUDIT.md. A repair-versus-deferral decision is pending.
-Switch to a lower-reasoning model for routine evidence/installation/release
-checks only after the repairs are complete or this feature is explicitly deferred.
+The high-reasoning implementation sequence is complete, including the approved
+alternate-backend repairs. Switch to a lower-reasoning model for routine campaign
+execution, report collection and documentation. Keep PyTorch synthesis explicitly
+experimental; return to high reasoning if new numerical/render failures need
+diagnosis or fixes.
+
+Next evidence work: repeat overnight stability on an idle host, review supplied
+production frame/keyframe folders, and validate setup on another Windows/GPU
+system. The previous overnight guardrail result was inconclusive, not a confirmed
+renderer leak. Remote CI remains unrun because the commits are not pushed;
+publishing/pushing and distribution decisions require separate authorization.

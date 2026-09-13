@@ -3,6 +3,48 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Repaired experimental PyTorch backend verified (2026-09-12)
+
+- User approved repairs following the failed upstream readiness audit below.
+  Added an instance-local, versioned `frontend-torch-v1` level implementation;
+  installed engine files and the CUDA default are unchanged. FuouM's Rendering
+  backend selector now offers experimental `torch`, still requiring CUDA.
+- Fixed target-grid errors, spatial per-channel modulation, weighted voting
+  normalization, masked candidate acceptance, occupancy consistency, single-target
+  random search and iterative search/vote refinement. Pyramids/flow/NNF transport
+  remain upstream. Synchronous candidate batches and rounded voting are explicit
+  differences; no bit-identical or general quality-parity claim is made.
+- Float cost temporaries are chunked; patch storage still scales with both grids,
+  patch area and channels. Parallel reservations include these buffers, and each
+  level checks free CUDA memory with a 512 MiB margin. Presets, busy-state locks,
+  version/hash/device provenance and image backend metadata are covered.
+- Both CUDA and repaired PyTorch passed all nine original invariant cases:
+  `torch_backend_20260912_212429_874906`. Original upstream failures remain
+  reproducible without `--repaired`.
+- The 14-case Standard matrix at 257x145/five frames passed modulation modes,
+  masks/custom edges, reverse/grouped passes, per-level schedules, bounded storage,
+  bidirectional flow and three multiguide retargeted images:
+  `release_fuoum_20260912_212621_248210`. Three images were inspected for gross
+  corruption. A further nine-case scalar Standard matrix passed default temporal
+  propagation, sparse/temporal toggles, plain NCC, feathered masks, NeuFlow,
+  auxiliary exports and corrected image backend metadata:
+  `release_fuoum_20260912_212938_505364`.
+- A real nine-frame 512x288 Preview GUI cancellation/restart passed with bounded
+  storage: `gui_controller_20260912_212834_678710`. Device-wide memory was
+  5,339 MiB before and 5,342 MiB after (snapshots, not attributable leak evidence).
+  A two-job 512x288 Preview GUI queue also passed automatic GPU-aware parallel
+  admission with the larger PyTorch reservations and bounded storage:
+  `gui_controller_20260912_213219_627804`.
+- The canonical maintained suite passed **317 tests in 45.954 seconds**, including
+  independent scalar SSD/NCC/modulation oracles, brute-force occupancy/voting,
+  mask/pruning/rank/iteration checks, allocation guards, instance restoration,
+  GUI persistence, scheduling estimates and provenance. New tests preserve lazy
+  torch import during GUI construction. The selector layout was inspected.
+- See TORCH_BACKEND_AUDIT.md for the repair design and reproducible commands.
+  This completes the high-reasoning implementation sequence. Routine validation
+  can move to a lower-reasoning model; production/overnight/other-hardware and
+  release gates remain open.
+
 ## Alternate PyTorch backend fails readiness (2026-09-12)
 
 - Audited the pinned FuouM alternate synthesis backend before exposing controls.

@@ -122,6 +122,7 @@ def render_image_job(job, progress):
     progress(15, 'Synthesizing image')
     from reezsynth_engines import FUOUM
     if options['engine'] == FUOUM:
+        backend = options['fuoum_backend']
         from reezsynth_fuoum import synthesize_image
         result, error = synthesize_image(style, pairs, options, output=job['output'],
                                          modulation=pack_maps(pairs, maps))

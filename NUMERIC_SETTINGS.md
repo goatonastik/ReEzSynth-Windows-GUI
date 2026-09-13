@@ -80,11 +80,15 @@ remaining low-level options keep their previous documented limits:
   Enabled modulation therefore rejects Legacy CPU and Auto, even on a CUDA host.
   Arbitrary separate per-channel maps and float modulation are not exposed.
 - FuouM's PyTorch synthesis backend uses a separate patch-search implementation
-  with two refinement paths. Dedicated constant-style/cost probes now show that
-  it fails retargeting, gray/black modulation and high-cost weighted voting while
-  CUDA passes the same nine cases. It remains unexposed pending substantive
-  repairs and follow-up correctness/performance validation. Additional source
-  concerns and the reproducible gate are in TORCH_BACKEND_AUDIT.md.
+  with two refinement paths. The original implementation fails retargeting,
+  gray/black modulation and high-cost weighted voting. The frontend now offers
+  `fuoum_backend: "torch"` through a versioned repair layer; `"cuda"` remains the
+  default. Its iterative refinement, SSD/NCC and guide weighting have explicit
+  numerical tests. Both modes require CUDA on the supported frontend path.
+  Synchronous candidate batches differ from native kernel scheduling; do not
+  claim bit-identical results. Extra patch-buffer reservations/guards account for
+  both grids, channel count and patch area. The alternate refinement flag remains
+  unexposed. Evidence and limitations are in TORCH_BACKEND_AUDIT.md.
 
 ## Dual-engine decisions (2026-09-12)
 

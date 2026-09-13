@@ -252,6 +252,21 @@ queued jobs freeze numbered paths, and recovery checks the map inputs.
 and video target identities. Video map arrays support disk-backed frame storage;
 the packed native modulation buffer still requires per-frame memory.
 
+### Experimental FuouM PyTorch synthesis
+
+Select FuouM, then **Synthesis backend > torch** under Rendering to use the
+versioned repaired PyTorch search. `cuda` remains the default native implementation.
+Both run on CUDA; this is not a CPU fallback. Projects/presets retain the choice.
+The repaired path supports images, video/grouped passes, guides/modulation,
+SSD/NCC, voting, iteration schedules, masks and temporal NNFs.
+
+Its synchronous search can produce different results and generally costs more
+time and memory. Parallel admission includes patch-buffer reservations, and a
+per-level free-memory guard rejects oversized work with guidance to reduce
+processing/patch size or choose `cuda`. Disk-backed clip storage does not bound
+these GPU buffers. Manifests record `frontend-torch-v1` and its adapter hash.
+See [TORCH_BACKEND_AUDIT.md](TORCH_BACKEND_AUDIT.md) for repairs, evidence and limits.
+
 ### Output naming
 
 Output naming sits to the right of the directory inputs. By default outputs go
@@ -384,8 +399,9 @@ For small real CUDA checks of the frontend adapter, run
 bundled examples and write ignored output under `diagnostic_outputs/`.
 The separate `python -B diagnose_reezsynth_torch_backend.py` command compares
 FuouM's CUDA and alternate PyTorch backends against controlled mathematical
-invariants. The pinned alternate backend currently fails this gate and remains
-disabled; a nonzero result is expected for `torch`/`both`. See
+invariants. Add `--repaired` to test the frontend repair layer. Without it, the
+original upstream backend still fails and a nonzero result is expected for
+`torch`/`both`. See
 [TORCH_BACKEND_AUDIT.md](TORCH_BACKEND_AUDIT.md) for failures and repair scope.
 Add `--shared-worker` to the adapter diagnostic commands to run through the persistent
 worker protocol and verify its completion event and normal cleanup/exit.

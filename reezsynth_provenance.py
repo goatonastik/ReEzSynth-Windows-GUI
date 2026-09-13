@@ -30,7 +30,7 @@ def effective_settings(job):
     if not image:
         from reezsynth_video_export import validate_video_export
         result['video_export'] = validate_video_export(job.get('video_export'))
-    native_extra = ('fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
+    native_extra = ('fuoum_backend', 'fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
                     'fuoum_search_pruning_threshold')
     if copy:
         fields = ['do_mask']
@@ -38,6 +38,11 @@ def effective_settings(job):
             fields += ['feather'] + (['pre_mask'] if fuoum else [])
         result['render_options'] = {name: options[name] for name in fields}
         return result
+    if fuoum:
+        from reezsynth_torch_backend import VERSION
+        result['synthesis_implementation'] = dict(backend=options['fuoum_backend'],
+            device='cuda', implementation=VERSION if options['fuoum_backend'] == 'torch' else 'pinned-cuda',
+            refinement='iterative')
     if image:
         fields = (*SYNTHESIS_FIELDS, *SCHEDULE_FIELDS, 'ebsynth_backend', *(native_extra if fuoum else ()))
         result['render_options'] = {name: options[name] for name in fields}

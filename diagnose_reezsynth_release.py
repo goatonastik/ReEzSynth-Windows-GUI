@@ -39,7 +39,7 @@ def selected_keyframes(frames, anchors, style_family):
 
 def make_jobs(base, engine, count, repeats, extended, style_family='poster', images=False,
               size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False,
-              iteration_schedules=False, modulation=False):
+              iteration_schedules=False, modulation=False, synthesis_backend='cuda'):
     inputs = base / 'inputs'
     inputs.mkdir()
     modulation_inputs = inputs / 'modulation'
@@ -76,7 +76,8 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
             values = np.roll(values, i * 7, axis=1)
             modulation_frames.append([100 + i, write(modulation_inputs / f'map{100 + i:04d}.png', values)])
     options = validate_render(dict(quality_profile(quality), engine=engine,
-                                   fuoum_bidirectional_flow=bidirectional, stream_frames=stream_frames))
+                                   fuoum_bidirectional_flow=bidirectional, stream_frames=stream_frames,
+                                   fuoum_backend=synthesis_backend))
     if iteration_schedules:
         options.update(searchvote_schedule=[8, 4, 2], patchmatch_schedule=[4, 2, 1])
     if modulation:
@@ -160,6 +161,15 @@ def verify(label, job):
     output = Path(job['output'])
     if not (output / 'COMPLETE.txt').is_file():
         raise RuntimeError(f'{label}: missing completion marker')
+    if job['render_options'].get('engine') == FUOUM:
+        manifest = json.loads((output / 'engine_manifest.json').read_text())
+        implementation = manifest['effective_settings']['synthesis_implementation']
+        if implementation['backend'] != job['render_options'].get('fuoum_backend', 'cuda'):
+            raise RuntimeError(f'{label}: synthesis backend provenance differs from the requested backend')
+        if implementation['backend'] == 'torch':
+            from reezsynth_torch_backend import VERSION
+            if implementation['implementation'] != VERSION or 'reezsynth_torch_backend.py' not in manifest['adapter_sha256']:
+                raise RuntimeError(f'{label}: missing repaired backend identity')
     image_job = job.get('type') == 'image_synthesis'
     image = job.get('image_synthesis', {})
     if ((image_job and any(g.get('modulation') for g in [image, *image.get('guides', [])]))
@@ -218,12 +228,17 @@ def verify(label, job):
 
 def run(engine, count, repeats, extended, style_family='poster', images=False,
         size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False,
-        iteration_schedules=False, modulation=False):
+        iteration_schedules=False, modulation=False, synthesis_backend='cuda', only=None):
     base = ROOT / 'diagnostic_outputs' / ('release_' + ('fuoum' if engine == FUOUM else 'legacy') +
                                          '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
     runtime, jobs = make_jobs(base, engine, count, repeats, extended, style_family, images, size, quality,
-                              bidirectional, stream_frames, iteration_schedules, modulation)
+                              bidirectional, stream_frames, iteration_schedules, modulation, synthesis_backend)
+    if only:
+        unknown = set(only) - {label for label, _ in jobs}
+        if unknown:
+            raise ValueError(f'Unknown requested diagnostic case(s): {sorted(unknown)}')
+        jobs = [(label, job) for label, job in jobs if label in only]
     process = subprocess.Popen([runtime['python'], '-B', '-X', 'utf8', '-u', str(ROOT / 'reezsynth_shared_worker.py')],
         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding='utf-8', errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -240,7 +255,7 @@ def run(engine, count, repeats, extended, style_family='poster', images=False,
     thread.start()
     report = dict(engine=engine, frames=count, repeats=repeats, style_family=style_family,
                   quality=quality, size=size, bidirectional=bidirectional, stream_frames=stream_frames,
-                  iteration_schedules=iteration_schedules, modulation=modulation,
+                  iteration_schedules=iteration_schedules, modulation=modulation, synthesis_backend=synthesis_backend,
                   gpu_before=gpu_memory(), jobs=[], passed=False)
     stop_samples, samples = threading.Event(), []
     def sample_gpu():
@@ -298,13 +313,18 @@ if __name__ == '__main__':
     parser.add_argument('--stream-frames', action='store_true', help='Use disk-backed clip arrays.')
     parser.add_argument('--iteration-schedules', action='store_true', help='Exercise nonuniform per-level iteration counts.')
     parser.add_argument('--modulation', action='store_true', help='Exercise per-guide image and target-frame video modulation.')
+    parser.add_argument('--synthesis-backend', choices=('cuda', 'torch'), default='cuda',
+                        help='FuouM synthesis implementation; torch uses the frontend repair layer.')
+    parser.add_argument('--only', nargs='+', help='Run only these generated case labels (other flags still define cases).')
     parser.add_argument('--images', action='store_true', help='Include three multiguide image retargeting examples.')
     parser.add_argument('--size', nargs=2, type=int, default=[256, 144], metavar=('WIDTH', 'HEIGHT'))
     args = parser.parse_args()
+    if args.synthesis_backend == 'torch' and args.engine != 'fuoum':
+        parser.error('The alternate PyTorch backend is FuouM-only.')
     if args.frames < 3 or args.repeats < 1:
         parser.error('At least 3 frames and 1 repeat are required.')
     if min(args.size) < 128:
         parser.error('Multi-frame flow requires dimensions of at least 128 pixels.')
     run(FUOUM if args.engine == 'fuoum' else LEGACY, args.frames, args.repeats, args.extended,
         args.style, args.images, tuple(args.size), args.quality, args.bidirectional, args.stream_frames,
-        args.iteration_schedules, args.modulation)
+        args.iteration_schedules, args.modulation, args.synthesis_backend, args.only)

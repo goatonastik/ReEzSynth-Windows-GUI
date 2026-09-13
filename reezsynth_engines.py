@@ -69,7 +69,9 @@ def validate_capabilities(options, *, image=False, blend=None, exports=None):
     if validate_engine(options.get('engine', LEGACY)) == LEGACY:
         return
     if options.get('ebsynth_backend', 'cuda') != 'cuda':
-        raise ValueError('FuouM/ReEzSynth currently requires the CUDA synthesis backend.')
+        raise ValueError('FuouM/ReEzSynth requires CUDA. Select its synthesis implementation with fuoum_backend.')
+    if options.get('fuoum_backend', 'cuda') not in ('cuda', 'torch'):
+        raise ValueError('Unknown FuouM synthesis backend.')
     if image:
         return
     unsupported = []
@@ -210,6 +212,7 @@ def write_engine_manifest(job):
                                     for name in ('reezsynth_jobs.py', 'reezsynth_image.py', 'reezsynth_fuoum.py',
                                                  'reezsynth_fuoum_pipeline.py', 'reezsynth_flow.py', 'reezsynth_raft.py',
                                                  'reezsynth_sequence.py', 'reezsynth_iterations.py', 'reezsynth_modulation.py',
+                                                 'reezsynth_torch_backend.py',
                                                  'reezsynth_engines.py', 'reezsynth_provenance.py',
                                                  'reezsynth_config.py', 'reezsynth_video_plan.py',
                                                  'reezsynth_artifacts.py', 'reezsynth_video_export.py',
