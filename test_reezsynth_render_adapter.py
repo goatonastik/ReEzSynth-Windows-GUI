@@ -119,7 +119,7 @@ class RenderAdapterTests(unittest.TestCase):
             self.job["quality"] = quality
             self.run_job()
             for name, value in {**expected, **WEIGHTS}.items():
-                if name in ('key_wgt', 'mask_wgt'):
+                if name in ('key_wgt', 'mask_wgt', 'searchvote_schedule', 'patchmatch_schedule'):
                     continue  # Adapter-level controls, not RunConfig keywords.
                 self.assertEqual(captured["config"][name], value)
             self.assertEqual(captured["engine"]["raft_flow_model_name"], "sintel")

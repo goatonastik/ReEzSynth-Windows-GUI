@@ -21,6 +21,16 @@ from reezsynth_video_plan import validate_blend_options, validate_grouped_select
 from reezsynth_engines import LEGACY, FUOUM, default_runtime, engine_revision
 from reezsynth_engine_setup import (readiness_command, rebuild_command,
                                     version_summary)
+from reezsynth_iterations import SCHEDULE_FIELDS, parse_schedule
+
+
+class IterationScheduleEdit(QLineEdit):
+    """Keep JSON arrays separate from the user's editable comma-separated text."""
+    def schedule(self):
+        return parse_schedule(self.text())
+
+    def set_schedule(self, value):
+        self.setText(', '.join(str(item) for item in value))
 
 LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (position guide)",
     memory_efficient_raft="Memory-efficient RAFT correlation (CUDA) [Trentonom0r3 only]",
@@ -38,6 +48,8 @@ LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (po
     sound_enabled="Enable completion sounds", sound_each="Play after each render",
     sound_queue="Play when the queue completes", sound_file="Custom WAV sound (blank = bundled sound)")
 LABELS["preview_limit"] = "Maximum live previews"
+LABELS.update(searchvote_schedule='Search/vote schedule (coarse to fine)',
+              patchmatch_schedule='Patch-match schedule (coarse to fine)')
 LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
               stream_frames='Store clip frames on disk to limit RAM',
               fuoum_flow_engine='Optical flow engine (FuouM only)',
@@ -56,6 +68,8 @@ for _shared in ('do_mask', 'pre_mask', 'feather', 'mask_wgt', 'custom_edge_guide
 
 
 def control_value(widget):
+    if isinstance(widget, IterationScheduleEdit):
+        return widget.schedule()
     if isinstance(widget, QCheckBox):
         return widget.isChecked()
     if isinstance(widget, QComboBox):
@@ -66,7 +80,9 @@ def control_value(widget):
 
 
 def set_control(widget, value):
-    if isinstance(widget, QCheckBox):
+    if isinstance(widget, IterationScheduleEdit):
+        widget.set_schedule(value)
+    elif isinstance(widget, QCheckBox):
         widget.setChecked(value)
     elif isinstance(widget, QComboBox):
         widget.setCurrentText(value)
@@ -324,7 +340,16 @@ class Options(QObject):
         self.refresh_presets()
 
     def make_control(self, name, default):
-        if isinstance(default, bool):
+        if name in SCHEDULE_FIELDS:
+            widget = IterationScheduleEdit()
+            widget.set_schedule(default)
+            widget.setPlaceholderText('Blank = scalar; e.g. 12, 8, 4')
+            widget.setToolTip('1–32 comma-separated integers from 1 to 1000, coarse to fine. '
+                              'Aligned to the finest level: smaller pyramids drop the first entries; '
+                              'larger pyramids repeat the first count at additional coarse levels. '
+                              'Blank uses the scalar at every level. Quality presets clear schedules.')
+            widget.textChanged.connect(self.changed)
+        elif isinstance(default, bool):
             widget = QCheckBox()
             widget.setChecked(default)
             widget.toggled.connect(self.changed)
@@ -833,6 +858,10 @@ class Options(QObject):
         fuoum = widgets['engine'].currentText() == FUOUM
         self.engine_note.setVisible(fuoum)
         editable = not self.w.busy and not self.w.close_when_idle
+        for schedule, scalar in zip(SCHEDULE_FIELDS, ('searchvoteiters', 'patchmatchiters')):
+            if schedule in widgets:
+                widgets[schedule].setEnabled(editable)
+                widgets[scalar].setEnabled(editable and not widgets[schedule].text().strip())
         for name in ('temporal_nnf', 'sparse_features'):
             widgets[name].setEnabled(editable and fuoum)
         for name in ('fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',

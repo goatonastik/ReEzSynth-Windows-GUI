@@ -214,6 +214,17 @@ Folder history remains in QSettings. Remembered setup does not recover unsaved
 custom queue ranges; use Save/Open project. Older version-1 projects preserve
 saved row names and get the original quality defaults for missing new settings.
 
+### Per-level iteration schedules
+
+Rendering controls include optional **Search/vote schedule** and **Patch-match
+schedule** fields for both engines. Enter up to 32 comma-separated integers
+from 1 to 1000, in coarse-to-fine order. Blank uses the corresponding scalar
+iteration count. Schedules align at the finest level: `12, 8, 4` becomes `8, 4`
+if only two levels fit, or `12, 12, 8, 4` if four fit. Quality presets clear
+schedules. Projects and named render presets retain them. A scheduled render
+records its resolved counts in `iteration_schedule.json`; FuouM's extra 3x3
+pass uses the finest counts, while Legacy retains its DLL's polishing behavior.
+
 ### Output naming
 
 Output naming sits to the right of the directory inputs. By default outputs go
@@ -403,7 +414,7 @@ have the same channel count. Inputs must be 8-bit images, with at most 24 guide
 channels in total. The style is read as a three-channel color image; its alpha is
 not used as a mask. Outputs use the target dimensions after processing-size limits.
 
-Quality, processing size and the six synthesis parameters are shared with video.
+Quality, processing size, synthesis parameters and iteration schedules are shared with video.
 Image jobs use their own primary-guide and style weights (defaults 6 and 1).
 Video masks, automatic edges, position/warped-style guides, and blending options
 do not apply. Additional guides are supplied explicitly as image pairs.

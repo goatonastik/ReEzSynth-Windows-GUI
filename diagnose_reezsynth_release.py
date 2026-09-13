@@ -38,7 +38,8 @@ def selected_keyframes(frames, anchors, style_family):
 
 
 def make_jobs(base, engine, count, repeats, extended, style_family='poster', images=False,
-              size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False):
+              size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False,
+              iteration_schedules=False):
     inputs = base / 'inputs'
     inputs.mkdir()
     sources = sorted((ROOT / 'examples/input').glob('*.jpg'))
@@ -69,8 +70,14 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
         edges.append([100 + i, write(inputs / f'edge_{i:04d}.png', cv2.Canny(image, 50, 150))])
     options = validate_render(dict(quality_profile(quality), engine=engine,
                                    fuoum_bidirectional_flow=bidirectional, stream_frames=stream_frames))
+    if iteration_schedules:
+        options.update(searchvote_schedule=[8, 4, 2], patchmatch_schedule=[4, 2, 1])
     runtime = prepare_runtime(options, {})
     cases = [('video', {}, {}), ('grouped', {}, {})]
+    if iteration_schedules:
+        cases += [('schedule_one_level', dict(pyramidlevels=1), {}),
+                  ('schedule_auto', dict(pyramidlevels=-1), {}),
+                  ('schedule_scalar_fallback', dict(searchvote_schedule=[]), {})]
     if extended:
         cases += [('mask_edges', dict(do_mask=True, pre_mask=True, custom_edge_guides=True), {}),
                   ('forward', {}, {'only_mode': 'forward'}), ('reverse', {}, {'only_mode': 'reverse'})]
@@ -129,6 +136,12 @@ def verify(label, job):
     output = Path(job['output'])
     if not (output / 'COMPLETE.txt').is_file():
         raise RuntimeError(f'{label}: missing completion marker')
+    from reezsynth_iterations import active, resolve
+    if active(job['render_options']):
+        schedule = json.loads((output / 'iteration_schedule.json').read_text())
+        if not schedule['resolved'] or any(plan != resolve(job['render_options'], plan['levels'])
+                                           for plan in schedule['resolved']):
+            raise RuntimeError(f'{label}: invalid resolved iteration schedule')
     if job.get('type') == 'image_synthesis':
         image = cv2.imread(str(output / 'image.png'))
         error = np.load(output / 'error.npy', allow_pickle=False)
@@ -169,12 +182,13 @@ def verify(label, job):
 
 
 def run(engine, count, repeats, extended, style_family='poster', images=False,
-        size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False):
+        size=(256, 144), quality='Preview', bidirectional=False, stream_frames=False,
+        iteration_schedules=False):
     base = ROOT / 'diagnostic_outputs' / ('release_' + ('fuoum' if engine == FUOUM else 'legacy') +
                                          '_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
     runtime, jobs = make_jobs(base, engine, count, repeats, extended, style_family, images, size, quality,
-                              bidirectional, stream_frames)
+                              bidirectional, stream_frames, iteration_schedules)
     process = subprocess.Popen([runtime['python'], '-B', '-X', 'utf8', '-u', str(ROOT / 'reezsynth_shared_worker.py')],
         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding='utf-8', errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -191,6 +205,7 @@ def run(engine, count, repeats, extended, style_family='poster', images=False,
     thread.start()
     report = dict(engine=engine, frames=count, repeats=repeats, style_family=style_family,
                   quality=quality, size=size, bidirectional=bidirectional, stream_frames=stream_frames,
+                  iteration_schedules=iteration_schedules,
                   gpu_before=gpu_memory(), jobs=[], passed=False)
     stop_samples, samples = threading.Event(), []
     def sample_gpu():
@@ -246,6 +261,7 @@ if __name__ == '__main__':
     parser.add_argument('--quality', choices=['Preview', 'Standard', 'Highest'], default='Preview')
     parser.add_argument('--bidirectional', action='store_true', help='Estimate both FuouM flow directions.')
     parser.add_argument('--stream-frames', action='store_true', help='Use disk-backed clip arrays.')
+    parser.add_argument('--iteration-schedules', action='store_true', help='Exercise nonuniform per-level iteration counts.')
     parser.add_argument('--images', action='store_true', help='Include three multiguide image retargeting examples.')
     parser.add_argument('--size', nargs=2, type=int, default=[256, 144], metavar=('WIDTH', 'HEIGHT'))
     args = parser.parse_args()
@@ -254,4 +270,5 @@ if __name__ == '__main__':
     if min(args.size) < 128:
         parser.error('Multi-frame flow requires dimensions of at least 128 pixels.')
     run(FUOUM if args.engine == 'fuoum' else LEGACY, args.frames, args.repeats, args.extended,
-        args.style, args.images, tuple(args.size), args.quality, args.bidirectional, args.stream_frames)
+        args.style, args.images, tuple(args.size), args.quality, args.bidirectional, args.stream_frames,
+        args.iteration_schedules)

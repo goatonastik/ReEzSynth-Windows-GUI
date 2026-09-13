@@ -1,5 +1,16 @@
 """Resolved job settings for output metadata; no engine, Qt or GPU imports."""
 from reezsynth_engines import FUOUM
+from reezsynth_iterations import SCHEDULE_FIELDS
+
+
+def iteration_settings(result, options):
+    """Omit overridden scalars and link the runtime-resolved pyramid mapping."""
+    for schedule, scalar in zip(SCHEDULE_FIELDS, ('searchvoteiters', 'patchmatchiters')):
+        if options.get(schedule):
+            result['render_options'].pop(scalar, None)
+            result['iteration_schedule'] = dict(file='iteration_schedule.json',
+                order='coarse_to_fine', alignment='finest',
+                missing_coarse_levels='repeat_first', excess_coarse_entries='drop')
 
 
 def effective_settings(job):
@@ -28,8 +39,9 @@ def effective_settings(job):
         result['render_options'] = {name: options[name] for name in fields}
         return result
     if image:
-        fields = (*SYNTHESIS_FIELDS, 'ebsynth_backend', *(native_extra if fuoum else ()))
+        fields = (*SYNTHESIS_FIELDS, *SCHEDULE_FIELDS, 'ebsynth_backend', *(native_extra if fuoum else ()))
         result['render_options'] = {name: options[name] for name in fields}
+        iteration_settings(result, options)
         settings = validate_image_settings(job.get('image_synthesis'))
         result['image_synthesis'] = settings
         result['normalized_guide_weights'] = [settings['source_weight'] / settings['key_weight'],
@@ -55,6 +67,7 @@ def effective_settings(job):
         resolved.pop('pre_mask')
         resolved.pop('feather')
     result['render_options'] = resolved
+    iteration_settings(result, options)
     weights = validate_weights(job.get('guide_weights'))
     guides = ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt') + (('mask_wgt',) if options['do_mask'] else ())
     result['normalized_guide_weights'] = {name: weights[name] / weights['key_wgt'] for name in guides}

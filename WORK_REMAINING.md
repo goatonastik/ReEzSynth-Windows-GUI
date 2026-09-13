@@ -30,9 +30,10 @@ installed as part of the standard application setup, not as an optional engine.
 - [x] Compare painted/flat/posterized styles, grouped boundaries, masks, exports,
   original versus compiled RAFT, and three multiguide retargeting examples.
   Inspected sample frames; do not claim general visual parity or flicker quality.
-- [x] Decide/document numeric and indexing limits: retain scalar iterations,
-  six-decimal controls and consecutive source numbering; do not silently accept
-  unsupported arrays, arbitrary precision or frame gaps.
+- [x] Decide/document numeric and indexing limits: retain scalar defaults,
+  six-decimal controls and consecutive source numbering. Optional per-level
+  schedules now have an explicit schema; arbitrary precision and frame gaps
+  remain unsupported.
 - [x] Audit tracked assets/licenses and distribution architecture. Preserve original
   assets; exclude historical developer snapshots/backups from source archives.
 - [x] Pass 226 frontend regression tests, including preserved original setup tests,
@@ -151,9 +152,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    CUDA pipeline; do not turn those into misleading controls.
    - [x] Numerical flow-vector exports for both engines, with lossless arrays,
      ordered frame identities and explicit sampling-grid/pixel-unit metadata.
-   - Scalar iterations and six-decimal caps remain the recorded design choice
-     in NUMERIC_SETTINGS.md; expanding them or exposing an alternate backend
-     requires a supported native mapping, not only new UI controls.
+   - [x] Optional per-level search/vote and patch-match schedules in both engines,
+     with finest-level alignment, native mapping, GUI/preset persistence and
+     resolved output metadata. Scalar defaults and six-decimal caps remain.
+     Modulation guides and alternate synthesis backend still require native
+     validation; see NUMERIC_SETTINGS.md.
 9. [ ] **Stronger quality/stability evidence:** overnight repeated-job testing,
     isolated performance comparisons, multi-GPU coverage, and investigation of
     true backward flow in place of FuouM's negative-forward-flow approximation.
@@ -166,8 +169,9 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
     the run exposed and fixed FuouM's final-3x3 missing-mode bug. An attempted
     eight-hour 384x216 Standard campaign reached 94 passing isolated cases, but
     its 95th was rejected by the device-wide guardrail at +2,448 MiB. Its child
-    render passed; concurrent WDDM desktop graphics use rose from 4.1 to 7.1 GiB,
-    so the result is inconclusive, not a renderer leak finding. Retained report:
+    render passed (all 95 child suites exited successfully); device-wide usage
+    rose from 4,130 to 7,102 MiB on an active WDDM desktop. The cause cannot be
+    attributed from these samples, so the result is inconclusive. Retained report:
     `stability_20260912_193422_040460`. Repeat on an idle host (or add an
     attributable metric); overnight, multi-GPU and broader visual review remain
     open.
@@ -209,7 +213,12 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite through the canonical CI runner: 277 maintained tests passed in 36.027 seconds with
+- Per-level schedules passed eight real Standard cases per engine at 257x145,
+  including one-level/Automatic pyramids, scalar fallback and three multiguide
+  image retargeting jobs. Both used bounded storage; FuouM also used measured
+  backward flow. Reports: `release_legacy_20260912_205556_943246` and
+  `release_fuoum_20260912_205631_250465`.
+- Full suite through the canonical CI runner: 284 maintained tests passed in 36.586 seconds with
   normal temporary-directory/Qt access. Both cache publication races are now fixed;
   50 concurrent-producer stress rounds also passed. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
@@ -237,8 +246,8 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
   painting/poster/flat cases at 128x128 Preview. Post-exit GPU drift ranged from
   154 to 292 MiB. Retained report: `stability_20260912_165159_943355`.
 - The attempted eight-hour Standard stability campaign is retained as
-  `stability_20260912_193422_040460`. It stopped after 94 passing child renders
-  when shared desktop GPU usage exceeded the device-wide guardrail; it is not
+  `stability_20260912_193422_040460`. All 95 child suites rendered successfully;
+  the 95th exceeded the device-wide guardrail after 94 guardrail passes. It is not
   evidence of a renderer memory leak or a completed overnight validation.
 - Standard 256x144 quality renders passed on the bundled 11-frame/three-key input
   for Legacy and FuouM. The retained FuouM pass is
@@ -259,6 +268,6 @@ are finished. A lower-reasoning model can handle routine campaign execution,
 report collection and documentation updates. Remaining evidence needs an actual
 overnight run, representative production frame/keyframe folders, and another
 Windows/GPU system. Remote CI has not run because these commits are not pushed.
-Keep a high-reasoning model for any new per-level iteration schema, modulation
-channel workflow or alternate synthesis-backend implementation; those features
-are still deferred, with their mapping constraints in NUMERIC_SETTINGS.md.
+Per-level iteration schedules are now implemented. Keep a high-reasoning model
+for the remaining modulation-channel workflow or alternate synthesis-backend
+implementation; their mapping constraints are in NUMERIC_SETTINGS.md.

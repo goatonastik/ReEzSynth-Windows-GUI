@@ -9,8 +9,8 @@ has been exposed or tested with the native renderer.
 | Diversity / uniformity | 0–100,000; default 3,500 | RunConfig describes 500–15,000 as a reasonable range, not hard limits. The frontend maximum is a policy cap. Passed to a native float. |
 | Patch size | Odd integers 3–99; Standard default 7 | Wrapper requires odd values at least 3. Its pyramid calculation additionally requires every processed style/target dimension to be at least `2 * patchsize + 1`. The 99 maximum is a frontend cap. |
 | Pyramid levels | Automatic (-1), or 1–32; Standard default 6 | Wrapper derives the usable maximum from image and patch dimensions and clamps explicit requests to it. Automatic selects that maximum. Requests yielding no usable level are now rejected before engine construction. |
-| Search/vote iterations | 1–1,000; Standard default 12 | Wrapper repeats the scalar at every pyramid level in a C-int array. The 1,000 cap is frontend policy. Zero/negative/per-level-array workflows are not exposed. |
-| Patch-match iterations | 1–1,000; Standard default 6 | Same scalar-to-per-level behavior and frontend policy cap. |
+| Search/vote iterations | 1–1,000; Standard default 12 | Scalar fallback, or an optional coarse-to-fine schedule of 1–32 counts in the same range. Schedules align at the finest level as described below. |
+| Patch-match iterations | 1–1,000; Standard default 6 | Same optional schedule and frontend policy cap. |
 | Video edge/image/position/warp/mask-guide weights | 0–10,000 | Wrapper converts guide weights to per-channel native floats. Frontend caps remain a policy limit; editors preserve six decimal places. |
 | Video key / image style weight | 0.001–10,000 | Frontend ratio control: guide weights are divided by this value; native style weight stays fixed. This is not a direct upstream RunConfig key weight. |
 | Image primary/additional guide weights | 0–10,000 | Six-decimal editors and style-ratio normalization. Image validation checks the 24-channel native guide limit separately. |
@@ -40,7 +40,7 @@ native integer/float conversion checks, normalization checks and appropriate
 render validation rather than only widening spin boxes. Numeric editors preserve
 six decimal places; arbitrary higher-precision imported values are still not
 guaranteed to survive a GUI round trip unchanged. Advanced low-level inputs such
-as per-level arrays and detector-internal tuning need a deliberate adapter/API design.
+as detector-internal tuning still need a deliberate adapter/API design.
 No render defaults were changed by this audit.
 
 ## Advanced controls reviewed after the flow/storage work (2026-09-12)
@@ -48,10 +48,19 @@ No render defaults were changed by this audit.
 Numerical flow export and opt-in bounded frame storage are now implemented. The
 remaining low-level options keep their previous documented limits:
 
-- Per-level iteration lists require a new schema defining coarse-to-fine order
-  and what happens when patch geometry clamps the pyramid depth. Legacy currently
-  broadcasts scalars into native C-int arrays; FuouM's config and backend accept
-  scalar iteration counts. A shared array-valued editor alone would be misleading.
+- Per-level iteration schedules are now supported for both engines. The optional
+  JSON arrays `searchvote_schedule` and `patchmatch_schedule` contain at most 32
+  integers from 1 to 1000; empty arrays use their scalar controls. Order is
+  coarse-to-fine, aligned at the finest level. When the usable depth is shorter,
+  drop entries from the coarse end; when longer, repeat the first entry for the
+  additional coarse levels. Thus `[12, 8, 4]` resolves to `[8, 4]` at depth two
+  and `[12, 12, 8, 4]` at depth four. This applies after geometry/depth clamping,
+  including Automatic. Quality selection clears schedules; presets/projects
+  preserve them. Legacy receives real C-int arrays through a scoped runner
+  override. FuouM receives a scalar for each backend call, resets for every frame,
+  and uses the finest counts for its extra 3x3 pass. Legacy's DLL retains its
+  native polishing policy. Output `iteration_schedule.json` records the resolved
+  arrays; overridden scalar controls are omitted from effective provenance.
 - Six-decimal editors remain deliberate; native float conversion cannot provide
   arbitrary decimal precision. Higher-precision UI round trips need a separate
   representation policy before widening the editors.
@@ -66,8 +75,8 @@ remaining low-level options keep their previous documented limits:
 
 ## Dual-engine decisions (2026-09-12)
 
-- Keep scalar iteration controls and existing six-decimal policy caps; do not
-  silently round-trip arrays or advertise arbitrary-precision/API-complete parity.
+- Keep scalar iteration defaults and existing six-decimal policy caps; optional
+  schedules now have the explicit mapping above. Do not advertise arbitrary-precision/API-complete parity.
   Guides remain normalized by style/key weight, not a second native style-weight
   parameter. Existing finite/range/channel validation applies to both adapters.
 - FuouM exposes early-stop (integer 0–100,000), search-pruning (0–100,000), voting,

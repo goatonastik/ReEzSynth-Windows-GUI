@@ -6,6 +6,7 @@ import time
 
 from reezsynth_engines import (FUOUM, activate_fuoum, preflight_flow,
                                validate_capabilities, write_engine_manifest)
+from reezsynth_iterations import fuoum_synthesize, ScheduleRecorder
 
 
 def build_configs(options, weights=None, blend=None):
@@ -74,13 +75,13 @@ def render_cache(output):
         yield path
 
 
-def synthesize_image(style, pairs, options):
+def synthesize_image(style, pairs, options, output=None):
     from ezsynth.engines.synthesis_engine import EbsynthEngine
     native, pipeline, _ = build_configs(options)
     engine = EbsynthEngine(native, pipeline)
     original = install_final_pass_compatibility(engine)
     try:
-        return engine.run(style, guides=native_guides(pairs))
+        return fuoum_synthesize(engine, style, native_guides(pairs), options, ScheduleRecorder(output))
     finally:
         engine.backend.run_level = original
 
@@ -231,10 +232,12 @@ def render_fuoum_job(job, progress):
                                        on_flow=lambda a, b, f: vectors.add(numbers[a], numbers[b], f))
             backend_run_level = install_final_pass_compatibility(pipeline.synthesis_engine)
             original = pipeline.synthesis_engine.run
+            iteration_recorder = ScheduleRecorder(output)
             def tracked(style, guides, **kwargs):
                 nonlocal completed
                 started = time.perf_counter()
-                result = original(style, guides=native_guides(guides), **kwargs)
+                result = fuoum_synthesize(pipeline.synthesis_engine, style, native_guides(guides),
+                                          options, iteration_recorder, synthesize=original, **kwargs)
                 completed += 1
                 target = number_of(guides[1][1], lookup)
                 origin = number_of(style, origins)

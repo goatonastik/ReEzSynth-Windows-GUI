@@ -3,6 +3,27 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Per-level iteration schedules verified (2026-09-12)
+
+- Both engines support optional search/vote and patch-match schedules, ordered
+  coarse-to-fine and aligned at the finest level after pyramid clamping. Missing
+  coarse levels repeat the first count; excess coarse entries are dropped.
+  Empty schedules preserve scalar defaults. Quality selection clears schedules;
+  named presets and projects retain them. See NUMERIC_SETTINGS.md for the schema.
+- Legacy receives native C-int arrays through a scoped runner override. FuouM
+  receives one scalar per actual backend level, resets on every frame and uses
+  finest counts for final 3x3 polishing. Hooks restore on exceptions. Effective
+  provenance excludes overridden scalars and links `iteration_schedule.json`.
+- Real 257x145 Standard runs each passed eight cases: video, grouped video,
+  one-level clamping, Automatic, scalar fallback and three differently sized
+  multiguide images. Both used disk-backed clip storage; FuouM also used measured
+  backward flow. Reports: `release_legacy_20260912_205556_943246` and
+  `release_fuoum_20260912_205631_250465`. These establish correct execution and
+  mapping on this host; they do not establish general quality improvements.
+- The canonical maintained suite passed **284 tests in 36.586 seconds**, including
+  schedule validation/alignment, native-array mapping, per-frame reset, exception
+  restoration, effective provenance, disk-preset round trips and GUI busy state.
+
 ## Bounded frame storage verified (2026-09-12)
 
 - Added opt-in disk-backed source, style, mask, edge, intermediate and result
@@ -80,8 +101,9 @@ in [README.md](README.md).
   device-wide post-exit guardrail (+2,448 MiB versus a 2,048 MiB limit).
   That child render itself passed. The host was an active WDDM desktop with
   Photoshop, browsers, ChatGPT, Docker and other graphics clients, and
-  `nvidia-smi` showed total device use varying from 4.1 to 7.1 GiB; this is
-  therefore inconclusive rather than renderer-attributable leak evidence.
+  `nvidia-smi` showed total device use rising from 4,130 to 7,102 MiB. All 95
+  child suites exited successfully. The memory change cannot be attributed
+  from device-wide samples; the overnight result is inconclusive.
   Retained report: `diagnostic_outputs/stability_20260912_193422_040460`.
   Repeat the overnight campaign on an otherwise idle host, or with an
   attributable per-process metric, before treating it as release evidence.

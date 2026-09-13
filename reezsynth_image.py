@@ -106,7 +106,7 @@ def render_image_job(job, progress):
     from reezsynth_engines import FUOUM
     if options['engine'] == FUOUM:
         from reezsynth_fuoum import synthesize_image
-        result, error = synthesize_image(style, pairs, options)
+        result, error = synthesize_image(style, pairs, options, output=job['output'])
     else:
         from ezsynth.aux_classes import RunConfig
         from ezsynth.main_ez import ImageSynthBase
@@ -114,7 +114,9 @@ def render_image_job(job, progress):
         runner = ImageSynthBase(style_img=style, src_img=pairs[0][0], tgt_img=pairs[0][1], cfg=cfg)
         runner.eb.backend = runner.eb.backends[backend]
         # Always pass a fresh list: upstream appends the primary pair to this list.
-        result, error = runner.run(guides=list(pairs[1:]))
+        from reezsynth_iterations import legacy_schedule, ScheduleRecorder
+        with legacy_schedule(runner.eb, options, ScheduleRecorder(job['output'])):
+            result, error = runner.run(guides=list(pairs[1:]))
     expected_shape = (*pairs[0][1].shape[:2], 3)
     if not isinstance(result, np.ndarray) or result.shape != expected_shape or not np.isfinite(result).all():
         raise RuntimeError('Image synthesis returned an invalid output image.')

@@ -434,7 +434,8 @@ def _render_legacy_job(job_path):
             **{name: value for name, value in options.items()
                if name not in ("edge_method", "custom_edge_guides", "memory_efficient_raft",
                                "flow_arch", "flow_model", "ebsynth_backend", "engine",
-                               "temporal_nnf", "sparse_features", "stream_frames") and not name.startswith('fuoum_')},
+                               "temporal_nnf", "sparse_features", "stream_frames",
+                               "searchvote_schedule", "patchmatch_schedule") and not name.startswith('fuoum_')},
             **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
             **{name: value for name, value in blend_options.items() if not name.startswith('fuoum_')},
         )
@@ -582,7 +583,9 @@ def _render_legacy_job(job_path):
 
         try:
             from reezsynth_raft import correlation_mode
-            with correlation_mode(options['memory_efficient_raft']):
+            from reezsynth_iterations import legacy_schedule, ScheduleRecorder
+            with correlation_mode(options['memory_efficient_raft']), \
+                 legacy_schedule(runner.eb, options, ScheduleRecorder(job['output'])):
                 if exports['maps'] or exports['flow']:
                     results, auxiliary_maps, auxiliary_flows = runner.run_sequences_full(return_flow=exports["flow"])
                 else:

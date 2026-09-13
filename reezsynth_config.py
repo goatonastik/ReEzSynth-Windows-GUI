@@ -12,13 +12,16 @@ from reezsynth_video_plan import validate_blend_options, validate_grouped_select
 from reezsynth_artifacts import validate_exports
 from reezsynth_image import validate_image_settings
 from reezsynth_engines import LEGACY, FUOUM, validate_engine, validate_revision
+from reezsynth_iterations import SCHEDULE_FIELDS, validate_schedule
 
 WEIGHTS = {"edg_wgt": 1.0, "img_wgt": 6.0, "pos_wgt": 2.0, "wrp_wgt": 0.5,
            "key_wgt": 1.0, "mask_wgt": 0.0}
 PREVIEW = dict(uniformity=3500.0, patchsize=5, pyramidlevels=3,
-               searchvoteiters=4, patchmatchiters=3, extrapass3x3=False)
+               searchvoteiters=4, patchmatchiters=3, extrapass3x3=False,
+               searchvote_schedule=[], patchmatch_schedule=[])
 STANDARD = dict(uniformity=3500.0, patchsize=7, pyramidlevels=6,
-                searchvoteiters=12, patchmatchiters=6, extrapass3x3=True)
+                searchvoteiters=12, patchmatchiters=6, extrapass3x3=True,
+                searchvote_schedule=[], patchmatch_schedule=[])
 HIGHEST = dict(STANDARD, pyramidlevels=-1)
 RENDER = dict(engine=LEGACY, **STANDARD, edge_method="Classic", do_mask=False, pre_mask=False, feather=0,
               custom_edge_guides=False, memory_efficient_raft=False, flow_arch="RAFT",
@@ -53,7 +56,7 @@ QUALITY_PROFILES = {
 def quality_profile(name):
     """Return the built-in synthesis-only settings for a named quality level."""
     try:
-        return dict(QUALITY_PROFILES[name])
+        return copy.deepcopy(QUALITY_PROFILES[name])
     except KeyError as exc:
         raise ValueError("Unknown quality preset.") from exc
 
@@ -210,7 +213,9 @@ def validate_render(data=None):
         result['fuoum_raft_model'] = data['flow_model']
     for name, default in RENDER.items():
         value = result[name]
-        if isinstance(default, bool):
+        if name in SCHEDULE_FIELDS:
+            result[name] = validate_schedule(value)
+        elif isinstance(default, bool):
             if type(value) is not bool:
                 raise ValueError(f"{name} must be true or false.")
         elif name == "engine":
