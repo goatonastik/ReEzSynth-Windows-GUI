@@ -3,6 +3,34 @@
 Updated 2026-09-12. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Bidirectional flow and numerical exports verified (2026-09-12)
+
+- FuouM now offers opt-in independently estimated forward/backward RAFT or
+  NeuFlow. Sampling, temporal NNF, accumulated keyframe coordinates and blend
+  masks use the field defined on their target grid. The default stays off for
+  compatibility. Directional cache entries are keyed by ordered frame content;
+  partial cache misses compute only missing pairs with one model instance.
+- Both engines can export lossless numerical dx/dy arrays with source/target
+  frame numbers, grid identity and processed-pixel units. These exports are
+  independent of the existing trimmed visual-flow/error artifacts.
+- The 11-frame/three-key Standard/Highest matrix passed for both engines at
+  256x144: `quality_20260912_170629_359982`. Each Legacy case exported 10 directed
+  fields and each bidirectional FuouM case 20, all finite and correctly labelled.
+  NeuFlow Highest also passed at 257x145 with 20 fields:
+  `quality_20260912_170734_726296`. These observations establish functionality,
+  not general artistic superiority or ground-truth optical-flow accuracy.
+- Completed the final-3x3 compatibility fix for still images as well as video.
+  FuouM Standard passed video/grouped and all three multiguide image examples:
+  `release_fuoum_20260912_170821_878598`.
+- Corrected the previous sandbox ACL workaround: the temporary-folder denial
+  occurred inside the managed sandbox, not under normal Windows permissions.
+  Private TemporaryDirectory handling and visible cleanup errors are restored;
+  affected tests and real renders run with approved normal filesystem access.
+- Fixed both observed Windows cache publication races: publish validation before
+  data visibility, and publish immutable identity/data files without replacing
+  valid concurrent readers. Fifty concurrent-producer stress rounds passed.
+  The complete maintained suite passed **270 tests in 35.192 seconds**.
+
 ## Quality and stability harnesses added (2026-09-12)
 
 - `diagnose_reezsynth_stability.py` alternates both engines across painting,

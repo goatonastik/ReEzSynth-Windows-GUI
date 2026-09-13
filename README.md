@@ -329,6 +329,11 @@ For user-supplied numbered frames and styled keyframes, run
 `python -B diagnose_reezsynth_quality.py --video-dir <frames> --keyframe-dir <keys> --plan`,
 review the matrix, then omit `--plan` to render Standard and Highest outputs from
 both engines with videos, raw maps, flow visualizations and boundary metrics.
+The matrix also verifies numerical flow exports. Add `--bidirectional` to use
+independently estimated FuouM flow directions, and `--fuoum-flow-engine NeuFlow`
+to exercise NeuFlow. In Rendering, **Estimate both flow directions** is opt-in;
+**Export numerical flow vectors** saves lossless dx/dy arrays and explicit frame
+direction metadata under `flow_vectors/`.
 For small real CUDA checks of the frontend adapter, run
 `python -B diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
 `python -B diagnose_reezsynth_adapter.py --image` for Image Synthesis, or

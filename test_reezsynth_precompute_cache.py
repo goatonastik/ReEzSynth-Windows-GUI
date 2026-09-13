@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 
 from reezsynth_precompute_cache import (array_digest, cache_entry,
-    edge_identity, flow_identity, load_array, store_array)
+    edge_identity, flow_identity, load_array, store_array, publish_once)
 
 
 class PrecomputeCacheTests(unittest.TestCase):
@@ -80,6 +80,20 @@ class PrecomputeCacheTests(unittest.TestCase):
     def test_relative_cache_root_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'absolute'):
             cache_entry({'precompute_cache': 'relative'}, 'edges', self.frames, {})
+
+    def test_array_is_valid_as_soon_as_atomic_publication_is_visible(self):
+        path = self.root / 'flow.npy'
+        value = np.ones((8, 9, 2), np.float32)
+        original = publish_once
+        observed = []
+        def publish(temporary, destination):
+            result = original(temporary, destination)
+            observed.append(load_array(destination, value.shape))
+            return result
+        with patch('reezsynth_precompute_cache.publish_once', publish):
+            store_array(path, value)
+        self.assertEqual(len(observed), 1)
+        np.testing.assert_array_equal(observed[0], value)
 
 
 if __name__ == '__main__':

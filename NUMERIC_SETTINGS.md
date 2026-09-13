@@ -17,7 +17,7 @@ has been exposed or tested with the native renderer.
 | Mask feather | 0 or odd integers 1–999 | Zero disables feathering; nonzero values are Gaussian kernel sizes. The maximum is frontend policy. |
 | Reconstruction iteration limit | Automatic (UI 0, saved null), or 1–2,147,483,647 | Legacy LSMR only; FuouM LSQR/LSMR/CG/AMG. FuouM AMG uses 100 for automatic. Disabled for seamless/disabled reconstruction. |
 | Custom processing size | Integer width/height 128–16,384 | Frontend bounds; not universal native limits. Multi-frame RAFT also requires at least 128 pixels per dimension. Original-size still images may be smaller if the patch constraint is satisfied. |
-| Parallel limit | 0–64; default 2 when enabled | Application setting: zero means all queued jobs. Parallel rendering remains off by default. |
+| Parallel limit | 0–64; default 2 when enabled | Zero uses GPU-aware automatic admission; positive values are hard caps. Parallel rendering remains off by default. |
 | Preview limit | 1–64; default 8 | Application setting. The editor and validator now agree; previously the editor allowed 0–10,000. |
 
 ## Corrections from this audit

@@ -141,8 +141,31 @@ class EngineTests(unittest.TestCase):
         backend.run_level(*arguments)
         self.assertEqual(calls[0][0][9], 7)
         self.assertEqual(calls[0][0][14], 9)
+        self.assertEqual(calls[0][1], {})
+        backend.run_level(*range(16))
+        self.assertEqual(calls[1], (tuple(range(16)), {}))
+        backend.run_level(vote_mode=None, cost_function_mode=None)
+        self.assertEqual(calls[2][1], {'vote_mode': 7, 'cost_function_mode': 9})
         backend.run_level = original
         self.assertIs(backend.run_level, original)
+
+    def test_image_synthesis_repairs_final_pass_and_restores_after_failure(self):
+        from reezsynth_fuoum import synthesize_image
+        def strict_level(*args, **kwargs):
+            self.assertEqual(args[9], 7)
+            self.assertEqual(args[14], 9)
+            raise RuntimeError('native failure')
+        engine = types.SimpleNamespace(
+            backend=types.SimpleNamespace(run_level=strict_level),
+            ebsynth_config=types.SimpleNamespace(vote_mode='weighted', cost_function='ssd'),
+            vote_mode_map={'weighted': 7}, cost_function_map={'ssd': 9})
+        engine.run = lambda *args, **kwargs: engine.backend.run_level(*([None] * 16))
+        module = types.SimpleNamespace(EbsynthEngine=lambda *args: engine)
+        with patch.dict(sys.modules, {'ezsynth.engines.synthesis_engine': module}), \
+             patch('reezsynth_fuoum.build_configs', return_value=(None, None, None)), \
+             self.assertRaisesRegex(RuntimeError, 'native failure'):
+            synthesize_image(None, [], {})
+        self.assertIs(engine.backend.run_level, strict_level)
 
     def test_fuoum_render_cache_is_writable_and_cleaned(self):
         with render_cache(ROOT) as cache:
@@ -261,6 +284,86 @@ class EngineRoutingTests(LifecycleFixture):
 
 
 class FrameCorrespondenceTests(unittest.TestCase):
+    def test_bidirectional_warp_uses_target_grid_not_negated_source_grid(self):
+        from reezsynth_flow import pull_warp
+        x = np.tile(np.arange(20, dtype=np.float32), (4, 1))
+        source = x ** 2
+        # Forward map x -> 2*x has displacement x on the source grid.
+        # The true inverse map on the target grid is x -> x/2.
+        backward = np.stack((-x / 2, np.zeros_like(x)), axis=-1)
+        expected = np.tile(np.interp(np.arange(20) / 2, np.arange(20), np.arange(20) ** 2), (4, 1))
+        np.testing.assert_allclose(pull_warp(source, backward), expected)
+        wrong = pull_warp(source, np.stack((-x, np.zeros_like(x)), axis=-1))
+        self.assertGreater(float(np.abs(wrong - expected).mean()), 10)
+
+    def test_bidirectional_pass_accumulates_coordinates_and_aligns_reverse_errors(self):
+        from reezsynth_flow import run_bidirectional_pass
+        frames = [np.zeros((4, 12, 3), np.uint8) for _ in range(3)]
+        style = np.tile(np.arange(12, dtype=np.uint8), (4, 1))[..., None].repeat(3, axis=2)
+        fwd = [np.full((4, 12, 2), (2, 0), np.float32) for _ in range(2)]
+        bwd = [np.full((4, 12, 2), (-1, 0), np.float32) for _ in range(2)]
+        calls = []
+        def guides(**kwargs):
+            calls.append(kwargs)
+            return kwargs
+        def synthesize(style, guides, initial_nnf, output_nnf):
+            if initial_nnf is not None:
+                np.testing.assert_array_equal(initial_nnf[1, 6], [5, 1])
+            y, x = np.mgrid[:4, :12]
+            nnf = np.stack((x, y), axis=-1).astype(np.int32)
+            return guides['warped_previous_style'], np.full((4, 12), guides['target_idx']), nnf
+        pipeline = types.SimpleNamespace(_fwd_flows=fwd, _bwd_flows=bwd,
+            config=types.SimpleNamespace(pipeline=types.SimpleNamespace(use_temporal_nnf_propagation=True)),
+            _prepare_guides_for_frame=guides, synthesis_engine=types.SimpleNamespace(run=synthesize))
+        seq = types.SimpleNamespace(start_frame=0, end_frame=2)
+        output = run_bidirectional_pass(pipeline, seq, style, True, frames)
+        self.assertEqual(output[0][-1][1, 6, 0], 4)
+        self.assertEqual(calls[-1]['target_pos_guide'][1, 6, 0], int(4 / 11 * 255))
+        pipeline.config.pipeline.use_temporal_nnf_propagation = False
+        pipeline.synthesis_engine.run = lambda style, guides, **kw: (
+            guides['warped_previous_style'], np.full((4, 12), guides['target_idx']))
+        output = run_bidirectional_pass(pipeline, seq, style, False, frames)
+        self.assertEqual(output[0][0][1, 3, 0], 7)
+        self.assertEqual([int(error[0, 0]) for error in output[1]], [0, 1])
+        self.assertIs(output[2][0], fwd[0])
+
+    def test_fuoum_directional_cache_reuses_each_order_and_only_computes_missing_pairs(self):
+        from reezsynth_fuoum_pipeline import extend_pipeline
+        frames = [np.full((4, 5, 3), v, np.uint8) for v in (10, 20, 30)]
+        config = types.SimpleNamespace(precomputation=types.SimpleNamespace(flow_engine='RAFT',
+            flow_model='sintel', edge_method='Classic'))
+        calls = []
+        class Pipeline:
+            def __init__(self, config, data):
+                self.config = config
+        class Flow:
+            def __init__(self, **kwargs):
+                pass
+            def compute(self, pair):
+                a, b = (int(f[0, 0, 0]) for f in pair)
+                calls.append((a, b))
+                return [np.full((4, 5, 2), b - a, np.float32)]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(sys.modules, {
+                 'ezsynth.pipeline': types.SimpleNamespace(SynthesisPipeline=Pipeline),
+                 'ezsynth.engines.flow_engine': types.SimpleNamespace(RAFTFlowEngine=Flow, NeuFlowEngine=Flow),
+                 'torch': types.SimpleNamespace(cuda=types.SimpleNamespace(empty_cache=lambda: None))}), \
+             patch('reezsynth_precompute_cache.flow_identity', return_value={'model': 'fixture'}):
+            data = types.SimpleNamespace(_content_frames=frames)
+            def compute():
+                instance = extend_pipeline(config, data, [], [], 0, 'none', lambda *a: None,
+                    cache_job={'precompute_cache': directory}, bidirectional=True)
+                instance._compute_optical_flow(frames)
+                for value in instance._fwd_flows + instance._bwd_flows:
+                    value._mmap.close()
+            compute()
+            compute()
+            self.assertEqual(calls, [(10, 20), (20, 10), (20, 30), (30, 20)])
+            frames[2] = np.full((4, 5, 3), 40, np.uint8)
+            compute()
+            self.assertEqual(calls[-2:], [(20, 40), (40, 20)])
+            self.assertEqual(len(calls), 6)
+
     def test_poisson_matrix_matches_pixel_differences_without_wrapping_rows(self):
         from reezsynth_fuoum_pipeline import poisson_matrices
         for h, w in ((3, 5), (5, 3), (1, 4), (4, 1)):

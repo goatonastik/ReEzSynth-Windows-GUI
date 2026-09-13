@@ -146,18 +146,29 @@ The adapter aligns forward/reverse errors by target frame before blending and
 preserves every supplied styled keyframe exactly before optional masking. Its
 Poisson gradient matrix has explicit zero right/bottom boundaries, and histogram
 normalization handles flat-color styles. These are frontend corrections to the
-pinned FuouM pipeline, not claims of identical upstream output. Reverse warping
-still follows the pinned engine's negative-forward-flow approximation.
+pinned FuouM pipeline, not claims of identical upstream output. The optional
+**Estimate both flow directions** control computes each pair independently in
+both orders for RAFT and NeuFlow. Forward synthesis pulls previous pixels with
+backward flow, and reverse synthesis uses forward flow. NNF propagation,
+accumulated keyframe-coordinate guides and blend-mask propagation use those same
+target-grid fields. It roughly doubles cold-cache flow computation. The default
+remains off to retain the previously validated appearance; old presets stay off.
 
 FuouM auxiliary maps are raw per-pass synthesis errors, before keyframe preservation,
 blending and compositing. Each record names its error frame and pass direction.
 Legacy grouped exports retain their existing offset-error selection-mask semantics.
-Flow exports in both engines are color visualizations, not numerical vector fields.
+Color flow visualizations remain under `auxiliary/`. The separate **Export
+numerical flow vectors** setting writes original floating-point HxWx2 `.npy`
+arrays under `flow_vectors/`. Its manifest identifies source/target frame numbers,
+the source sampling grid, dx/dy channel order and processed-resolution pixel units.
+FuouM exports both measured directions when enabled; Legacy exports its computed
+lower-to-higher pairs. No inverse field is manufactured by negating another.
 Do not compare differently scoped error maps as a common quality score.
 
 `diagnose_reezsynth_release.py` exercises repeated real sequence jobs with
 `--engine legacy|fuoum`, `--frames`, `--repeats`, `--extended`,
-`--style poster|painting|flat`, `--images`, and `--size WIDTH HEIGHT`.
+`--style poster|painting|flat`, `--images`, `--quality Preview|Standard|Highest`,
+`--bidirectional`, and `--size WIDTH HEIGHT`.
 It checks exact FuouM keyframes, unmasked backgrounds, finite auxiliary arrays,
 retargeted image dimensions, orderly shared-worker exit, and records process-tree
 RSS and sampled aggregate GPU memory. Adjacent-frame differences include motion;

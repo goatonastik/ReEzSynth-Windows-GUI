@@ -116,18 +116,46 @@ class ExportAdapterTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 save_artifacts(self.output, {'flow': True}, records, [], [values])
 
+    def test_numerical_flow_reaches_worker_without_visualization_api(self):
+        self.fake_engine()
+        self.job['exports'] = {'flow_vectors': True}
+        self.run_job()
+        root = self.output / 'flow_vectors'
+        manifest = json.loads((root / 'manifest.json').read_text())
+        self.assertEqual(manifest['units'], 'processed-resolution pixels')
+        self.assertEqual(len(manifest['artifacts']), 1)
+        item = manifest['artifacts'][0]
+        self.assertEqual((item['flow_from'], item['flow_to'], item['grid_frame']), (0, 1, 0))
+        np.testing.assert_array_equal(np.load(root / item['file']), np.zeros((128, 128, 2), np.float32))
+
+    def test_numerical_flow_preserves_values_and_deduplicates_each_direction(self):
+        from reezsynth_artifacts import FlowVectorWriter
+        writer = FlowVectorWriter(self.output, True)
+        forward = np.full((2, 3, 2), 1.234567, np.float32)
+        reverse = np.full((2, 3, 2), -2.345678, np.float64)
+        writer.add(10, 11, forward)
+        writer.add(10, 11, forward)
+        writer.add(11, 10, reverse)
+        writer.finish()
+        self.assertEqual(len(writer.records), 2)
+        np.testing.assert_array_equal(np.load(writer.root / '10_to_11.npy'), forward)
+        np.testing.assert_array_equal(np.load(writer.root / '11_to_10.npy'), reverse)
+        with self.assertRaisesRegex(RuntimeError, 'finite'):
+            writer.add(11, 12, np.full((2, 3, 2), np.nan))
+
 
 class ExportGuiTests(LifecycleFixture):
     def test_preset_project_legacy_and_job_serialization(self):
         w = self.w
-        self.assertEqual(w.options.snapshot('render')['exports'], {'maps': False, 'flow': False})
+        self.assertEqual(w.options.snapshot('render')['exports'], {'maps': False, 'flow': False, 'flow_vectors': False})
         w.options.export_widgets['maps'].setChecked(True)
         w.options.export_widgets['flow'].setChecked(True)
+        w.options.export_widgets['flow_vectors'].setChecked(True)
         preset = w.options.snapshot('render')
         w.project_file = self.root / 'project.json'
         w.save_project()
         data = json.loads(w.project_file.read_text())
-        self.assertEqual(data['exports'], {'maps': True, 'flow': True})
+        self.assertEqual(data['exports'], {'maps': True, 'flow': True, 'flow_vectors': True})
         for legacy in (False, True):
             if legacy:
                 data.pop('exports')
@@ -139,7 +167,7 @@ class ExportGuiTests(LifecycleFixture):
         self.run_queue()
         self.until(lambda: not w.busy)
         for path in w.batch.rglob('job.json'):
-            self.assertEqual(json.loads(path.read_text())['exports'], {'maps': True, 'flow': True})
+            self.assertEqual(json.loads(path.read_text())['exports'], {'maps': True, 'flow': True, 'flow_vectors': True})
 
 
 if __name__ == '__main__':

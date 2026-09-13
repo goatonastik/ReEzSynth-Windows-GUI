@@ -208,7 +208,7 @@ def write_engine_manifest(job):
                     runtime_components=components, effective_settings=effective,
                     adapter_sha256={name: file_sha256(ROOT / name)
                                     for name in ('reezsynth_jobs.py', 'reezsynth_image.py', 'reezsynth_fuoum.py',
-                                                 'reezsynth_fuoum_pipeline.py', 'reezsynth_raft.py',
+                                                 'reezsynth_fuoum_pipeline.py', 'reezsynth_flow.py', 'reezsynth_raft.py',
                                                  'reezsynth_engines.py', 'reezsynth_provenance.py',
                                                  'reezsynth_config.py', 'reezsynth_video_plan.py',
                                                  'reezsynth_artifacts.py', 'reezsynth_video_export.py',

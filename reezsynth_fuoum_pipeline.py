@@ -36,8 +36,10 @@ def run_sequences(pipeline, frames, styles, indices, mode, blend_frames, on_pass
         if kind == 'blend' and mode == 'none':
             fwd, rev = run(True), run(False)
             # fwd errors target start+1..end; reverse errors target start..end-1.
+            blend_flows = (pipeline._bwd_flows if getattr(pipeline, 'bidirectional', False)
+                           else pipeline._fwd_flows)
             middle = blend_frames(fwd[0][1:-1], rev[0][1:-1], fwd[1][:-1], rev[1][1:],
-                                  pipeline._fwd_flows[start + 1:end - 1])
+                                  blend_flows[start + 1:end - 1])
             rendered = [styles[left], *middle, styles[right]]
         else:
             forward = (mode == 'forward') if kind == 'blend' else kind == 'forward'
@@ -65,7 +67,7 @@ def poisson_matrices(h, w, weights):
     return [sparse.vstack((gx * weight, gy * weight, identity), format='csc') for weight in weights]
 
 
-def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config):
+def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config, *, pull_flows=False):
     import cv2
     import numpy as np
     from ezsynth.utils.blend_logic import Reconstructor
@@ -79,8 +81,9 @@ def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config):
     for i, (a, b, ea, eb) in enumerate(zip(fwd, rev, fwd_errors, rev_errors)):
         mask = (np.asarray(ea) >= np.asarray(eb)).astype(np.uint8)
         if previous is not None:
+            sampling_flow = flows[i - 1] if pull_flows else -flows[i - 1]
             mask = np.maximum(mask, (warp.run_warping(previous.astype(np.float32),
-                                                     -flows[i - 1]) > .5).astype(np.uint8))
+                                                     sampling_flow) > .5).astype(np.uint8))
         masks.append(mask)
         previous = mask
         # Upstream histogram normalization divides by zero on flat-color styles.
@@ -119,7 +122,8 @@ def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config):
     return reconstructor.run(hist, fwd, rev, masks)
 
 
-def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, cache_job=None, runtime=None):
+def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, cache_job=None,
+                    runtime=None, bidirectional=False, on_flow=lambda *args: None):
     from ezsynth.pipeline import SynthesisPipeline
     from reezsynth_precompute_cache import (array_digest, cache_entry_from_digests,
         edge_identity, flow_identity, load_array, store_array)
@@ -130,10 +134,10 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
     cache_enabled = bool(cache_job.get('precompute_cache'))
     flow_cache_identity = (flow_identity(cache_job.get('render_options', {}), runtime)
                            if cache_enabled else None)
-    flow_directories = ([cache_entry_from_digests(
-        cache_job, 'flow', frame_digests[index:index + 2], flow_cache_identity)
-        for index in range(max(0, len(content_frames) - 1))] if cache_enabled else
-        [None] * max(0, len(content_frames) - 1))
+    def flow_directory(source, target):
+        return (cache_entry_from_digests(cache_job, 'flow',
+            [frame_digests[source], frame_digests[target]], flow_cache_identity)
+            if cache_enabled else None)
     edge_cache_identity = edge_identity(runtime['engine'], runtime['revision'],
                                         config.precomputation.edge_method)
     edge_directories = ([cache_entry_from_digests(
@@ -164,39 +168,56 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
             return guides
 
         def _compute_optical_flow(self, frames):
+            import cv2
+            import torch
+            from ezsynth.engines.flow_engine import RAFTFlowEngine, NeuFlowEngine
             h, w = frames[0].shape[:2]
-            cached = [None if directory is None else load_array(
-                directory / 'flow.npy', (h, w, 2), mmap=True) for directory in flow_directories]
-            if all(value is not None for value in cached):
-                self._fwd_flows = cached
-                print(f'[Cache] Reused {len(cached)} validated optical-flow pair(s).', flush=True)
-                return
-            if self.config.precomputation.flow_engine != 'NeuFlow':
-                super()._compute_optical_flow(frames)
-            else:
-                # NeuFlow v2 initializes fixed 1/16-resolution grids: pad, then unpad.
-                import cv2
-                import torch
-                from ezsynth.engines.flow_engine import NeuFlowEngine
-                padded = [cv2.copyMakeBorder(f, 0, (-h) % 16, 0, (-w) % 16,
-                                            cv2.BORDER_REPLICATE) for f in frames]
-                engine = NeuFlowEngine(model_name=self.config.precomputation.flow_model)
-                try:
-                    self._fwd_flows = [f[:h, :w].copy() for f in engine.compute(padded)]
-                finally:
+            neuflow = config.precomputation.flow_engine == 'NeuFlow'
+            engine, hits = None, 0
+            self._fwd_flows, self._bwd_flows = [], []
+            try:
+                for index in range(len(frames) - 1):
+                    directions = [(index, index + 1, self._fwd_flows)]
+                    if bidirectional:
+                        directions.append((index + 1, index, self._bwd_flows))
+                    for source, target, results in directions:
+                        directory = flow_directory(source, target)
+                        value = None if directory is None else load_array(
+                            directory / 'flow.npy', (h, w, 2), mmap=True)
+                        if value is not None:
+                            hits += 1
+                        else:
+                            if engine is None:
+                                factory = NeuFlowEngine if neuflow else RAFTFlowEngine
+                                engine = factory(model_name=config.precomputation.flow_model)
+                            pair = [frames[source], frames[target]]
+                            if neuflow:
+                                pair = [cv2.copyMakeBorder(f, 0, (-h) % 16, 0, (-w) % 16,
+                                        cv2.BORDER_REPLICATE) for f in pair]
+                            value = engine.compute(pair)[0][:h, :w].copy()
+                            if directory is not None:
+                                store_array(directory / 'flow.npy', value)
+                                value = load_array(directory / 'flow.npy', (h, w, 2), mmap=True)
+                                if value is None:
+                                    raise RuntimeError('Cannot validate freshly cached optical flow.')
+                        results.append(value)
+                        on_flow(source, target, value)
+            finally:
+                if engine is not None:
                     del engine
                     torch.cuda.empty_cache()
-            for directory, value in zip(flow_directories, self._fwd_flows):
-                if directory is not None:
-                    store_array(directory / 'flow.npy', value)
-            if flow_directories and all(directory is not None for directory in flow_directories):
-                # Release computed arrays and retain read-only maps for long synthesis passes.
-                import gc
-                self._fwd_flows = [load_array(directory / 'flow.npy', (h, w, 2), mmap=True)
-                                   for directory in flow_directories]
-                gc.collect()
+            if hits:
+                print(f'[Cache] Reused {hits} validated optical-flow pair(s).', flush=True)
+
+        def _run_a_pass(self, seq, style_img, is_forward, content_frames):
+            if bidirectional:
+                from reezsynth_flow import run_bidirectional_pass
+                return run_bidirectional_pass(self, seq, style_img, is_forward, content_frames)
+            return super()._run_a_pass(seq, style_img, is_forward, content_frames)
 
         def _run_synthesis(self, content_frames, style_frames):
             return run_sequences(self, content_frames, style_frames, config.project.style_indices, mode,
-                                 lambda *a: blend_aligned(*a, config.blending), on_pass)
-    return FrontendPipeline(config, data)
+                                 lambda *a: blend_aligned(*a, config.blending, pull_flows=bidirectional), on_pass)
+    pipeline = FrontendPipeline(config, data)
+    pipeline.bidirectional = bidirectional
+    return pipeline

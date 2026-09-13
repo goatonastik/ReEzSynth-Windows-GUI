@@ -40,6 +40,7 @@ LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (po
 LABELS["preview_limit"] = "Maximum live previews"
 LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
               fuoum_flow_engine='Optical flow engine (FuouM only)',
+              fuoum_bidirectional_flow='Estimate both flow directions [FuouM only]',
               fuoum_raft_model='RAFT checkpoint (FuouM only)',
               fuoum_neuflow_model='NeuFlow checkpoint (FuouM only)',
               sparse_features='Sparse feature guides [FuouM only]',
@@ -128,9 +129,12 @@ class Options(QObject):
         advanced_layout.addWidget(self.engine_note)
         self.export_widgets = {}
         for name, label in (("maps", "Export numerical error / selection maps (.npy)"),
-                            ("flow", "Export flow visualizations (.png)")):
+                            ("flow", "Export flow visualizations (.png)"),
+                            ("flow_vectors", "Export numerical flow vectors (.npy)")):
             widget = QCheckBox(label)
             widget.setToolTip("Applies to independent and grouped video. Saved under auxiliary/ with a metadata manifest.")
+            if name == 'flow_vectors':
+                widget.setToolTip('Saves floating-point dx/dy arrays under flow_vectors/. Metadata identifies source/target frames and processed pixel units. FuouM exports both directions when enabled.')
             widget.toggled.connect(self.changed)
             self.export_widgets[name] = widget
             advanced_layout.addWidget(widget)
@@ -208,6 +212,8 @@ class Options(QObject):
                     widget.setToolTip('Uses numbered edge-guide frames from Custom edge guides instead of computing Classic, PST, or PAGE edges.')
                 elif name == 'flow_model':
                     widget.setToolTip('Choices follow the selected flow architecture. Optional architectures need their own model files. Image Synthesis does not use optical flow.')
+                elif name == 'fuoum_bidirectional_flow':
+                    widget.setToolTip('Estimates both directions independently for image, coordinate and NNF warping. Roughly doubles flow computation on a cold cache. Off preserves existing flow behavior. Video only.')
                 elif name == 'flow_arch':
                     widget.setToolTip('RAFT is bundled and supported by default. EF-RAFT and FlowDiffuser need their optional dependencies and weights before a queue can start.')
                 elif name == 'ebsynth_backend':
@@ -828,7 +834,7 @@ class Options(QObject):
             widgets[name].setEnabled(editable and fuoum)
         for name in ('fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
                      'fuoum_search_pruning_threshold', 'fuoum_sparse_anchor_weight',
-                     'fuoum_flow_engine', 'fuoum_neuflow_model'):
+                     'fuoum_flow_engine', 'fuoum_neuflow_model', 'fuoum_bidirectional_flow'):
             widgets[name].setEnabled(editable and fuoum)
         widgets['fuoum_neuflow_model'].setEnabled(editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'NeuFlow')
         widgets['fuoum_raft_model'].setEnabled(editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'RAFT')

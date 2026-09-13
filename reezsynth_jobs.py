@@ -256,7 +256,7 @@ def _render_legacy_job(job_path):
     if job.get('type') == 'image_synthesis':
         from reezsynth_image import render_image_job
         return render_image_job(job, progress)
-    from reezsynth_artifacts import validate_exports, artifact_records, save_artifacts
+    from reezsynth_artifacts import validate_exports, artifact_records, save_artifacts, FlowVectorWriter
     from reezsynth_video_export import ffmpeg_executable, validate_video_export
     from reezsynth_config import validate_processing_settings
     processing = validate_processing_settings(job)
@@ -270,6 +270,7 @@ def _render_legacy_job(job_path):
     key = job["key"]
     key_position = numbers.index(key)
     output = Path(job["output"])
+    vectors = FlowVectorWriter(output, exports['flow_vectors'])
     from reezsynth_preview_transport import PreviewPublisher
     preview_publisher = PreviewPublisher(output)
     from reezsynth_video_plan import plan_grouped_video, check_blend_dependencies
@@ -477,26 +478,33 @@ def _render_legacy_job(job_path):
 
         original_compute_flow = None
         flow_hits = 0
-        if cache_enabled:
+        if cache_enabled or exports['flow_vectors']:
             from reezsynth_precompute_cache import (array_digest, cache_entry_from_digests,
                 flow_identity, load_array, store_array)
             flow_frames = (getattr(runner, 'masked_frs_seq', None)
                            if options['do_mask'] and options['pre_mask'] else frames)
-            flow_digests = {id(frame): array_digest(frame) for frame in flow_frames}
-            flow_cache_identity = flow_identity(options, engine_runtime)
+            flow_numbers = {id(frame): number for frame, number in zip(flow_frames, numbers)}
+            flow_digests = {id(frame): array_digest(frame) for frame in flow_frames} if cache_enabled else {}
+            flow_cache_identity = flow_identity(options, engine_runtime) if cache_enabled else None
             original_compute_flow = runner.rafter._compute_flow
 
             def cached_compute_flow(source, target):
                 nonlocal flow_hits
-                source_digest, target_digest = flow_digests[id(source)], flow_digests[id(target)]
-                directory = cache_entry_from_digests(
-                    job, 'flow', [source_digest, target_digest], flow_cache_identity)
-                cached = load_array(directory / 'flow.npy', (*source.shape[:2], 2), mmap=True)
+                directory = None
+                if cache_enabled:
+                    source_digest, target_digest = flow_digests[id(source)], flow_digests[id(target)]
+                    directory = cache_entry_from_digests(
+                        job, 'flow', [source_digest, target_digest], flow_cache_identity)
+                cached = None if directory is None else load_array(
+                    directory / 'flow.npy', (*source.shape[:2], 2), mmap=True)
                 if cached is not None:
                     flow_hits += 1
-                    return cached
-                value = original_compute_flow(source, target)
-                store_array(directory / 'flow.npy', value)
+                    value = cached
+                else:
+                    value = original_compute_flow(source, target)
+                    if directory is not None:
+                        store_array(directory / 'flow.npy', value)
+                vectors.add(flow_numbers[id(source)], flow_numbers[id(target)], value)
                 return value
 
             runner.rafter._compute_flow = cached_compute_flow
@@ -571,7 +579,7 @@ def _render_legacy_job(job_path):
         try:
             from reezsynth_raft import correlation_mode
             with correlation_mode(options['memory_efficient_raft']):
-                if any(exports.values()):
+                if exports['maps'] or exports['flow']:
                     results, auxiliary_maps, auxiliary_flows = runner.run_sequences_full(return_flow=exports["flow"])
                 else:
                     results, _ = runner.run_sequences()
@@ -640,6 +648,8 @@ def _render_legacy_job(job_path):
         from reezsynth_video_export import export_rendered_video
         export_rendered_video(output, numbers, job['padding'], video_export,
                               ffmpeg_exe=video_ffmpeg)
+
+    vectors.finish()
 
     (output / "COMPLETE.txt").write_text(
         f"Keyframe: {key}\n"

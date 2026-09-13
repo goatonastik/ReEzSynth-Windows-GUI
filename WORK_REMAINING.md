@@ -147,9 +147,17 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
    exports, or FuouM's alternate synthesis backend. Each needs explicit mapping
    and validation. Some upstream configuration fields are unused by the selected
    CUDA pipeline; do not turn those into misleading controls.
+   - [x] Numerical flow-vector exports for both engines, with lossless arrays,
+     ordered frame identities and explicit sampling-grid/pixel-unit metadata.
+   - Scalar iterations and six-decimal caps remain the recorded design choice
+     in NUMERIC_SETTINGS.md; expanding them or exposing an alternate backend
+     requires a supported native mapping, not only new UI controls.
 9. [ ] **Stronger quality/stability evidence:** overnight repeated-job testing,
     isolated performance comparisons, multi-GPU coverage, and investigation of
     true backward flow in place of FuouM's negative-forward-flow approximation.
+    The backward-flow investigation is now implemented as an opt-in RAFT/NeuFlow
+    path with explicit pull sampling and accumulated coordinate/NNF propagation.
+    Standard/Highest runs and numerical direction/cache tests passed.
     Automated stability and user-input quality-matrix harnesses are now present.
     A bounded six-case alternating-engine run passed with post-exit GPU drift no
     higher than 292 MiB. Separate 11-frame Standard renders passed for both engines;
@@ -193,9 +201,9 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Evidence for this review
 
-- Full suite through the canonical CI runner: 263 maintained tests passed in 35.050 seconds with
-  normal temporary-directory/Qt access. One initial Windows cache-publisher sharing
-  violation passed three immediate focused reruns before the clean full run. Focused recovery/cache selections, a real
+- Full suite through the canonical CI runner: 270 maintained tests passed in 35.192 seconds with
+  normal temporary-directory/Qt access. Both cache publication races are now fixed;
+  50 concurrent-producer stress rounds also passed. Focused recovery/cache selections, a real
   parallel FuouM journal audit, and two-run cache checks for both engines passed.
 - Automatic GPU-aware admission also passed a real two-job 512x288 FuouM GUI run.
   Each worker reserved an estimated 2.4 GiB against 28.2 GiB initially free with a

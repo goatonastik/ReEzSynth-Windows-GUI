@@ -2,7 +2,43 @@
 import json
 from pathlib import Path
 
-EXPORT_DEFAULTS = dict(maps=False, flow=False)
+EXPORT_DEFAULTS = dict(maps=False, flow=False, flow_vectors=False)
+
+
+class FlowVectorWriter:
+    """Export each computed directed pair once, independent of pass trimming."""
+    def __init__(self, output, enabled):
+        self.root = Path(output) / 'flow_vectors'
+        self.enabled = enabled
+        self.records = {}
+
+    def add(self, source, target, flow):
+        if not self.enabled or (source, target) in self.records:
+            return
+        import numpy as np
+        array = np.asarray(flow)
+        if (array.ndim != 3 or array.shape[2] != 2 or not array.size or
+                array.dtype.kind != 'f' or not np.isfinite(array).all()):
+            raise RuntimeError('Numerical flow export requires finite floating-point HxWx2 vectors.')
+        self.root.mkdir(exist_ok=True)
+        name = f'{source}_to_{target}.npy'
+        temporary = self.root / (name + '.part')
+        with temporary.open('wb') as stream:
+            np.save(stream, array, allow_pickle=False)
+        temporary.replace(self.root / name)
+        self.records[source, target] = dict(file=name, flow_from=source, flow_to=target,
+            grid_frame=source, shape=list(array.shape), dtype=str(array.dtype))
+
+    def finish(self):
+        if not self.enabled:
+            return
+        from reezsynth_config import atomic_json
+        self.root.mkdir(exist_ok=True)
+        atomic_json(self.root / 'manifest.json', dict(version=1,
+            convention='At pixel (x,y) in flow_from, flow_to coordinate is (x+dx,y+dy).',
+            channels=['dx', 'dy'], units='processed-resolution pixels',
+            scope='Computed adjacent frame pairs, including cache hits; no sign-derived inverse fields.',
+            artifacts=[self.records[key] for key in sorted(self.records)]))
 
 
 def validate_exports(data=None):

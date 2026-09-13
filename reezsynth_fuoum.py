@@ -1,9 +1,8 @@
 """Adapter for the pinned FuouM engine, executed only in its own worker runtime."""
 from pathlib import Path
 from contextlib import contextmanager
-import shutil
+import tempfile
 import time
-import uuid
 
 from reezsynth_engines import (FUOUM, activate_fuoum, preflight_flow,
                                validate_capabilities, write_engine_manifest)
@@ -70,27 +69,27 @@ def install_final_pass_compatibility(engine):
 
 @contextmanager
 def render_cache(output):
-    """Create a worker-readable cache without TemporaryDirectory's Windows ACL reset."""
-    path = Path(output) / ('.fuoum-cache-' + uuid.uuid4().hex)
-    path.mkdir()
-    try:
-        yield str(path)
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
+    """Own a private cache for exactly one render and report cleanup failures."""
+    with tempfile.TemporaryDirectory(prefix='.fuoum-cache-', dir=output) as path:
+        yield path
 
 
 def synthesize_image(style, pairs, options):
     from ezsynth.engines.synthesis_engine import EbsynthEngine
     native, pipeline, _ = build_configs(options)
     engine = EbsynthEngine(native, pipeline)
-    return engine.run(style, guides=native_guides(pairs))
+    original = install_final_pass_compatibility(engine)
+    try:
+        return engine.run(style, guides=native_guides(pairs))
+    finally:
+        engine.backend.run_level = original
 
 
 def render_fuoum_job(job, progress):
     from reezsynth_config import (validate_render, quality_profile, validate_processing_settings,
                                   validate_weights, validate_synthesis_dimensions)
     from reezsynth_video_plan import validate_blend_options
-    from reezsynth_artifacts import validate_exports, save_artifacts
+    from reezsynth_artifacts import validate_exports, save_artifacts, FlowVectorWriter
     options = validate_render(dict(quality_profile(job['quality']), **job.get('render_options', {})))
     blend = validate_blend_options(job.get('blend_options'))
     exports = validate_exports(job.get('exports'))
@@ -170,6 +169,7 @@ def render_fuoum_job(job, progress):
             raise ValueError('RAFT video dimensions must both be at least 128 pixels.')
         validate_synthesis_dimensions(options['patchsize'], size)
     output = Path(job['output']).resolve()
+    vectors = FlowVectorWriter(output, exports['flow_vectors'])
     from reezsynth_preview_transport import PreviewPublisher
     publisher = PreviewPublisher(output)
     if len(frames) == 1:
@@ -203,9 +203,13 @@ def render_fuoum_job(job, progress):
                 for i, error in enumerate(result[1]):
                     target = start + i + (1 if forward else 0)
                     lower = start + i
+                    flow_from, flow_to = lower, lower + 1
+                    if options['fuoum_bidirectional_flow'] and forward:
+                        flow_from, flow_to = flow_to, flow_from
                     records.append(dict(sequence=sequence, synthesis_direction='forward' if forward else 'reverse',
                         error_frame=numbers[target], map_kind='synthesis_error',
-                        flow_from=numbers[lower], flow_to=numbers[lower + 1],
+                        flow_from=numbers[flow_from], flow_to=numbers[flow_to],
+                        flow_grid_frame=numbers[flow_from],
                         scope='raw pass output before keyframe preservation and grouped reconstruction'))
                     if exports['maps']:
                         error_maps.append(error)
@@ -218,7 +222,9 @@ def render_fuoum_job(job, progress):
                         hsv[..., 2] = np.clip(magnitude * 255 / max(float(magnitude.max()), 1e-6), 0, 255).astype(np.uint8)
                         flow_images.append(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
             pipeline = extend_pipeline(config, data, masks, edges, weights['mask_wgt'] / weights['key_wgt'],
-                                       blend['only_mode'], capture_pass, cache_job=job, runtime=runtime)
+                                       blend['only_mode'], capture_pass, cache_job=job, runtime=runtime,
+                                       bidirectional=options['fuoum_bidirectional_flow'],
+                                       on_flow=lambda a, b, f: vectors.add(numbers[a], numbers[b], f))
             backend_run_level = install_final_pass_compatibility(pipeline.synthesis_engine)
             original = pipeline.synthesis_engine.run
             def tracked(style, guides, **kwargs):
@@ -266,6 +272,7 @@ def render_fuoum_job(job, progress):
         progress(90 + 9 * (index + 1) / len(frames), f'Saving {index + 1}/{len(frames)}', preview=preview)
     save_artifacts(output, exports, records, error_maps, flow_images,
                    scope='FuouM raw synthesis passes; frame-aligned errors before blending/compositing')
+    vectors.finish()
     if video_export['enabled']:
         progress(99, 'Encoding rendered video')
         from reezsynth_video_export import export_rendered_video

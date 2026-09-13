@@ -14,6 +14,15 @@ from reezsynth_engines import (FUOUM, file_sha256, fuoum_checkpoint,
 CACHE_VERSION = 2
 
 
+def publish_once(temporary, destination):
+    """Atomically publish without replacing an existing reader's file."""
+    if os.name == 'nt':
+        # Windows rename refuses existing destinations, including on exFAT.
+        os.rename(temporary, destination)
+    else:
+        os.link(temporary, destination)
+
+
 def array_digest(value):
     array = np.ascontiguousarray(value)
     digest = hashlib.sha256()
@@ -67,22 +76,26 @@ def cache_entry_from_digests(job, kind, frame_digests, identity):
     path = root.resolve() / f'v{CACHE_VERSION}' / kind / key
     path.mkdir(parents=True, exist_ok=True)
     manifest = path / 'identity.json'
-    if manifest.exists():
-        if json.loads(manifest.read_text(encoding='utf-8')) != payload:
-            raise RuntimeError('Precomputation cache identity collision.')
-    else:
+    if not manifest.exists():
         temporary = manifest.with_name(manifest.name + f'.part-{os.getpid()}-{uuid.uuid4().hex}')
         try:
             temporary.write_text(json.dumps(payload, indent=2, allow_nan=False), encoding='utf-8')
-            temporary.replace(manifest)
-        except OSError:
-            if not manifest.is_file() or json.loads(manifest.read_text(encoding='utf-8')) != payload:
-                raise
+            # Both names are on the same filesystem. Readers never observe an
+            # incomplete document and competing producers never replace it.
+            try:
+                publish_once(temporary, manifest)
+            except FileExistsError:
+                pass
+            except PermissionError:
+                if not manifest.is_file():
+                    raise
         finally:
             try:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
+    if json.loads(manifest.read_text(encoding='utf-8')) != payload:
+        raise RuntimeError('Precomputation cache identity collision.')
     return path
 
 
@@ -114,19 +127,27 @@ def store_array(path, value):
         with temporary.open('wb') as stream:
             np.save(stream, array, allow_pickle=False)
         digest = file_sha256(temporary)
+        # Publish validation before the atomic rename: a simultaneous reader can
+        # otherwise see the new array before its marker, treat it as invalid and
+        # attempt to replace a file another Windows worker already has open.
+        path.with_name(path.name + f'.{digest}.sha256').touch(exist_ok=True)
         existing = load_array(path, array.shape, kinds=(array.dtype.kind,))
         if existing is None:
-            published = True
             try:
-                temporary.replace(path)
+                publish_once(temporary, path)
+            except FileExistsError:
+                # An existing valid winner is immutable. Only a corrupt or
+                # incomplete artifact needs replacement.
+                if load_array(path, array.shape, kinds=(array.dtype.kind,)) is None:
+                    try:
+                        temporary.replace(path)
+                    except PermissionError:
+                        if load_array(path, array.shape, kinds=(array.dtype.kind,)) is None:
+                            raise
             except PermissionError:
                 # An identical parallel producer may have published and mapped it.
                 if load_array(path, array.shape, kinds=(array.dtype.kind,)) is None:
                     raise
-                published = False
-            if published:
-                # Immutable content-named markers avoid fixed-sidecar contention.
-                path.with_name(path.name + f'.{digest}.sha256').touch(exist_ok=True)
     finally:
         for candidate in (temporary,):
             try:
