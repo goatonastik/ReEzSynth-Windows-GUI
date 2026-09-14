@@ -204,6 +204,7 @@ QTabBar::tab:selected {
     border-bottom: 2px solid #009f87;
 }
 QTabBar::tab:disabled { color: #666666; }
+QLabel#processingResizeWarning { color: #e7b35a; }
 QSpinBox#QueueNumberEditor {
     background: #151515;
     border: none;
@@ -495,9 +496,16 @@ class MainWindow(QMainWindow):
         options.addWidget(QLabel('W:')); options.addWidget(self.processing_width)
         options.addWidget(QLabel('H:')); options.addWidget(self.processing_height)
         self.resolution.currentIndexChanged.connect(self.processing_preset_changed)
-        self.processing_preset_changed()
         options.addStretch()
         page.addLayout(options)
+        self.processing_resize_warning = QLabel()
+        self.processing_resize_warning.setObjectName('processingResizeWarning')
+        self.processing_resize_warning.setWordWrap(True)
+        self.processing_resize_warning.setVisible(False)
+        page.addWidget(self.processing_resize_warning)
+        self.processing_width.valueChanged.connect(self.refresh_processing_warning)
+        self.processing_height.valueChanged.connect(self.refresh_processing_warning)
+        self.processing_preset_changed()
 
         self.locked.extend([self.quality, self.resolution, self.processing_width, self.processing_height])
         add_output_controls(self, output_layout)
@@ -892,6 +900,7 @@ class MainWindow(QMainWindow):
         for editor in (self.processing_width, self.processing_height):
             editor.setEnabled(editable)
         if identifier == 'custom':
+            self.refresh_processing_warning()
             return
         size = next((size for key, _, size in PROCESSING_PRESETS if key == identifier), None)
         if size is None:
@@ -909,6 +918,41 @@ class MainWindow(QMainWindow):
         with QSignalBlocker(self.processing_width), QSignalBlocker(self.processing_height):
             self.processing_width.setValue(size[0])
             self.processing_height.setValue(size[1])
+        self.refresh_processing_warning()
+
+    def processing_source_dimensions(self):
+        image_tab = getattr(self, 'image_synthesis', None)
+        if image_tab is not None and self.tabs.currentWidget() is image_tab:
+            path = image_tab.target.text().strip().strip('"')
+        else:
+            path = next(iter(self.video.values()), '')
+        dimensions = QImageReader(str(path)).size() if path else QSize()
+        return ((dimensions.width(), dimensions.height())
+                if dimensions.isValid() else None)
+
+    def refresh_processing_warning(self, *_):
+        state = self.processing_state()
+        original = state['processing_size'] is None and not state['max_width']
+        message = ''
+        if not original:
+            source = self.processing_source_dimensions()
+            if source is None:
+                message = ('Source dimensions are unavailable, so resizing cannot be determined. '
+                           'Original resolution is recommended for native-resolution output.')
+            else:
+                target = (self.processing_width.value(), self.processing_height.value())
+                if target != source:
+                    if all(after >= before for before, after in zip(source, target)):
+                        action = 'Upscaling'
+                    elif all(after <= before for before, after in zip(source, target)):
+                        action = 'Downscaling'
+                    else:
+                        action = 'Resizing'
+                    message = (f'{action} from {source[0]} × {source[1]} to '
+                               f'{target[0]} × {target[1]}. Original resolution is '
+                               'recommended for native-resolution output.')
+        self.processing_resize_warning.setText(message)
+        self.processing_resize_warning.setVisible(bool(message))
 
     def save_project(self, save_as=False):
         if self.busy:

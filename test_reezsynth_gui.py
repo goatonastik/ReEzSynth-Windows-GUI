@@ -179,6 +179,49 @@ class ConstructionTests(GuiFixture):
         window.set_processing_size(None)
         self.assertEqual((window.processing_width.value(), window.processing_height.value()), (1920, 1080))
 
+    def test_processing_resize_warning_covers_down_up_same_and_unknown(self):
+        source = self.root / 'frame000.png'
+        image = gui.QImage(640, 360, gui.QImage.Format.Format_RGB32)
+        image.fill(0)
+        self.assertTrue(image.save(str(source)))
+        window = self.window()
+        window.video = {0: source}
+
+        window.set_processing_size([320, 180])
+        self.assertIn('Downscaling from 640 × 360 to 320 × 180',
+                      window.processing_resize_warning.text())
+        self.assertIn('Original resolution is recommended',
+                      window.processing_resize_warning.text())
+
+        window.set_processing_size([1280, 720])
+        self.assertIn('Upscaling from 640 × 360 to 1280 × 720',
+                      window.processing_resize_warning.text())
+
+        window.set_processing_size([640, 360])
+        self.assertEqual(window.processing_resize_warning.text(), '')
+        self.assertTrue(window.processing_resize_warning.isHidden())
+
+        window.video = {}
+        window.refresh_processing_display()
+        self.assertIn('Source dimensions are unavailable',
+                      window.processing_resize_warning.text())
+
+        window.set_processing_size(None)
+        self.assertEqual(window.processing_resize_warning.text(), '')
+        self.assertTrue(window.processing_resize_warning.isHidden())
+
+    def test_processing_resize_warning_uses_image_target_dimensions(self):
+        target = self.root / 'target.png'
+        image = gui.QImage(300, 200, gui.QImage.Format.Format_RGB32)
+        image.fill(0)
+        self.assertTrue(image.save(str(target)))
+        window = self.window()
+        window.tabs.setCurrentWidget(window.image_synthesis)
+        window.image_synthesis.target.setText(str(target))
+        window.set_processing_size([600, 400])
+        self.assertIn('Upscaling from 300 × 200 to 600 × 400',
+                      window.processing_resize_warning.text())
+
 
 class FolderHistoryTests(GuiFixture):
     def test_typing_and_selection_emit_text_changes(self):
