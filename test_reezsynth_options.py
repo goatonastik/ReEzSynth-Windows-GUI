@@ -50,6 +50,92 @@ class ResourceSchedulingUnitTests(unittest.TestCase):
 
 
 class PresetTests(GuiFixture):
+    def test_output_owner_is_independent_of_render_apply_order(self):
+        w = self.window()
+        a = dict(controls.project_naming(w), location='custom', custom_folder=str(self.root / 'A'),
+                 batch_enabled=False, batch_pattern='A_batch', job_pattern='A_{key}')
+        b = dict(a, location='project', batch_enabled=True, job_pattern='B_{key}')
+        for order in (('output', 'render'), ('render', 'output')):
+            with self.subTest(order=order):
+                for group in order:
+                    w.options.apply(group, a if group == 'output' else dict(output_naming=b),
+                                    restore_related=True)
+                self.assertEqual(controls.project_naming(w), a)
+                w.options.apply('render', {}, restore_related=True)
+                self.assertEqual(controls.project_naming(w), a)
+
+    def test_output_startup_policy_wins_over_each_render_startup_policy(self):
+        w = self.window()
+        o = w.options
+        a = dict(controls.project_naming(w), location='custom', custom_folder=str(self.root / 'A'),
+                 batch_pattern='A_batch', job_pattern='A_{key}')
+        b = dict(a, custom_folder=str(self.root / 'B'), batch_pattern='B_batch')
+        o.store.save('output', 'chosen', a)
+        o.store.save('render', 'legacy', dict(output_naming=b))
+        # Model an actual old preset file, before modern validation strips the copy.
+        presets = json.loads(o.store.path.read_text())
+        presets['groups']['render']['legacy']['output_naming'] = b
+        o.store.path.write_text(json.dumps(presets), encoding='utf-8')
+        defaults = o.default_group('output')
+        for output_mode in ('last', 'defaults', 'preset:chosen'):
+            for render_mode in ('last', 'defaults', 'preset:legacy'):
+                with self.subTest(output_mode=output_mode, render_mode=render_mode):
+                    # Explicit policies must also win when no dedicated last-used group exists.
+                    groups = dict(render=dict(output_naming=b))
+                    if output_mode == 'last':
+                        groups['output'] = a
+                    o.last_path.write_text(json.dumps(dict(version=1, groups=groups)), encoding='utf-8')
+                    o.app_path.write_text(json.dumps(dict(version=1,
+                        startup=dict(output=output_mode, render=render_mode))), encoding='utf-8')
+                    restored = self.window()
+                    self.assertEqual(controls.project_naming(restored), defaults if output_mode == 'defaults' else a)
+        # Repeat real startup with reversed group application order.
+        o.last_path.write_text(json.dumps(dict(version=1,
+            groups=dict(output=a, render=dict(output_naming=b)))), encoding='utf-8')
+        o.app_path.write_text(json.dumps(dict(version=1, startup={})), encoding='utf-8')
+        with patch.object(options_module, 'GROUPS', tuple(reversed(GROUPS))):
+            restored = self.window()
+        self.assertEqual(controls.project_naming(restored), a)
+
+    def test_legacy_render_only_output_migrates_to_dedicated_group(self):
+        w = self.window()
+        o = w.options
+        old = dict(controls.project_naming(w), location='custom', custom_folder=str(self.root / 'legacy'),
+                   batch_enabled=False, batch_pattern='old_batch', job_pattern='old_{key}')
+        o.directory.mkdir(exist_ok=True)
+        o.last_path.write_text(json.dumps(dict(version=1, groups=dict(render=dict(output_naming=old)))), encoding='utf-8')
+        restored = self.window()
+        self.assertEqual(controls.project_naming(restored), old)
+        restored.options.persist()
+        saved = json.loads(o.last_path.read_text())['groups']
+        self.assertEqual(saved['output'], old)
+        self.assertNotIn('output_naming', saved['render'])
+        self.assertEqual(controls.project_naming(self.window()), old)
+
+    def test_obsolete_render_output_cannot_poison_canonical_state(self):
+        w = self.window()
+        o = w.options
+        a = controls.project_naming(w)
+        o.directory.mkdir(exist_ok=True)
+        o.last_path.write_text(json.dumps(dict(version=1, groups=dict(output=a,
+            render=dict(output_naming={'batch_pattern': '{invalid}'}, options=dict(patchsize=9))))), encoding='utf-8')
+        restored = self.window()
+        self.assertEqual(controls.project_naming(restored), a)
+        self.assertEqual(restored.options.render()['patchsize'], 9)
+
+    def test_render_snapshot_and_validation_do_not_create_output_owner(self):
+        w = self.window()
+        w.batch_name_pattern.setText('{invalid}')
+        self.assertEqual(w.options.snapshot('output')['batch_pattern'], '{invalid}')
+        for related in (False, True):
+            state = w.options.snapshot('render', include_related=related)
+            self.assertNotIn('output_naming', state)
+            self.assertNotIn('output_naming', validate_group('render', state))
+        old = validate_group('output', dict(batch_pattern='old', job_pattern='key_{key}'))
+        self.assertEqual(old['location'], 'project_renders')
+        w.options.apply('output', old)
+        self.assertEqual(controls.project_naming(w), old)
+
     def test_snapshot_captures_hostile_live_state_without_validation(self):
         w = self.window()
         w.batch_name_pattern.setText('{not_a_batch_field}')

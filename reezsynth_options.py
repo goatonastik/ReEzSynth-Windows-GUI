@@ -781,11 +781,10 @@ class Options(QObject):
                 video_export=dict(enabled=self.video_export_enabled.isChecked(),
                     fps=self.video_export_fps.value(), audio=self.video_export_audio.text()))
             result['engine_revision'] = engine_revision(result['options']['engine'])
-            # Last-used setup retains related window controls. Named render presets
-            # intentionally omit them so selecting a quality/render preset cannot
-            # change output, resolution, or Blend / Flow choices.
+            # Last-used setup retains resolution and Blend / Flow controls.
+            # Output location and naming belong exclusively to the output group.
             if include_related:
-                result.update(w.processing_state(), output_naming=project_naming_state(w),
+                result.update(w.processing_state(),
                     blend_options=w.grouped.blend_options_state())
             return result
         return {name: control_value(widget) for name, widget in self.widgets[group].items()}
@@ -817,7 +816,6 @@ class Options(QObject):
                 self.video_export_audio.setText(video_export['audio'])
                 if restore_related:
                     self.w.set_processing_size(data["processing_size"], data['max_width'])
-                    set_project_naming(self.w, data["output_naming"])
                     self.w.grouped.set_blend_options(data["blend_options"])
             else:
                 for name, value in data.items():
@@ -867,6 +865,14 @@ class Options(QObject):
                 last = data["groups"]
             except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
                 self.errors.append(f"Last-used settings could not be restored: {exc}")
+        # Older last-used files stored output controls only inside render. Migrate
+        # that raw payload once, before applying any groups. An explicit output
+        # policy or an existing output group always takes precedence, even if the
+        # canonical group is invalid and must fall back to its safe defaults.
+        if 'output' not in last and policy.get('output', 'last') == 'last':
+            legacy_render = last.get('render')
+            if isinstance(legacy_render, dict) and 'output_naming' in legacy_render:
+                last['output'] = legacy_render['output_naming']
         rejected = {}
         for group in GROUPS:
             mode = policy.get(group, "last")
@@ -983,14 +989,12 @@ class Options(QObject):
         self.save_timer.stop()
         groups = dict(self.saved_groups)
         failures = []
-        # Render's last-used payload retains related controls for compatibility,
-        # but their authoritative persisted groups are output and grouped.  Use
-        # their already-validated values so an invalid name cannot poison render.
+        # Render's last-used payload retains related Blend / Flow controls for
+        # compatibility. Output is captured only in its dedicated group.
         for group in PERSIST_GROUP_ORDER:
             try:
                 state = self.snapshot(group, include_related=(group == 'render'))
                 if group == 'render':
-                    state['output_naming'] = groups['output']
                     state['blend_options'] = groups['grouped']['blend_options']
                 groups[group] = validate_group(group, state)
             except (ValueError, TypeError, KeyError) as exc:

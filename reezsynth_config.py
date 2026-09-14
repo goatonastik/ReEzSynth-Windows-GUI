@@ -345,7 +345,9 @@ def validate_group(group, data):
         return dict(selection=validate_grouped_selection(data["selection"]),
                     blend_options=validate_blend_options(data["blend_options"]))
     if group == "render":
-        from reezsynth_project_controls import validate_project_naming
+        # Accept the historical output_naming key, but do not propagate it into
+        # validated render state. Options.restore migrates legacy-only output
+        # state before validation; render presets never own output destinations.
         if set(data) - {"options", "quality", "max_width", "processing_size", "output_naming", "blend_options", "exports", "video_export", "engine_revision"}:
             raise ValueError("Unknown render preset field.")
         quality = data.get("quality", "Standard")
@@ -363,7 +365,7 @@ def validate_group(group, data):
         from reezsynth_video_export import validate_video_export
         return dict(options=validate_render(options), quality=quality,
                     engine_revision=revision,
-                    **processing, output_naming=validate_project_naming(data.get("output_naming")),
+                    **processing,
                     blend_options=validate_blend_options(data.get("blend_options")),
                     exports=validate_exports(data.get("exports")),
                     video_export=validate_video_export(data.get('video_export')))

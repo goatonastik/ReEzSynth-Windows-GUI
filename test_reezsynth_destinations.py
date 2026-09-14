@@ -15,6 +15,61 @@ from reezsynth_project_controls import project_naming
 
 
 class DestinationTests(LifecycleFixture):
+    def test_project_output_owner_survives_load_and_render_apply(self):
+        w = self.w
+        naming = dict(project_naming(w), location='custom', custom_folder=str(self.root / 'project_output'),
+                      batch_enabled=False, job_pattern='project_{key:03d}')
+        w.options.apply('output', naming)
+        self.assertTrue(w.rebuild_queue())
+        w.project_file = self.root / 'ownership.reezsynth.json'
+        w.save_project()
+        document = json.loads(w.project_file.read_text())
+        self.assertEqual(document['output_naming'], naming)
+        self.assertNotIn('output_naming', document['render_options'])
+        self.assertNotIn('output_naming', w.options.project_data())
+        self.assertEqual(json.dumps(document).count('"output_naming"'), 1)
+        w.options.apply('output', dict(naming, custom_folder=str(self.root / 'other')))
+        with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(w.project_file), '')):
+            w.open_project()
+        w.options.apply('render', dict(output_naming={'location': 'project_renders'}), restore_related=True)
+        self.assertEqual(project_naming(w), naming)
+        with patch.object(w, 'start_records') as start:
+            w.run_rows(list(w.rows))
+        records, batch = start.call_args.args[:2]
+        self.assertEqual(batch, self.root / 'project_output')
+        for record in records:
+            expected = batch / f"project_{record['key']:03d}"
+            self.assertEqual(record['output'], expected)
+            self.assertEqual(Path(json.loads(record['job_path'].read_text())['output']), expected)
+
+    def test_output_restore_conflict_cannot_redirect_generated_jobs(self):
+        o = self.w.options
+        o.persist()
+        data = json.loads(o.last_path.read_text())
+        canonical = dict(project_naming(self.w), location='custom',
+            custom_folder=str(self.root / 'canonical'), batch_pattern='chosen_batch',
+            job_pattern='chosen_{key:03d}')
+        stale = dict(canonical, custom_folder=str(self.root / 'stale'),
+                     batch_pattern='stale_batch', job_pattern='stale_{key:03d}')
+        data['groups']['output'] = canonical
+        data['groups']['render']['output_naming'] = stale
+        o.last_path.write_text(json.dumps(data), encoding='utf-8')
+        restored = self.window()
+        self.assertTrue(restored.rebuild_queue())
+        with patch.object(restored, 'start_records') as start:
+            restored.run_rows(list(restored.rows))
+        start.assert_called_once()
+        records, batch = start.call_args.args[:2]
+        expected_batch = self.root / 'canonical' / 'chosen_batch'
+        self.assertEqual(batch, expected_batch)
+        self.assertEqual(project_naming(restored), canonical)
+        for record in records:
+            expected = expected_batch / f"chosen_{record['key']:03d}"
+            self.assertEqual(record['output'], expected)
+            job = json.loads(record['job_path'].read_text())
+            self.assertEqual(Path(job['output']), expected)
+        self.assertFalse((self.root / 'stale').exists())
+
     def test_original_resolution_rejects_mismatched_keys_and_video_before_start(self):
         w = self.w
         self.assertEqual(w.resolution.currentData(), 'original')
@@ -107,7 +162,8 @@ class DestinationTests(LifecycleFixture):
         w.batch_enabled.setChecked(False)
         w.options.persist()
         data = json.loads(w.options.last_path.read_text())
-        self.assertFalse(data['groups']['render']['output_naming']['batch_enabled'])
+        self.assertFalse(data['groups']['output']['batch_enabled'])
+        self.assertNotIn('output_naming', data['groups']['render'])
 
 
 class WeightTests(unittest.TestCase):
