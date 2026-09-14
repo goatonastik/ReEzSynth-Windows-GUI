@@ -1,5 +1,6 @@
 """Preset, settings, automation, project and parallel-queue regressions."""
 import json
+import math
 import sys
 import types
 import unittest
@@ -50,6 +51,254 @@ class ResourceSchedulingUnitTests(unittest.TestCase):
 
 
 class PresetTests(GuiFixture):
+    def mixed_library(self, bad):
+        path = self.root / 'configuration' / 'presets.json'
+        path.parent.mkdir(exist_ok=True)
+        data = dict(format='ReEzSynth-presets', version=1, groups=dict(
+            weights=dict(Paint=dict(img_wgt=8)),
+            render=dict(Good=dict(options=dict(patchsize=9)), **bad)))
+        path.write_text(json.dumps(data), encoding='utf-8')
+        return path, data
+
+    def test_bad_preset_does_not_hide_two_valid_presets(self):
+        cases = (
+            '{malformed JSON payload',
+            dict(options=dict(patchsize=8)),
+            dict(obsolete=True),
+            dict(engine_revision='obsolete-revision'),
+            dict(options=dict(searchvote_schedule='1,,2')),
+            dict(processing_size=[64, 64]),
+            dict(options=[]),
+        )
+        for bad in cases:
+            with self.subTest(bad=bad):
+                path, _ = self.mixed_library(dict(Broken=bad))
+                before = path.read_bytes()
+                w = self.window()
+                self.assertIsNotNone(w.options.store, w.log.toPlainText())
+                self.assertEqual(set(w.options.store.groups['render']), {'Good'})
+                self.assertEqual(set(w.options.store.groups['weights']), {'Paint'})
+                self.assertEqual(w.options.preset_boxes['render'].findText('Broken'), -1)
+                self.assertIn('Broken', w.log.toPlainText())
+                for group, name in (('weights', 'Paint'), ('render', 'Good')):
+                    box = w.options.preset_boxes[group]
+                    box.setCurrentIndex(box.findData(name))
+                    w.options.select_preset(group)
+                self.assertEqual(w.options.weights()['img_wgt'], 8)
+                self.assertEqual(w.options.render()['patchsize'], 9)
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_rejected_presets_survive_save_remove_export_and_explicit_replacement(self):
+        path, original = self.mixed_library(dict(Broken=dict(options=dict(patchsize=8))))
+        store = PresetStore(path)
+        self.assertEqual(len(store.errors), 1)
+        store.save('weights', 'New', dict(img_wgt=12))
+        saved = json.loads(path.read_text())
+        self.assertEqual(saved['groups']['render'], original['groups']['render'])
+        self.assertEqual(saved['groups']['weights']['Paint'], original['groups']['weights']['Paint'])
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            store.save('render', 'broken', dict(options=dict(patchsize=11)))
+        store.remove('weights', 'Paint')
+        exported = self.root / 'export.yaml'
+        store.write(store.groups, exported)
+        reloaded = PresetStore(exported)
+        self.assertEqual(reloaded.groups, store.groups)
+        self.assertEqual(reloaded.document['groups']['render'], original['groups']['render'])
+        self.assertEqual(len(reloaded.errors), 1)
+        before = path.read_bytes()
+        with patch('reezsynth_config.atomic_json', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                store.save('weights', 'NeverWritten', {})
+        self.assertEqual(path.read_bytes(), before)
+        self.assertNotIn('NeverWritten', store.groups['weights'])
+        store.save('render', 'broken', dict(options=dict(patchsize=11)), overwrite=True)
+        self.assertEqual(PresetStore(path).groups['render']['broken']['options']['patchsize'], 11)
+        self.assertEqual(store.errors, [])
+
+    def test_preset_startup_fallback_preserves_good_last_used_and_other_groups(self):
+        path, _ = self.mixed_library(dict(Broken=dict(options=dict(patchsize=8))))
+        (path.parent / 'application.json').write_text(json.dumps(dict(version=1,
+            startup=dict(render='preset:Broken', weights='preset:Paint'))), encoding='utf-8')
+        (path.parent / 'last-used.json').write_text(json.dumps(dict(version=1, groups=dict(
+            render=dict(options=dict(uniformity=4321)), image=dict(source_weight=17),
+            output=dict(location='custom', custom_folder=str(self.root / 'chosen'))))), encoding='utf-8')
+        before = path.read_bytes()
+        w = self.window()
+        self.assertEqual(w.options.render()['uniformity'], 4321)
+        self.assertEqual(w.options.weights()['img_wgt'], 8)
+        self.assertEqual(w.image_synthesis.source_weight.value(), 17)
+        self.assertEqual(controls.project_naming(w)['custom_folder'], str(self.root / 'chosen'))
+        self.assertEqual(w.options.policy_boxes['render'].currentData(), 'preset:Broken')
+        self.assertIn('using last-used settings', w.log.toPlainText())
+        w.options.persist()
+        saved = json.loads(w.options.last_path.read_text())['groups']
+        self.assertEqual(saved['render']['options']['uniformity'], 4321)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(self.window().options.render()['uniformity'], 4321)
+
+    def test_bad_preset_without_valid_last_used_uses_reported_defaults(self):
+        path, _ = self.mixed_library(dict(Broken=dict(engine_revision='old')))
+        (path.parent / 'application.json').write_text(json.dumps(dict(version=1,
+            startup=dict(render='preset:Broken'))), encoding='utf-8')
+        for last in ({}, dict(render=dict(options=dict(patchsize=8)))):
+            with self.subTest(last=last):
+                (path.parent / 'last-used.json').write_text(json.dumps(dict(version=1, groups=last)), encoding='utf-8')
+                w = self.window()
+                self.assertEqual(w.options.render()['patchsize'], 7)
+                self.assertIn('using defaults for this group', w.log.toPlainText())
+                self.assertIsNotNone(w.options.store)
+                if last:
+                    rejected = json.loads((path.parent / 'last-used.rejected.json').read_text())
+                    self.assertEqual(rejected['groups'], last)
+
+    def test_multiple_bad_presets_report_once_and_repair_on_reload(self):
+        path, data = self.mixed_library(dict(BadA='not an object', BadB=dict(options=dict(patchsize=8))))
+        w = self.window()
+        self.assertEqual(len(w.options.store.errors), 2)
+        self.assertIn('2 preset entry/collection(s) unavailable', w.status.text())
+        for name in ('BadA', 'BadB'):
+            self.assertEqual(w.log.toPlainText().count("render/" + repr(name)), 1)
+        box = w.options.preset_boxes['render']
+        box.setCurrentIndex(box.findData('Good'))
+        w.options.refresh_presets()
+        self.assertEqual(box.currentData(), 'Good')
+        data['groups']['render']['BadA'] = dict(options=dict(patchsize=11))
+        del data['groups']['render']['BadB']
+        path.write_text(json.dumps(data), encoding='utf-8')
+        before = path.read_bytes()
+        restored = self.window()
+        self.assertEqual(restored.options.store.errors, [])
+        self.assertEqual(set(restored.options.store.groups['render']), {'Good', 'BadA'})
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_preset_legacy_migrations_and_engine_revision_policy_remain_strict(self):
+        from reezsynth_engines import FUOUM, LEGACY, engine_revision
+        path, data = self.mixed_library({})
+        data['groups']['render'].update(
+            Legacy=dict(output_naming={'obsolete': True}, options=dict(searchvote_schedule='2, 3')),
+            Fuoum=dict(options=dict(engine=FUOUM, fuoum_backend='torch'), engine_revision=engine_revision(FUOUM)),
+            Mismatch=dict(options=dict(engine=FUOUM), engine_revision=engine_revision(LEGACY)))
+        data['groups']['grouped'] = dict(MissingRequired={})
+        data['groups']['image'] = ['invalid collection']
+        data['groups']['future'] = dict(Keep={'unknown': True})
+        path.write_text(json.dumps(data), encoding='utf-8')
+        before = path.read_bytes()
+        store = PresetStore(path)
+        self.assertEqual(store.groups['render']['Legacy']['options']['searchvote_schedule'], [2, 3])
+        self.assertNotIn('output_naming', store.groups['render']['Legacy'])
+        self.assertEqual(store.groups['render']['Fuoum']['options']['fuoum_backend'], 'torch')
+        self.assertNotIn('Mismatch', store.groups['render'])
+        self.assertEqual(len(store.errors), 4)
+        self.assertEqual(path.read_bytes(), before)
+        store.save('weights', 'New', {})
+        after = json.loads(path.read_text())
+        for group in ('render', 'grouped', 'image', 'future'):
+            self.assertEqual(after['groups'][group], data['groups'][group])
+
+    def test_import_mixed_library_keeps_rejected_payload_and_reports_it(self):
+        path, original = self.mixed_library(dict(Broken='{malformed entry'))
+        imported = self.root / 'import.json'
+        imported.write_bytes(path.read_bytes())
+        w = self.window()
+        with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(imported), '')), \
+             patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes):
+            w.options.import_presets()
+        self.assertEqual(json.loads(path.read_text()), original)
+        self.assertEqual(set(w.options.store.groups['render']), {'Good'})
+        self.assertIn('preset entry/collection(s) unavailable', w.status.text())
+
+    def test_unserializable_rejected_neighbor_reports_remove_and_export_failure(self):
+        path, data = self.mixed_library(dict(Broken=float('nan')))
+        original = path.read_bytes()
+        self.assertTrue(math.isnan(json.loads(original)['groups']['render']['Broken']))
+        w = self.window()
+        self.assertEqual(set(w.options.store.groups['render']), {'Good'})
+        self.assertEqual(len(w.options.store.errors), 1)
+        render_box = w.options.preset_boxes['render']
+        render_box.setCurrentIndex(render_box.findData('Good'))
+        w.options.select_preset('render')
+        self.assertEqual(w.options.render()['patchsize'], 9)
+
+        with patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes), \
+             patch.object(gui.QMessageBox, 'warning') as warning:
+            w.options.remove_preset('render')
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(set(w.options.store.groups['render']), {'Good'})
+        self.assertTrue(math.isnan(w.options.store.document['groups']['render']['Broken']))
+        warning.assert_called_once()
+        self.assertEqual(warning.call_args.args[1], 'Cannot remove preset')
+
+        exported = self.root / 'unwritten-export.json'
+        with patch.object(gui.QFileDialog, 'getSaveFileName', return_value=(str(exported), '')), \
+             patch.object(gui.QMessageBox, 'warning') as warning:
+            w.options.export_presets()
+        self.assertFalse(exported.exists())
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(set(w.options.store.groups['render']), {'Good'})
+        self.assertTrue(math.isnan(w.options.store.document['groups']['render']['Broken']))
+        warning.assert_called_once()
+        self.assertEqual(warning.call_args.args[1], 'Cannot export presets')
+
+    def test_import_reports_unserializable_yaml_rejected_neighbor(self):
+        path, _ = self.mixed_library({})
+        original = path.read_bytes()
+        imported = self.root / 'unserializable-import.yaml'
+        imported.write_text(
+            'format: ReEzSynth-presets\nversion: 1\ngroups:\n'
+            '  render:\n    Good:\n      options:\n        patchsize: 9\n'
+            '    Broken: 2026-09-14\n', encoding='utf-8')
+        w = self.window()
+        with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(imported), '')), \
+             patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes), \
+             patch.object(gui.QMessageBox, 'warning') as warning:
+            w.options.import_presets()
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(set(w.options.store.groups['render']), {'Good'})
+        warning.assert_called_once()
+        self.assertEqual(warning.call_args.args[1], 'Cannot import presets')
+
+    def test_whole_json_syntax_failure_preserves_file_and_last_used(self):
+        path, _ = self.mixed_library(dict(Broken={}))
+        # All presets share one JSON document: a missing value prevents parsing
+        # even though two valid definitions occur before the broken syntax.
+        malformed = path.read_text().replace('"Broken": {}', '"Broken": ')
+        path.write_text(malformed, encoding='utf-8')
+        (path.parent / 'last-used.json').write_text(json.dumps(dict(version=1,
+            groups=dict(weights=dict(img_wgt=13)))), encoding='utf-8')
+        w = self.window()
+        self.assertIsNone(w.options.store)
+        self.assertIn('Presets could not be loaded', w.log.toPlainText())
+        self.assertEqual(w.options.weights()['img_wgt'], 13)
+        self.assertEqual(w.options.preset_boxes['weights'].currentData(), '__default__')
+        w.options.persist()
+        self.assertEqual(path.read_text(), malformed)
+
+    def test_rejected_preset_name_and_collection_do_not_block_neighbors(self):
+        path, data = self.mixed_library({})
+        data['groups']['weights'].update({'paint': {'img_wgt': 1}, '': {}})
+        data['groups']['grouped'] = dict(MissingRequired={})
+        path.write_text(json.dumps(data), encoding='utf-8')
+        store = PresetStore(path)
+        self.assertEqual(set(store.groups['weights']), {'Paint'})
+        self.assertEqual(len(store.errors), 3)
+        self.assertTrue(any('Duplicate preset names' in error for error in store.errors))
+        store.save('render', 'Another', {})
+        saved = json.loads(path.read_text())
+        self.assertEqual(saved['groups']['weights'], data['groups']['weights'])
+        self.assertEqual(saved['groups']['grouped'], data['groups']['grouped'])
+
+    def test_preset_summary_clears_only_its_own_status_after_repair(self):
+        self.mixed_library(dict(Broken=dict(options=dict(patchsize=8))))
+        w = self.window()
+        self.assertIn('unavailable', w.status.text())
+        w.options.store.save('render', 'Broken', {}, overwrite=True)
+        w.options.refresh_presets()
+        self.assertNotIn('unavailable', w.status.text())
+        w.status.setText('Other subsystem status')
+        w.options.refresh_presets()
+        self.assertEqual(w.status.text(), 'Other subsystem status')
+
+
     def test_output_owner_is_independent_of_render_apply_order(self):
         w = self.window()
         a = dict(controls.project_naming(w), location='custom', custom_folder=str(self.root / 'A'),

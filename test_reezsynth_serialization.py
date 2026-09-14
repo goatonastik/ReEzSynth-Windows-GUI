@@ -28,8 +28,11 @@ class SerializationTests(unittest.TestCase):
         store.save('weights', 'Paint', WEIGHTS)
         self.assertEqual(PresetStore(path).groups['weights']['Paint'], WEIGHTS)
         path.write_text('format: ReEzSynth-presets\nversion: 1\ngroups:\n  weights:\n    Bad:\n      unknown: 1\n', encoding='utf-8')
-        with self.assertRaisesRegex(ValueError, 'Unknown or invalid'):
-            PresetStore(path)
+        before = path.read_bytes()
+        rejected = PresetStore(path)
+        self.assertEqual(rejected.groups['weights'], {})
+        self.assertIn('Unknown or invalid', rejected.errors[0])
+        self.assertEqual(path.read_bytes(), before)
 
     def test_rejects_non_object_yaml_and_json(self):
         for suffix, content in (('.yaml', '- item\n'), ('.json', '[]')):

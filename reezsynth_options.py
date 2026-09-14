@@ -125,6 +125,7 @@ class Options(QObject):
         self.errors = []
         self.saved_groups = {}
         self.persistence_error_status = None
+        self.preset_error_status = None
         preferences = window.preferences
         if preferences.format() == QSettings.Format.IniFormat:
             self.directory = Path(preferences.fileName()).parent / "configuration"
@@ -135,6 +136,7 @@ class Options(QObject):
         self.store = None
         try:
             self.store = PresetStore(self.directory / "presets.json")
+            self.errors.extend(self.store.errors)
         except (OSError, ValueError) as exc:
             self.errors.append(f"Presets could not be loaded: {exc}. Import a valid file to recover.")
         self.save_timer = QTimer(self)
@@ -760,6 +762,17 @@ class Options(QObject):
                     index = policy.count() - 1
                 policy.setCurrentIndex(max(0, index))
                 policy.blockSignals(False)
+        self.report_preset_errors()
+
+    def report_preset_errors(self):
+        if self.store and self.store.errors:
+            self.preset_error_status = (f'{len(self.store.errors)} preset entry/collection(s) unavailable. '
+                                       'Valid presets remain usable; see Diagnostics.')
+            self.w.status.setText(self.preset_error_status)
+        else:
+            if self.preset_error_status == self.w.status.text():
+                self.w.status.clear()
+            self.preset_error_status = None
 
     def default_group(self, group):
         """Recommended built-in defaults, kept available even if preset storage fails."""
@@ -890,29 +903,41 @@ class Options(QObject):
             if isinstance(legacy_render, dict) and 'output_naming' in legacy_render:
                 last['output'] = legacy_render['output_naming']
         rejected = {}
+        def unavailable(group, mode):
+            # A broken preset must not replace a good last-used group with
+            # defaults on the next debounced persistence cycle.
+            if group in last:
+                try:
+                    candidate = validate_group(group, last[group])
+                except (ValueError, TypeError, KeyError) as exc:
+                    self.errors.append(f'Last-used fallback for {group} was rejected: {exc}')
+                    rejected[group] = last[group]
+                else:
+                    self.errors.append(f'Startup preset unavailable for {group}: {mode}; using last-used settings for this group.')
+                    return candidate
+            self.errors.append(f'Startup preset unavailable for {group}: {mode}; using defaults for this group.')
+            return defaults[group]
+
         for group in GROUPS:
             mode = policy.get(group, "last")
             box = self.policy_boxes[group]
             index = box.findData(mode)
             if index < 0:
-                self.errors.append(f"Startup preset unavailable for {group}: {mode}; using defaults for this group.")
                 box.addItem("Missing " + str(mode), mode)
                 box.setCurrentIndex(box.count() - 1)
-                candidate = defaults[group]
+                candidate = unavailable(group, mode)
             else:
                 box.setCurrentIndex(index)
                 if mode == "defaults":
                     candidate = defaults[group]
                 elif mode.startswith("preset:"):
                     if self.store is None:
-                        self.errors.append(f"Startup preset unavailable for {group}: preset storage could not be loaded; using defaults for this group.")
-                        candidate = defaults[group]
+                        candidate = unavailable(group, mode)
                     else:
                         try:
                             candidate = self.store.groups[group][mode[7:]]
                         except (KeyError, TypeError) as exc:
-                            self.errors.append(f"Startup preset unavailable for {group}: {exc}; using defaults for this group.")
-                            candidate = defaults[group]
+                            candidate = unavailable(group, mode)
                 else:
                     candidate = last.get(group, self.snapshot(group, include_related=(group == 'render')))
             try:
@@ -1121,7 +1146,7 @@ class Options(QObject):
         try:
             self.store.remove(group, name)
             self.refresh_presets()
-        except OSError as exc:
+        except (OSError, ValueError, TypeError) as exc:
             QMessageBox.warning(self.w, "Cannot remove preset", str(exc))
 
     def import_presets(self):
@@ -1129,16 +1154,18 @@ class Options(QObject):
         if not path:
             return
         try:
-            groups = PresetStore.read(path)
+            imported = PresetStore(path)
             if QMessageBox.question(self.w, "Replace preset library?", "Replace the local preset library with this file?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
                 return
             target = self.directory / "presets.json"
-            atomic_json(target, dict(format="ReEzSynth-presets", version=1, groups=groups))
+            atomic_json(target, imported.document)
             self.store = PresetStore(target)
             self.refresh_presets()
-        except (OSError, ValueError) as exc:
+            for message in self.store.errors:
+                self.w.log.appendPlainText(message)
+        except (OSError, ValueError, TypeError) as exc:
             QMessageBox.warning(self.w, "Cannot import presets", str(exc))
 
     def export_presets(self):
@@ -1148,7 +1175,7 @@ class Options(QObject):
         if path:
             try:
                 self.store.write(self.store.groups, path)
-            except OSError as exc:
+            except (OSError, ValueError, TypeError) as exc:
                 QMessageBox.warning(self.w, "Cannot export presets", str(exc))
 
     def discovery_changed(self, *_):

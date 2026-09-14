@@ -383,28 +383,40 @@ def atomic_json(path, data):
 class PresetStore:
     def __init__(self, path):
         self.path = Path(path)
-        self.groups = {group: {} for group in GROUPS}
-        if self.path.exists():
-            self.groups = self.read(self.path)
+        self.document = (read_document(self.path) if self.path.exists() else
+                         dict(format='ReEzSynth-presets', version=1, groups={}))
+        self.groups, self.errors = self.validate_document(self.document)
 
     @staticmethod
     def read(path):
-        data = read_document(path)
+        # Use a store instance when diagnostics or subsequent writes are needed.
+        return PresetStore(path).groups
+
+    @staticmethod
+    def validate_document(data):
         if not isinstance(data, dict) or data.get("version") != 1 or data.get("format") != "ReEzSynth-presets":
             raise ValueError("Unsupported preset file.")
         groups = data.get("groups")
-        if not isinstance(groups, dict) or set(groups) - set(GROUPS):
+        if not isinstance(groups, dict):
             raise ValueError("Invalid preset groups.")
         result = {group: {} for group in GROUPS}
+        errors = []
         for group, presets in groups.items():
+            if group not in result:
+                errors.append(f'Preset group {group!r}: unknown group; preserved but unavailable.')
+                continue
             if not isinstance(presets, dict):
-                raise ValueError("Invalid preset collection.")
+                errors.append(f'Preset group {group!r}: invalid preset collection; preserved but unavailable.')
+                continue
             for name, value in presets.items():
-                PresetStore.validate_name(name)
-                if name.casefold() in {n.casefold() for n in result[group]}:
-                    raise ValueError("Duplicate preset names.")
-                result[group][name] = validate_group(group, value)
-        return result
+                try:
+                    PresetStore.validate_name(name)
+                    if name.casefold() in {n.casefold() for n in result[group]}:
+                        raise ValueError("Duplicate preset names.")
+                    result[group][name] = validate_group(group, value)
+                except (ValueError, TypeError, KeyError, OverflowError) as exc:
+                    errors.append(f'Preset {group}/{name!r}: {exc}')
+        return result, errors
 
     @staticmethod
     def validate_name(name):
@@ -412,7 +424,10 @@ class PresetStore:
             raise ValueError("Preset names must contain 1 to 80 printable characters.")
 
     def existing(self, group, name):
-        return next((n for n in self.groups[group] if n.casefold() == name.casefold()), None)
+        presets = self.document['groups'].get(group, {})
+        if not isinstance(presets, dict):
+            raise ValueError(f'Preset collection {group!r} is corrupt; fix it before saving to this group.')
+        return next((n for n in presets if isinstance(n, str) and n.casefold() == name.casefold()), None)
 
     def save(self, group, name, value, overwrite=False):
         name = name.strip()
@@ -421,26 +436,47 @@ class PresetStore:
         existing = self.existing(group, name)
         if existing and not overwrite:
             raise ValueError("Preset name already exists.")
-        updated = copy.deepcopy(self.groups)
+        updated = copy.deepcopy(self.document)
+        presets = updated['groups'].setdefault(group, {})
         if existing:
-            del updated[group][existing]
-        updated[group][name] = validated
-        self.write(updated)
+            del presets[existing]
+        presets[name] = validated
+        self.write_document(updated)
 
     def remove(self, group, name):
-        updated = copy.deepcopy(self.groups)
-        del updated[group][name]
-        self.write(updated)
+        updated = copy.deepcopy(self.document)
+        del updated['groups'][group][name]
+        self.write_document(updated)
 
     def write(self, groups, path=None):
+        # Export/update the usable view without discarding rejected neighbors or
+        # rewriting unchanged legacy entries with their normalized defaults.
+        data = copy.deepcopy(self.document)
+        for group in GROUPS:
+            before, after = self.groups[group], groups.get(group, {})
+            for name in before.keys() - after.keys():
+                del data['groups'][group][name]
+            for name, value in after.items():
+                if name not in before or value != before[name]:
+                    self.validate_name(name)
+                    validated = validate_group(group, value)
+                    collection = data['groups'].setdefault(group, {})
+                    if not isinstance(collection, dict):
+                        raise ValueError(f'Cannot replace corrupt preset collection {group!r}.')
+                    collection[name] = validated
+        self.write_document(data, path)
+
+    def write_document(self, data, path=None):
         destination = path or self.path
-        data = dict(format="ReEzSynth-presets", version=1, groups=groups)
+        groups, errors = self.validate_document(data)
         if Path(destination).suffix.casefold() in {'.yaml', '.yml'}:
             write_document(destination, data)
         else:
             atomic_json(destination, data)
         if path is None:
+            self.document = data
             self.groups = groups
+            self.errors = errors
 
 
 def discover_pairs(root, keys_prefix="keys", video_prefix="video"):
