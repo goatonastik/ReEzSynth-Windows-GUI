@@ -82,6 +82,13 @@ def poisson_fusion(
     use_poisson_cupy=False,
     poisson_maxiter=None,
 ):
+    if blendI.shape[2] == 4:
+        if np.array_equal(I1, I2):
+            return I1.copy()
+        rgb = poisson_fusion(blendI[..., :3], I1[..., :3], I2[..., :3], mask, As,
+                             use_gpu, use_lsqr, use_poisson_cupy, poisson_maxiter)
+        from reezsynth_alpha import selected_alpha
+        return np.dstack((rgb, selected_alpha(I1, I2, mask)))
     if use_gpu and use_poisson_cupy:
         return poisson_fusion_cupy(blendI, I1, I2, mask, As, poisson_maxiter)
     return poisson_fusion_cpu_optimized(

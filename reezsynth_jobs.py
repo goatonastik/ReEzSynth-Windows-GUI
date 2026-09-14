@@ -347,14 +347,22 @@ def _render_legacy_job(job_path):
         frames.append(image)
         progress(10 * (index + 1) / count, f"Loading {index + 1}/{count}")
 
+    from reezsynth_alpha import read_style, as_bgra
     styles = array_sequence(numbers=[number for number, _ in style_entries])
+    rgba = False
     for number, path in style_entries:
-        style = read_image(path)
-        if style.shape != original_shape:
+        style = read_style(path)
+        rgba = rgba or style.shape[2] == 4
+        if style.shape[:2] != original_shape[:2]:
             raise ValueError(f"Keyframe {number} dimensions do not match the original source frames.")
         if style.shape[1::-1] != size:
             style = cv2.resize(style, size, interpolation=cv2.INTER_AREA)
         styles.append(style)
+
+    if rgba:
+        for index in range(len(styles)):
+            styles[index] = as_bgra(styles[index])
+        style = styles[-1]
 
     print("Processing size:", size, flush=True)
 
@@ -365,8 +373,9 @@ def _render_legacy_job(job_path):
     options = validate_render(options)
     from reezsynth_modulation import VideoModulation, legacy_modulation
     modulation = VideoModulation(job, options, numbers, original_shape, size)
-    if count > 1:
+    if count > 1 or rgba:
         validate_synthesis_dimensions(options['patchsize'], size)
+    if count > 1:
         validate_flow_model_available(options['flow_model'], options['flow_arch'])
     weights = validate_weights(job.get("guide_weights"))
     print('[Settings] ' + json.dumps(dict(quality=job['quality'], processing_size=list(size),
@@ -399,15 +408,42 @@ def _render_legacy_job(job_path):
             edge_guides.append(guide)
 
     if count == 1:
-        results = [style]
+        if rgba:
+            from ezsynth.utils._ebsynth import ebsynth
+            from ezsynth.aux_computations import precompute_edge_guides
+            from reezsynth_iterations import legacy_schedule, ScheduleRecorder
+            eb = ebsynth(**{name: options[name] for name in
+                         ('uniformity', 'patchsize', 'pyramidlevels', 'searchvoteiters',
+                          'patchmatchiters', 'extrapass3x3')}, backend=options['ebsynth_backend'])
+            eb.runner.initialize_libebsynth()
+            source, synthesis_style = frames[0], style
+            if masks and options['pre_mask']:
+                from ezsynth.aux_masker import apply_mask
+                source, synthesis_style = apply_mask(source, masks[0]), apply_mask(style, masks[0])
+            edge = edge_guides[0] if edge_guides else precompute_edge_guides([source], options['edge_method'])[0]
+            guide_weights = {name: weights[name] / weights['key_wgt'] for name in
+                             ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')}
+            from reezsynth_alpha import keyframe_guides
+            guides = keyframe_guides(synthesis_style, source, edge, guide_weights)
+            if masks and weights['mask_wgt']:
+                guides.append((masks[0], masks[0], weights['mask_wgt'] / weights['key_wgt']))
+            with legacy_schedule(eb, options, ScheduleRecorder(job['output'])), \
+                 legacy_modulation(eb, modulation.for_guides(guides, key)):
+                synthesized, _ = eb.run(synthesis_style, guides=guides)
+            results = [synthesized]
+            progress(90, 'RGBA keyframe synthesis')
+        else:
+            results = [style]
         if masks:
             mask = masks[0]
             if options["feather"]:
                 radius = options["feather"]
                 mask = cv2.GaussianBlur(mask, (radius, radius), 0)
             alpha = mask.astype(np.float32)[:, :, None] / 255.0
-            results = [(style * alpha + frames[0] * (1 - alpha)).astype(np.uint8)]
-        progress(90, "Keyframe copy")
+            background = as_bgra(frames[0]) if rgba else frames[0]
+            results = [(results[0] * alpha + background * (1 - alpha)).astype(np.uint8)]
+        if not rgba:
+            progress(90, "Keyframe copy")
     else:
         progress(10, "Initializing engine")
 
@@ -456,6 +492,10 @@ def _render_legacy_job(job_path):
             msk_frs_seq=masks or None,
             do_compute_edge=not options['custom_edge_guides'] and not cache_enabled,
         )
+        if rgba:
+            # Each pass synthesizes its initial key instead of copying BGRA.
+            expected += sum(2 if seq.mode == 'blend' and config.only_mode == 'none' else 1
+                            for seq in runner.sequences)
         if edge_guides:
             runner.edge_guides = edge_guides
         elif cache_enabled:
@@ -568,7 +608,8 @@ def _render_legacy_job(job_path):
                 origin = number_of(args[0], style_lookup)
                 target = number_of(guides[1][1], frame_lookup)
                 if origin is not None and target is not None:
-                    direction = 'Backward' if target < origin else 'Forward'
+                    direction = ('Keyframe' if rgba and target == origin else
+                                 'Backward' if target < origin else 'Forward')
                     preview = preview_publisher.publish(origin, direction, target, result[0])
                     frame_label = f' key={origin} frame={target} {direction.lower()}'
             progress(
@@ -632,7 +673,7 @@ def _render_legacy_job(job_path):
     progress(90, f"Saving 0/{count}")
 
     for index, (number, image) in enumerate(zip(numbers, results)):
-        if image.shape != frames[index].shape or not np.isfinite(image).all():
+        if image.shape != (*frames[index].shape[:2], 4 if rgba else 3) or not np.isfinite(image).all():
             raise RuntimeError(f"Invalid output image for frame {number}.")
 
         image = np.clip(image, 0, 255).astype(np.uint8)

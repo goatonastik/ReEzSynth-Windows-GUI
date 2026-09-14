@@ -28,6 +28,13 @@ def run_a_pass(
     start, end, step, is_forward = (
         get_forward(seq) if seq_mode == EasySequence.MODE_FWD else get_backward(seq)
     )
+    rgba = style.shape[2] == 4
+    if rgba:
+        from reezsynth_alpha import synthesize_keyframe
+        seed, _ = synthesize_keyframe(style, img_frs_seq[start], edge[start], eb,
+                                     {name: getattr(cfg, name) for name in
+                                      ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')})
+        stylized_frames[0] = seed
     warp = Warp(img_frs_seq[start])
     print(f"{'Forward' if is_forward else 'Reverse'} mode. {start=}, {end=}, {step=}")
     flows = array_sequence()
@@ -49,7 +56,9 @@ def run_a_pass(
                 (edge[start], edge[i + step], cfg.edg_wgt),  # Slower with premask
                 (img_frs_seq[start], img_frs_seq[i + step], cfg.img_wgt),
                 (first_poster, poster, cfg.pos_wgt),
-                (style, warped_img, cfg.wrp_wgt),  # Slower with premask
+                (np.ascontiguousarray(style[..., :3]) if rgba else style,
+                 np.ascontiguousarray(warped_img[..., :3]) if rgba else warped_img,
+                 cfg.wrp_wgt),  # Alpha remains a style/output channel, not a guide.
             ],
         )
         stylized_frames.append(stylized_img)
@@ -68,6 +77,8 @@ def get_warped_img(
 ):
     stylized_img = stylized_frames[-1] / 255.0
     warped_img = warp.run_warping(stylized_img, flow * (-step))
+    if warped_img is None:
+        raise RuntimeError('Frame warp failed before resizing the synthesized image.')
     warped_img = cv2.resize(warped_img, ORIGINAL_SIZE)
     return warped_img
 

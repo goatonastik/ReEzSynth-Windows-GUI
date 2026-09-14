@@ -101,18 +101,29 @@ class Blend:
         st = time.time()
         hist_blends = array_sequence()
         for i in tqdm.tqdm(range(len(err_masks)), desc="Hist blending: "):
-            if self.use_gpu:
+            rgba = style_fwd[i].shape[2] == 4
+            a, b = style_fwd[i], style_bwd[i]
+            if rgba:
+                a, b = a[..., :3], b[..., :3]
+            if rgba and np.array_equal(a, b):
+                # No histogram correction is needed for identical color. In
+                # particular, flat RGBA styles must not divide by zero variance.
+                hist_blend = a.copy()
+            elif self.use_gpu:
                 hist_blend = hist_blend_cupy(
-                    style_fwd[i],
-                    style_bwd[i],
+                    a,
+                    b,
                     err_masks[i],
                 )
             else:
                 hist_blend = hist_blender(
-                    style_fwd[i],
-                    style_bwd[i],
+                    a,
+                    b,
                     err_masks[i],
                 )
+            if rgba:
+                from reezsynth_alpha import selected_alpha
+                hist_blend = np.dstack((hist_blend, selected_alpha(style_fwd[i], style_bwd[i], err_masks[i])))
             hist_blends.append(hist_blend)
         print(f"Hist Blend took {time.time() - st:.4f} s")
         print(len(hist_blends))

@@ -11,6 +11,7 @@ MODULES = (
     "test_reezsynth_worker",
     "test_reezsynth_options",
     "test_reezsynth_render_adapter",
+    "test_reezsynth_alpha",
     "test_reezsynth_grouped",
     "test_reezsynth_artifacts",
     "test_reezsynth_destinations",

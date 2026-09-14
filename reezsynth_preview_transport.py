@@ -66,7 +66,7 @@ class PreviewPublisher:
                 return None
             import cv2
             import numpy as np
-            if not isinstance(pixels, np.ndarray) or pixels.ndim != 3 or pixels.shape[2] != 3:
+            if not isinstance(pixels, np.ndarray) or pixels.ndim != 3 or pixels.shape[2] not in (3, 4):
                 raise ValueError('Invalid preview image returned by synthesis.')
             height, width = pixels.shape[:2]
             scale = min(1.0, MAX_EDGE / max(height, width))

@@ -82,12 +82,17 @@ def render_image_job(job, progress):
             raise ValueError(f'Image must decode as an 8-bit image: {path}')
         if style and image.ndim == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        elif style and image.shape[2] == 4:
+        elif style and image.shape[2] == 4 and np.all(image[..., 3] == 255):
             image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
         return image
     def channels(image):
         return 1 if image.ndim == 2 else image.shape[2]
     style = read(settings['style'], style=True)
+    if style.shape[2] == 4:
+        from reezsynth_engines import FUOUM
+        if options['engine'] == FUOUM:
+            from reezsynth_alpha import reject_fuoum_alpha
+            reject_fuoum_alpha([settings['style']])
     pairs = [(read(settings['source']), read(settings['target']), settings['source_weight'])]
     pairs.extend((read(g['source']), read(g['target']), g['weight']) for g in settings['guides'])
     target_shape = pairs[0][1].shape[:2]
@@ -139,7 +144,7 @@ def render_image_job(job, progress):
         with legacy_schedule(runner.eb, options, ScheduleRecorder(job['output'])), \
              legacy_modulation(runner.eb, packed):
             result, error = runner.run(guides=list(pairs[1:]))
-    expected_shape = (*pairs[0][1].shape[:2], 3)
+    expected_shape = (*pairs[0][1].shape[:2], style.shape[2])
     if not isinstance(result, np.ndarray) or result.shape != expected_shape or not np.isfinite(result).all():
         raise RuntimeError('Image synthesis returned an invalid output image.')
     if not isinstance(error, np.ndarray) or error.shape != expected_shape[:2] or error.dtype.kind not in 'uif' or not np.isfinite(error).all():

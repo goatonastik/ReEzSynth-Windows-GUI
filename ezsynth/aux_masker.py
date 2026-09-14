@@ -34,6 +34,9 @@ def apply_masks_idxes(
 def apply_masked_back(
     original: np.ndarray, processed: np.ndarray, mask: np.ndarray, feather_radius=0
 ):
+    if processed.shape[2] == 4 and original.shape[2] == 3:
+        from reezsynth_alpha import as_bgra
+        original = as_bgra(original)
     if feather_radius > 0:
         mask_blurred = cv2.GaussianBlur(mask, (feather_radius, feather_radius), 0)
         mask_blurred = mask_blurred.astype(np.float32) / 255.0

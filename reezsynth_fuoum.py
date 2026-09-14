@@ -110,6 +110,11 @@ def render_fuoum_job(job, progress):
     validate_capabilities(options, image=image_job, blend=job.get('blend_options'), exports=job.get('exports'))
     if options['engine'] != FUOUM:
         raise ValueError('FuouM adapter received a different engine selection.')
+    from reezsynth_alpha import reject_fuoum_alpha
+    style_paths = ([job['image_synthesis']['style']] if image_job else
+                   [path for _, path in job['styles']] if job.get('type') == 'grouped_video' else
+                   [job['style']])
+    reject_fuoum_alpha(style_paths)
     runtime = job.get('engine_runtime')
     if not isinstance(runtime, dict) or runtime.get('engine') != FUOUM:
         raise ValueError('FuouM jobs need an engine_runtime prepared by the frontend.')
