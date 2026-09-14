@@ -28,6 +28,17 @@ from reezsynth_modulation import VIDEO_MODES
 PERSIST_GROUP_ORDER = tuple(group for group in GROUPS if group != 'render') + ('render',)
 assert set(PERSIST_GROUP_ORDER) == set(GROUPS) and len(PERSIST_GROUP_ORDER) == len(GROUPS)
 
+# Still-image synthesis supplies its own guide pairs and weights.  These video
+# controls remain persisted so switching back to video restores the user's
+# setup, but they do not participate in an image job.
+VIDEO_ONLY_RENDER_FIELDS = (
+    'edge_method', 'do_mask', 'pre_mask', 'feather', 'custom_edge_guides',
+    'memory_efficient_raft', 'flow_arch', 'flow_model', 'temporal_nnf',
+    'sparse_features', 'fuoum_sparse_anchor_weight', 'fuoum_flow_engine',
+    'fuoum_neuflow_model', 'fuoum_raft_model', 'fuoum_bidirectional_flow',
+    'stream_frames', 'modulation_guide', 'modulation_dir',
+)
+
 
 class IterationScheduleEdit(QLineEdit):
     """Keep JSON arrays separate from the user's editable comma-separated text."""
@@ -358,6 +369,11 @@ class Options(QObject):
             "Runs after input edits, directory preset selection, or enabling this option. "
             "Restoring startup settings and opening a saved project do not start rendering.")
         self.refresh_presets()
+        # The active synthesis tab is the current mode.  Keep the shared
+        # Rendering page truthful when Image Synthesis is selected without
+        # changing the stored video-only values.
+        window.tabs.currentChanged.connect(self.refresh_engine_controls)
+        self.refresh_engine_controls()
 
     def make_control(self, name, default):
         if name in SCHEDULE_FIELDS:
@@ -930,11 +946,15 @@ class Options(QObject):
         fuoum = widgets['engine'].currentText() == FUOUM
         self.engine_note.setVisible(fuoum)
         editable = not self.w.busy and not self.w.close_when_idle
+        image_mode = self.w.tabs.currentWidget() is getattr(self.w, 'image_synthesis', None)
+        video_editable = editable and not image_mode
         engine_pending = getattr(self, 'engine_action_pending', False)
         widgets['engine'].setEnabled(editable and not engine_pending)
+        for name in VIDEO_ONLY_RENDER_FIELDS:
+            widgets[name].setEnabled(video_editable)
         if 'modulation_guide' in widgets:
-            widgets['modulation_guide'].setEnabled(editable)
-            enabled = editable and widgets['modulation_guide'].currentText() != 'Off'
+            widgets['modulation_guide'].setEnabled(video_editable)
+            enabled = video_editable and widgets['modulation_guide'].currentText() != 'Off'
             widgets['modulation_dir'].setEnabled(enabled)
             self.modulation_browse.setEnabled(enabled)
         for schedule, scalar in zip(SCHEDULE_FIELDS, ('searchvoteiters', 'patchmatchiters')):
@@ -942,30 +962,33 @@ class Options(QObject):
                 widgets[schedule].setEnabled(editable)
                 widgets[scalar].setEnabled(editable and not widgets[schedule].text().strip())
         for name in ('temporal_nnf', 'sparse_features'):
+            widgets[name].setEnabled(video_editable and fuoum)
+        # These configure the native synthesis call for both video and still
+        # images. The remaining FuouM fields are flow/sparse-video controls.
+        for name in ('fuoum_backend', 'fuoum_vote_mode', 'fuoum_cost_function',
+                     'fuoum_stop_threshold', 'fuoum_search_pruning_threshold'):
             widgets[name].setEnabled(editable and fuoum)
-        for name in ('fuoum_backend', 'fuoum_vote_mode', 'fuoum_cost_function', 'fuoum_stop_threshold',
-                     'fuoum_search_pruning_threshold', 'fuoum_sparse_anchor_weight',
-                     'fuoum_flow_engine', 'fuoum_neuflow_model', 'fuoum_bidirectional_flow'):
-            widgets[name].setEnabled(editable and fuoum)
-        widgets['fuoum_neuflow_model'].setEnabled(editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'NeuFlow')
-        widgets['fuoum_raft_model'].setEnabled(editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'RAFT')
-        widgets['flow_model'].setEnabled(editable and not fuoum and widgets['flow_model'].count() > 1)
-        widgets['fuoum_sparse_anchor_weight'].setEnabled(editable and fuoum and widgets['sparse_features'].isChecked())
+        for name in ('fuoum_sparse_anchor_weight', 'fuoum_flow_engine', 'fuoum_neuflow_model',
+                     'fuoum_raft_model', 'fuoum_bidirectional_flow'):
+            widgets[name].setEnabled(video_editable and fuoum)
+        widgets['fuoum_neuflow_model'].setEnabled(video_editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'NeuFlow')
+        widgets['fuoum_raft_model'].setEnabled(video_editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'RAFT')
+        widgets['flow_model'].setEnabled(video_editable and not fuoum and widgets['flow_model'].count() > 1)
+        widgets['fuoum_sparse_anchor_weight'].setEnabled(video_editable and fuoum and widgets['sparse_features'].isChecked())
         memory_efficient = widgets['memory_efficient_raft']
         compatible_memory_efficient = widgets['flow_arch'].currentText() == 'RAFT'
         if memory_efficient.isChecked() and not compatible_memory_efficient:
             with QSignalBlocker(memory_efficient):
                 memory_efficient.setChecked(False)
-        memory_efficient.setEnabled(editable and not fuoum and compatible_memory_efficient)
-        for name in ('do_mask', 'pre_mask', 'feather', 'custom_edge_guides'):
-            widgets[name].setEnabled(editable)
+        memory_efficient.setEnabled(video_editable and not fuoum and compatible_memory_efficient)
         for name in ('flow_arch', 'ebsynth_backend'):
-            widgets[name].setEnabled(editable and not fuoum)
-        self.widgets['weights']['mask_wgt'].setEnabled(editable)
+            widgets[name].setEnabled((video_editable if name == 'flow_arch' else editable) and not fuoum)
+        for widget in self.widgets['weights'].values():
+            widget.setEnabled(video_editable)
         for field in (self.w.mask_dir, self.w.edge_dir):
-            field.setEnabled(editable)
+            field.parentWidget().setEnabled(video_editable)
         for widget in self.export_widgets.values():
-            widget.setEnabled(editable)
+            widget.setEnabled(video_editable)
         for name, path in default_runtime().items():
             if name in self.widgets.get('application', {}):
                 self.widgets['application'][name].setPlaceholderText(path)
