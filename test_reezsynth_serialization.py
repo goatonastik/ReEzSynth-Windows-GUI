@@ -34,6 +34,19 @@ class SerializationTests(unittest.TestCase):
         self.assertIn('Unknown or invalid', rejected.errors[0])
         self.assertEqual(path.read_bytes(), before)
 
+    def test_yaml_parser_errors_are_bounded_value_errors_with_cause(self):
+        for content in ('groups: [\n', 'groups: !unsupported value\n',
+                        '? [unhashable, key]\n: value\n'):
+            with self.subTest(content=content):
+                path = self.root / 'invalid.yaml'
+                path.write_text(content, encoding='utf-8')
+                before = path.read_bytes()
+                with self.assertRaisesRegex(ValueError, r'Invalid YAML configuration at line \d+, column \d+\.') as caught:
+                    read_document(path)
+                self.assertIsNotNone(caught.exception.__cause__)
+                self.assertLess(len(str(caught.exception)), 100)
+                self.assertEqual(path.read_bytes(), before)
+
     def test_rejects_non_object_yaml_and_json(self):
         for suffix, content in (('.yaml', '- item\n'), ('.json', '[]')):
             path = self.root / ('bad' + suffix)

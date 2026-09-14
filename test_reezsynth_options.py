@@ -300,6 +300,67 @@ class PresetTests(GuiFixture):
                     self.assertIs(w.options.store, store)
                     self.assertEqual(vars(store), state)
 
+    def test_import_rejects_malformed_yaml_and_nested_non_string_keys(self):
+        path, _ = self.mixed_library({})
+        original = path.read_bytes()
+        w = self.window()
+        store = w.options.store
+        state = copy.deepcopy(vars(store))
+        imported = self.root / 'invalid-import.yaml'
+        envelope = ('format: ReEzSynth-presets\nversion: 1\ngroups:\n'
+                    '  render:\n    Imported: {options: {patchsize: 13}}\n')
+        cases = (
+            (envelope + '    Broken: [\n', 'Invalid YAML configuration'),
+            (envelope + '    Broken: !unsupported value\n', 'Invalid YAML configuration'),
+            (envelope + '    Broken: {nested: {1: first, "1": second}}\n',
+             'Preset document mapping keys must be strings.'),
+            (envelope + '  future: {Keep: [{null: value}]}\n',
+             'Preset document mapping keys must be strings.'),
+            (envelope + 'metadata: {nested: [{yes: value}]}\n',
+             'Preset document mapping keys must be strings.'),
+        )
+        for text, message in cases:
+            with self.subTest(text=text):
+                imported.write_text(text, encoding='utf-8')
+                source = imported.read_bytes()
+                with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(imported), '')), \
+                     patch.object(gui.QMessageBox, 'question') as question, \
+                     patch.object(gui.QMessageBox, 'warning') as warning, \
+                     patch.object(options_module, 'atomic_json') as write:
+                    w.options.import_presets()
+                question.assert_not_called()
+                write.assert_not_called()
+                warning.assert_called_once()
+                self.assertEqual(warning.call_args.args[1], 'Cannot import presets')
+                self.assertIn(message, warning.call_args.args[2])
+                self.assertEqual(imported.read_bytes(), source)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertIs(w.options.store, store)
+                self.assertEqual(vars(store), state)
+                box = w.options.preset_boxes['render']
+                box.setCurrentIndex(box.findData('Good'))
+                w.options.select_preset('render')
+                self.assertEqual(w.options.render()['patchsize'], 9)
+
+    def test_import_preserves_nested_string_keys_and_shared_yaml_values(self):
+        path, _ = self.mixed_library({})
+        imported = self.root / 'shared-import.yaml'
+        imported.write_text(
+            'format: ReEzSynth-presets\nversion: 1\ngroups:\n'
+            '  render:\n    Imported: {options: {patchsize: 13}}\n'
+            '    Broken: &shared {nested: [{"1": first, "yes": second}]}\n'
+            '  future: {Keep: *shared}\nmetadata: *shared\n', encoding='utf-8')
+        expected = PresetStore(imported).document
+        w = self.window()
+        with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(imported), '')), \
+             patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes), \
+             patch.object(gui.QMessageBox, 'warning') as warning:
+            w.options.import_presets()
+        warning.assert_not_called()
+        self.assertEqual(json.loads(path.read_text()), expected)
+        self.assertEqual(w.options.store.document, expected)
+        self.assertEqual(w.options.store.groups['render']['Imported']['options']['patchsize'], 13)
+
     def test_whole_json_syntax_failure_preserves_file_and_last_used(self):
         path, _ = self.mixed_library(dict(Broken={}))
         # All presets share one JSON document: a missing value prevents parsing

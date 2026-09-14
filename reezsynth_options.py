@@ -1161,6 +1161,21 @@ class Options(QObject):
                 if not isinstance(group, str) or (isinstance(presets, dict) and
                         any(not isinstance(name, str) for name in presets)):
                     raise ValueError("Preset group and preset names must be strings.")
+            # Rejected payloads and metadata also survive import. JSON must not
+            # stringify their keys or collapse distinct keys such as 1 and "1".
+            pending = [imported.document]
+            seen = set()
+            while pending:
+                value = pending.pop()
+                if not isinstance(value, (dict, list)) or id(value) in seen:
+                    continue
+                seen.add(id(value))
+                if isinstance(value, dict):
+                    if any(not isinstance(key, str) for key in value):
+                        raise ValueError("Preset document mapping keys must be strings.")
+                    pending.extend(value.values())
+                else:
+                    pending.extend(value)
             if QMessageBox.question(self.w, "Replace preset library?", "Replace the local preset library with this file?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:

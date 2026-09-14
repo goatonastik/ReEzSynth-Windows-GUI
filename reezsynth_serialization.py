@@ -17,7 +17,16 @@ def _yaml():
 def read_document(path):
     path = Path(path)
     text = path.read_text(encoding='utf-8-sig')
-    data = _yaml().safe_load(text) if path.suffix.casefold() in YAML_SUFFIXES else json.loads(text)
+    if path.suffix.casefold() in YAML_SUFFIXES:
+        yaml = _yaml()
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            mark = getattr(exc, 'problem_mark', None)
+            location = f' at line {mark.line + 1}, column {mark.column + 1}' if mark else ''
+            raise ValueError(f'Invalid YAML configuration{location}.') from exc
+    else:
+        data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError('Configuration document must contain an object.')
     return data
