@@ -1155,6 +1155,12 @@ class Options(QObject):
             return
         try:
             imported = PresetStore(path)
+            # JSON can stringify YAML keys, promoting rejected names or collapsing
+            # distinct entries. Check the raw collections, including unknown groups.
+            for group, presets in imported.document['groups'].items():
+                if not isinstance(group, str) or (isinstance(presets, dict) and
+                        any(not isinstance(name, str) for name in presets)):
+                    raise ValueError("Preset group and preset names must be strings.")
             if QMessageBox.question(self.w, "Replace preset library?", "Replace the local preset library with this file?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:

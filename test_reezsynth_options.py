@@ -1,4 +1,5 @@
 """Preset, settings, automation, project and parallel-queue regressions."""
+import copy
 import json
 import math
 import sys
@@ -245,17 +246,59 @@ class PresetTests(GuiFixture):
         imported = self.root / 'unserializable-import.yaml'
         imported.write_text(
             'format: ReEzSynth-presets\nversion: 1\ngroups:\n'
-            '  render:\n    Good:\n      options:\n        patchsize: 9\n'
+            '  render:\n    Good:\n      options:\n        patchsize: 11\n'
             '    Broken: 2026-09-14\n', encoding='utf-8')
+        source = imported.read_bytes()
         w = self.window()
+        store = w.options.store
+        state = copy.deepcopy(vars(store))
         with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(imported), '')), \
              patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes), \
              patch.object(gui.QMessageBox, 'warning') as warning:
             w.options.import_presets()
         self.assertEqual(path.read_bytes(), original)
-        self.assertEqual(set(w.options.store.groups['render']), {'Good'})
+        self.assertEqual(imported.read_bytes(), source)
+        self.assertIs(w.options.store, store)
+        self.assertEqual(vars(store), state)
         warning.assert_called_once()
         self.assertEqual(warning.call_args.args[1], 'Cannot import presets')
+
+    def test_import_rejects_non_string_yaml_names_before_confirmation(self):
+        path, _ = self.mixed_library({})
+        original = path.read_bytes()
+        w = self.window()
+        store = w.options.store
+        state = copy.deepcopy(vars(store))
+        imported = self.root / 'non-string-names.yaml'
+        entries = ('yes: {}', '2026-09-14: {}', 'null: {}', '1: {}',
+                   '1: {options: {patchsize: 11}}\n"1": {}',
+                   '"1": {}\n1: {options: {patchsize: 11}}')
+        for collection in ('groups', 'render', 'future'):
+            for entry in entries:
+                with self.subTest(collection=collection, entry=entry):
+                    text = ('format: ReEzSynth-presets\nversion: 1\ngroups:\n'
+                            '  render:\n    Imported: {options: {patchsize: 13}}\n')
+                    if collection == 'groups':
+                        text += ''.join('  ' + line + '\n' for line in entry.splitlines())
+                    else:
+                        if collection == 'future':
+                            text += '  future:\n'
+                        text += ''.join('    ' + line + '\n' for line in entry.splitlines())
+                    imported.write_text(text, encoding='utf-8')
+                    source = imported.read_bytes()
+                    with patch.object(gui.QFileDialog, 'getOpenFileName', return_value=(str(imported), '')), \
+                         patch.object(gui.QMessageBox, 'question', return_value=gui.QMessageBox.StandardButton.Yes) as question, \
+                         patch.object(gui.QMessageBox, 'warning') as warning, \
+                         patch.object(options_module, 'atomic_json') as write:
+                        w.options.import_presets()
+                    question.assert_not_called()
+                    write.assert_not_called()
+                    warning.assert_called_once_with(w, 'Cannot import presets',
+                        'Preset group and preset names must be strings.')
+                    self.assertEqual(imported.read_bytes(), source)
+                    self.assertEqual(path.read_bytes(), original)
+                    self.assertIs(w.options.store, store)
+                    self.assertEqual(vars(store), state)
 
     def test_whole_json_syntax_failure_preserves_file_and_last_used(self):
         path, _ = self.mixed_library(dict(Broken={}))
