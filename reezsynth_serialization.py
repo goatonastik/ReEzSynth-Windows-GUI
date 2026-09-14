@@ -21,10 +21,21 @@ def read_document(path):
         yaml = _yaml()
         try:
             data = yaml.safe_load(text)
+        except RecursionError as exc:
+            raise ValueError('Invalid YAML configuration: nesting exceeds the parser limit.') from exc
         except yaml.YAMLError as exc:
             mark = getattr(exc, 'problem_mark', None)
             location = f' at line {mark.line + 1}, column {mark.column + 1}' if mark else ''
-            raise ValueError(f'Invalid YAML configuration{location}.') from exc
+            problem = getattr(exc, 'problem', None)
+            detail = ''
+            if isinstance(problem, str):
+                # Never format the full exception: it may include a huge source
+                # snippet. Bound work/output and remove control characters.
+                summary = ' '.join(''.join(c if c.isprintable() else ' '
+                                          for c in problem[:160]).split())
+                if summary:
+                    detail = ' ' + summary + ('...' if len(problem) > 160 else '')
+            raise ValueError(f'Invalid YAML configuration{location}.{detail}') from exc
     else:
         data = json.loads(text)
     if not isinstance(data, dict):

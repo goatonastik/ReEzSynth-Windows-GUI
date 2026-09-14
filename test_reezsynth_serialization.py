@@ -1,6 +1,10 @@
 """Safe JSON/YAML configuration interchange tests; no GUI or renderer."""
 import tempfile
+import sys
 import unittest
+from unittest.mock import patch
+
+import yaml
 from pathlib import Path
 
 from reezsynth_config import PresetStore, WEIGHTS
@@ -44,8 +48,46 @@ class SerializationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, r'Invalid YAML configuration at line \d+, column \d+\.') as caught:
                     read_document(path)
                 self.assertIsNotNone(caught.exception.__cause__)
-                self.assertLess(len(str(caught.exception)), 100)
+                self.assertIn(caught.exception.__cause__.problem, str(caught.exception))
+                self.assertLess(len(str(caught.exception)), 250)
                 self.assertEqual(path.read_bytes(), before)
+
+    def test_deep_yaml_parser_recursion_is_a_value_error(self):
+        path = self.root / 'deep.yaml'
+        depth = sys.getrecursionlimit() * 2
+        path.write_text('groups: ' + '[' * depth + '0' + ']' * depth, encoding='utf-8')
+        before = path.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'nesting exceeds the parser limit') as caught:
+            read_document(path)
+        self.assertIsInstance(caught.exception.__cause__, RecursionError)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_yaml_problem_without_position_is_sanitized_and_truncated(self):
+        path = self.root / 'no-position.yaml'
+        path.write_text('groups: {}', encoding='utf-8')
+        error = yaml.YAMLError('FULL EXCEPTION MUST NOT APPEAR' * 10000)
+        error.problem = 'bad\n\t\x00\x1b\u202e token ' + 'x' * 10000
+        with patch.object(yaml, 'safe_load', side_effect=error):
+            with self.assertRaises(ValueError) as caught:
+                read_document(path)
+        message = str(caught.exception)
+        self.assertTrue(message.startswith('Invalid YAML configuration. bad token '))
+        self.assertTrue(message.endswith('...'))
+        self.assertTrue(all(c.isprintable() for c in message))
+        self.assertNotIn('at line', message)
+        self.assertNotIn('FULL EXCEPTION', message)
+        self.assertLess(len(message), 200)
+        self.assertIs(caught.exception.__cause__, error)
+
+    def test_yaml_reader_error_without_problem_or_position_has_safe_fallback(self):
+        path = self.root / 'invalid-character.yaml'
+        path.write_text('groups: "\x00"', encoding='utf-8')
+        before = path.read_bytes()
+        with self.assertRaises(ValueError) as caught:
+            read_document(path)
+        self.assertEqual(str(caught.exception), 'Invalid YAML configuration.')
+        self.assertIsInstance(caught.exception.__cause__, yaml.reader.ReaderError)
+        self.assertEqual(path.read_bytes(), before)
 
     def test_rejects_non_object_yaml_and_json(self):
         for suffix, content in (('.yaml', '- item\n'), ('.json', '[]')):

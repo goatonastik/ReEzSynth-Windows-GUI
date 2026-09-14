@@ -310,6 +310,9 @@ class PresetTests(GuiFixture):
         envelope = ('format: ReEzSynth-presets\nversion: 1\ngroups:\n'
                     '  render:\n    Imported: {options: {patchsize: 13}}\n')
         cases = (
+            (envelope + '    Broken: ' + '[' * (sys.getrecursionlimit() * 2) + '0' +
+             ']' * (sys.getrecursionlimit() * 2), 'nesting exceeds the parser limit'),
+            (envelope + '    Broken: "\x00"\n', 'Invalid YAML configuration.'),
             (envelope + '    Broken: [\n', 'Invalid YAML configuration'),
             (envelope + '    Broken: !unsupported value\n', 'Invalid YAML configuration'),
             (envelope + '    Broken: {nested: {1: first, "1": second}}\n',
