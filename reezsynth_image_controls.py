@@ -164,16 +164,19 @@ class ImageSynthesisControls(QWidget):
                 self.changed()
                 return
 
-    def settings(self):
+    def settings_state(self):
         guides = []
         for row in range(self.table.rowCount()):
             guides.append(dict(source=self.table.cellWidget(row, 0).findChild(ImageFileEdit).text(),
                                target=self.table.cellWidget(row, 1).findChild(ImageFileEdit).text(),
                                weight=self.table.cellWidget(row, 2).value(),
                                modulation=self.table.cellWidget(row, 3).findChild(ImageFileEdit).text()))
-        return validate_image_settings(dict(style=self.style.text(), source=self.source.text(), target=self.target.text(),
+        return dict(style=self.style.text(), source=self.source.text(), target=self.target.text(),
             source_weight=self.source_weight.value(), key_weight=self.key_weight.value(),
-            folder=self.folder.text(), guides=guides, modulation=self.modulation.text()))
+            folder=self.folder.text(), guides=guides, modulation=self.modulation.text())
+
+    def settings(self):
+        return validate_image_settings(self.settings_state())
 
     def set_settings(self, data):
         data = validate_image_settings(data)

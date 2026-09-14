@@ -6,17 +6,21 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PySide6.QtCore import QProcess
+import reezsynth_options as options_module
+
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtGui import QCloseEvent, QImage
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QCheckBox
 
 from test_reezsynth_gui import GuiFixture, gui, controls
 from test_reezsynth_lifecycle import LifecycleFixture
-from reezsynth_config import (APPLICATION, PREVIEW, STANDARD, WEIGHTS, PresetStore,
-    discover_pairs, validate_render, validate_weights)
+from reezsynth_config import (APPLICATION, GROUPS, LIMITS, PREVIEW, RENDER, SPIN_RULES, STANDARD, WEIGHTS, PresetStore,
+    discover_pairs, validate_group, validate_render, validate_weights)
 from reezsynth_jobs import validate_masks
 from reezsynth_resources import estimate_job_vram, gpu_snapshot, safety_reserve_mib
 from reezsynth_engines import FUOUM, LEGACY
+from reezsynth_widget_style import ConstrainedQueueSpinBox
 
 
 REAL_NOTIFY = gui.Options.notify
@@ -46,6 +50,264 @@ class ResourceSchedulingUnitTests(unittest.TestCase):
 
 
 class PresetTests(GuiFixture):
+    def test_snapshot_captures_hostile_live_state_without_validation(self):
+        w = self.window()
+        w.batch_name_pattern.setText('{not_a_batch_field}')
+        w.resolution.setCurrentIndex(w.resolution.findData('custom'))
+        w.processing_width.setValue(64)
+        w.processing_height.setValue(64)
+        w.options.widgets['render']['patchsize'].setValue(4)
+
+        output = w.options.snapshot('output')
+        render = w.options.snapshot('render', include_related=True)
+        self.assertEqual(output['batch_pattern'], '{not_a_batch_field}')
+        self.assertEqual(render['processing_size'], [64, 64])
+        self.assertEqual(render['options']['patchsize'], 4)
+        for group in GROUPS:
+            w.options.snapshot(group, include_related=(group == 'render'))
+
+    def test_constrained_render_spins_commit_only_validator_legal_values(self):
+        w = self.window()
+        controls = w.options.widgets['render']
+        patch, feather, levels = (controls[name] for name in ('patchsize', 'feather', 'pyramidlevels'))
+
+        patch.setValue(3); patch.stepUp()
+        self.assertEqual(patch.value(), 5)
+        patch.setValue(7); patch.lineEdit().setFocus()
+        QTest.keyClick(patch.lineEdit(), Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClicks(patch.lineEdit(), '21')
+        self.assertEqual(patch.value(), 7)
+        QTest.keyClick(patch.lineEdit(), Qt.Key.Key_Return)
+        self.assertEqual(patch.value(), 21)
+
+        feather.setValue(0); feather.stepUp(); feather.stepUp()
+        self.assertEqual(feather.value(), 3)
+        feather.lineEdit().setText('2'); feather.interpretText(); feather.editingFinished.emit()
+        self.assertEqual(feather.value(), 3)
+
+        levels.setValue(-1); levels.stepUp()
+        self.assertEqual(levels.value(), 1)
+        levels.lineEdit().setText('0'); levels.interpretText(); levels.editingFinished.emit()
+        self.assertEqual(levels.value(), 1)
+        for name in SPIN_RULES:
+            widget = controls[name]
+            for value in range(LIMITS[name][0], LIMITS[name][1] + 1):
+                widget.setValue(value)
+                widget.editingFinished.emit()
+                validate_render(dict(RENDER, **{name: widget.value()}))
+                try:
+                    validate_render(dict(RENDER, **{name: value}))
+                except ValueError:
+                    continue
+                self.assertEqual(widget.value(), value)
+
+    def test_constrained_spin_impossible_range_terminates(self):
+        widget = ConstrainedQueueSpinBox('odd')
+        widget.setRange(4, 4)
+        widget.setValue(4)
+        self.assertIsNone(widget.legal_value(4, 1))
+        widget.stepUp()
+        self.assertEqual(widget.value(), 4)
+
+    def test_schedule_snapshot_is_raw_and_group_validation_canonicalizes_it(self):
+        w = self.window()
+        field = w.options.widgets['render']['searchvote_schedule']
+        for text, expected in (('', []), ('   ', []), ('12, 8, 4', [12, 8, 4])):
+            with self.subTest(text=text):
+                field.setText(text)
+                state = w.options.snapshot('render')
+                self.assertEqual(state['options']['searchvote_schedule'], text)
+                self.assertEqual(validate_group('render', state)['options']['searchvote_schedule'], expected)
+        for text in ('1,', '1,,2', '0', '1001'):
+            with self.subTest(text=text):
+                field.setText(text)
+                with self.assertRaises(ValueError):
+                    validate_group('render', w.options.snapshot('render'))
+                with self.assertRaises(ValueError):
+                    validate_render(dict(searchvote_schedule=text))
+
+    def test_memory_efficient_control_projects_flow_arch_validator_rule(self):
+        w = self.window()
+        controls = w.options.widgets['render']
+        architecture, memory = controls['flow_arch'], controls['memory_efficient_raft']
+        for flow_arch, model in (('RAFT', 'sintel'), ('EF_RAFT', '25000_ours-sintel'), ('FLOW_DIFF', 'FlowDiffuser-things')):
+            with self.subTest(flow_arch=flow_arch):
+                architecture.blockSignals(True)
+                architecture.setCurrentText(flow_arch)
+                architecture.blockSignals(False)
+                controls['flow_model'].blockSignals(True)
+                controls['flow_model'].clear()
+                controls['flow_model'].addItem(model)
+                controls['flow_model'].blockSignals(False)
+                memory.setChecked(True)
+                w.options.refresh_engine_controls()
+                accepted = dict(w.options.snapshot('render')['options'], flow_arch=flow_arch,
+                                flow_model=model, memory_efficient_raft=(flow_arch == 'RAFT'))
+                validate_group('render', dict(w.options.snapshot('render'), options=accepted))
+                self.assertEqual(memory.isEnabled(), flow_arch == 'RAFT')
+                self.assertEqual(memory.isChecked(), flow_arch == 'RAFT')
+                if flow_arch != 'RAFT':
+                    with self.assertRaises(ValueError):
+                        validate_group('render', dict(w.options.snapshot('render'),
+                            options=dict(accepted, memory_efficient_raft=True)))
+
+    def test_invalid_output_persist_keeps_known_good_group_and_saves_others(self):
+        w = self.window()
+        o = w.options
+        w.batch_name_pattern.setText('good_{date}')
+        o.persist()
+        original = json.loads(o.last_path.read_text())['groups']['output']
+        w.batch_name_pattern.setText('{invalid}')
+        o.widgets['application']['sound_enabled'].setChecked(False)
+        o.policy_boxes['application'].setCurrentIndex(o.policy_boxes['application'].findData('defaults'))
+        o.persist()
+        saved = json.loads(o.last_path.read_text())['groups']
+        policy = json.loads(o.app_path.read_text())['startup']
+        self.assertEqual(saved['output'], original)
+        self.assertFalse(saved['application']['sound_enabled'])
+        self.assertEqual(policy['application'], 'defaults')
+        self.assertIn('Output settings were not saved', w.status.text())
+
+        w.close()
+        restored = self.window()
+        self.assertEqual(restored.batch_name_pattern.text(), 'good_{date}')
+
+    def test_failed_write_does_not_advance_known_good_groups(self):
+        w = self.window()
+        o = w.options
+        w.batch_name_pattern.setText('saved_a_{date}')
+        o.persist()
+        original = json.loads(o.last_path.read_text())['groups']['output']
+        w.batch_name_pattern.setText('never_written_b_{date}')
+        real_atomic = options_module.atomic_json
+        def fail_last_used(path, data):
+            if Path(path) == o.last_path:
+                raise OSError('simulated disk failure')
+            return real_atomic(path, data)
+        with patch('reezsynth_options.atomic_json', side_effect=fail_last_used):
+            o.persist()
+        self.assertEqual(json.loads(o.last_path.read_text())['groups']['output'], original)
+        self.assertEqual(o.saved_groups['output'], original)
+        w.batch_name_pattern.setText('{invalid}')
+        o.persist()
+        self.assertEqual(json.loads(o.last_path.read_text())['groups']['output'], original)
+
+    def test_successful_persist_clears_its_stale_error_status(self):
+        w = self.window()
+        o = w.options
+        o.persist()
+        w.batch_name_pattern.setText('{invalid}')
+        o.persist()
+        self.assertIn('Output settings were not saved', w.status.text())
+        w.batch_name_pattern.setText('valid_{date}')
+        o.persist()
+        self.assertNotIn('settings were not saved', w.status.text())
+
+    def test_successful_persist_leaves_unrelated_status_and_clears_error_ownership(self):
+        w = self.window()
+        o = w.options
+        w.batch_name_pattern.setText('{invalid}')
+        o.persist()
+        self.assertIsNotNone(o.persistence_error_status)
+        w.status.setText('Independent worker status')
+        w.batch_name_pattern.setText('valid_{date}')
+        o.persist()
+        self.assertEqual(w.status.text(), 'Independent worker status')
+        self.assertIsNone(o.persistence_error_status)
+
+    def test_write_failure_sets_and_success_clears_persistence_status(self):
+        w = self.window()
+        o = w.options
+        real_atomic = options_module.atomic_json
+        with patch('reezsynth_options.atomic_json', side_effect=OSError('disk full')):
+            o.persist()
+        self.assertIn('Settings could not be saved: disk full', w.status.text())
+        self.assertIsNotNone(o.persistence_error_status)
+        with patch('reezsynth_options.atomic_json', side_effect=real_atomic):
+            o.persist()
+        self.assertFalse(w.status.text())
+        self.assertIsNone(o.persistence_error_status)
+
+    def test_invalid_processing_size_keeps_render_known_good_and_saves_others(self):
+        w = self.window()
+        o = w.options
+        w.set_processing_size([512, 512])
+        o.persist()
+        original = json.loads(o.last_path.read_text())['groups']['render']
+        w.resolution.setCurrentIndex(w.resolution.findData('custom'))
+        w.processing_width.setValue(64)
+        w.processing_height.setValue(64)
+        o.widgets['application']['sound_enabled'].setChecked(False)
+        o.persist()
+        saved = json.loads(o.last_path.read_text())['groups']
+        self.assertEqual(saved['render'], original)
+        self.assertFalse(saved['application']['sound_enabled'])
+        self.assertIn('Rendering settings were not saved', w.status.text())
+
+    def test_corrupt_last_used_does_not_abort_restore(self):
+        configuration = self.root / 'configuration'
+        configuration.mkdir()
+        (configuration / 'last-used.json').write_text('{not json', encoding='utf-8')
+        w = self.window()
+        self.assertFalse(w.options.loading)
+        self.assertTrue(all(box.count() for box in w.options.policy_boxes.values()))
+        self.assertTrue(any('Last-used settings could not be restored' in error for error in w.options.errors))
+
+    def test_corrupt_startup_policy_does_not_abort_last_used_restore(self):
+        configuration = self.root / 'configuration'
+        configuration.mkdir()
+        (configuration / 'application.json').write_text('{not json', encoding='utf-8')
+        (configuration / 'last-used.json').write_text(json.dumps(dict(version=1,
+            groups=dict(weights=dict(img_wgt=8)))), encoding='utf-8')
+        w = self.window()
+        self.assertEqual(w.options.weights()['img_wgt'], 8)
+        self.assertTrue(all(box.count() for box in w.options.policy_boxes.values()))
+        self.assertTrue(any('Startup policy file could not be restored' in error for error in w.options.errors))
+
+    def test_rejected_last_used_group_is_preserved_for_diagnostics(self):
+        configuration = self.root / 'configuration'
+        configuration.mkdir()
+        rejected = dict(options=dict(patchsize=4), quality='Standard')
+        (configuration / 'last-used.json').write_text(json.dumps(dict(version=1,
+            groups=dict(render=rejected))), encoding='utf-8')
+        w = self.window()
+        preserved = json.loads((configuration / 'last-used.rejected.json').read_text())
+        self.assertEqual(preserved['groups']['render'], rejected)
+        self.assertEqual(w.options.render()['patchsize'], 7)
+
+    def test_restore_exception_resets_loading_state(self):
+        with patch.object(gui.Options, '_restore', side_effect=RuntimeError('injected restore failure')):
+            w = self.window()
+        self.assertFalse(w.options.loading)
+        self.assertTrue(any('injected restore failure' in error for error in w.options.errors))
+
+    def test_project_data_validates_video_export_without_validating_snapshot(self):
+        w = self.window()
+        w.options.video_export_enabled.setChecked(True)
+        w.options.video_export_fps.setValue(30)
+        w.options.video_export_audio.setText('  "audio.mp3"  ')
+        self.assertEqual(w.options.snapshot('render')['video_export']['audio'], '  "audio.mp3"  ')
+        self.assertEqual(w.options.project_data()['video_export'],
+                         dict(enabled=True, fps=30.0, audio='audio.mp3'))
+
+    def test_persist_group_order_covers_canonical_groups(self):
+        self.assertEqual(set(options_module.PERSIST_GROUP_ORDER), set(GROUPS))
+        self.assertEqual(len(options_module.PERSIST_GROUP_ORDER), len(GROUPS))
+
+    def test_missing_preset_store_does_not_abort_unrelated_restore(self):
+        configuration = self.root / 'configuration'
+        configuration.mkdir()
+        (configuration / 'presets.json').write_text('{not json', encoding='utf-8')
+        (configuration / 'application.json').write_text(json.dumps(dict(version=1,
+            startup=dict(render='preset:missing'))), encoding='utf-8')
+        (configuration / 'last-used.json').write_text(json.dumps(dict(version=1,
+            groups=dict(weights=dict(img_wgt=8)))), encoding='utf-8')
+        w = self.window()
+        self.assertIsNone(w.options.store)
+        self.assertEqual(w.options.weights()['img_wgt'], 8)
+        self.assertTrue(all(box.count() for box in w.options.policy_boxes.values()))
+        self.assertTrue(any('Startup preset unavailable for render' in error for error in w.options.errors))
+
     def test_store_groups_overwrite_remove_and_export_round_trip(self):
         path = self.root / "presets.json"
         store = PresetStore(path)

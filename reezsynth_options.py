@@ -2,19 +2,19 @@
 import json
 import os
 import sys
-from reezsynth_widget_style import QueueDoubleSpinBox, QueueSpinBox, PyramidLevelsSpinBox
+from reezsynth_widget_style import ConstrainedQueueSpinBox, QueueDoubleSpinBox, QueueSpinBox, PyramidLevelsSpinBox
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QProcess, QSettings, QTimer, QUrl
+from PySide6.QtCore import QObject, QProcess, QSettings, QSignalBlocker, QTimer, QUrl
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
-from reezsynth_config import (APPLICATION, GROUPS, LIMITS, PREVIEW, RENDER, STANDARD, HIGHEST, quality_profile,
+from reezsynth_config import (APPLICATION, GROUPS, LIMITS, SPIN_RULES, PREVIEW, RENDER, STANDARD, HIGHEST, quality_profile,
     WEIGHTS, PresetStore, atomic_json, discover_pairs, install_optional_flow_files,
     optional_flow_status, validate_application,
     validate_group, validate_render, validate_weights)
-from reezsynth_project_controls import (project_naming, set_project_naming,
+from reezsynth_project_controls import (project_naming, project_naming_state, set_project_naming,
     update_naming_preview)
 from reezsynth_preview import LivePreviewWindow
 from reezsynth_video_plan import validate_blend_options, validate_grouped_selection
@@ -23,6 +23,10 @@ from reezsynth_engine_setup import (readiness_command, rebuild_command,
                                     version_summary)
 from reezsynth_iterations import SCHEDULE_FIELDS, parse_schedule
 from reezsynth_modulation import VIDEO_MODES
+
+
+PERSIST_GROUP_ORDER = tuple(group for group in GROUPS if group != 'render') + ('render',)
+assert set(PERSIST_GROUP_ORDER) == set(GROUPS) and len(PERSIST_GROUP_ORDER) == len(GROUPS)
 
 
 class IterationScheduleEdit(QLineEdit):
@@ -72,7 +76,7 @@ for _shared in ('do_mask', 'pre_mask', 'feather', 'mask_wgt', 'custom_edge_guide
 
 def control_value(widget):
     if isinstance(widget, IterationScheduleEdit):
-        return widget.schedule()
+        return widget.text()
     if isinstance(widget, QCheckBox):
         return widget.isChecked()
     if isinstance(widget, QComboBox):
@@ -108,6 +112,8 @@ class Options(QObject):
         self.policy_boxes = {}
         self.sound = None
         self.errors = []
+        self.saved_groups = {}
+        self.persistence_error_status = None
         preferences = window.preferences
         if preferences.format() == QSettings.Format.IniFormat:
             self.directory = Path(preferences.fileName()).parent / "configuration"
@@ -419,6 +425,7 @@ class Options(QObject):
             widget.currentTextChanged.connect(self.changed)
         elif isinstance(default, (int, float)):
             widget = (PyramidLevelsSpinBox() if name == 'pyramidlevels' else
+                      ConstrainedQueueSpinBox(SPIN_RULES[name]) if name in SPIN_RULES else
                       QueueSpinBox() if isinstance(default, int) else QueueDoubleSpinBox())
             low, high = LIMITS.get(name, (0, 64 if name == "parallel_limit" else 10000))
             widget.setRange(low, high)
@@ -760,27 +767,26 @@ class Options(QObject):
     def snapshot(self, group, include_related=False):
         w = self.w
         if group == 'image':
-            return w.image_synthesis.settings()
+            return w.image_synthesis.settings_state()
         if group == "directories":
             return {name: getattr(w, name).text() for name in ("project_dir", "keyframe_dir", "video_dir", "mask_dir", "edge_dir")}
         if group == 'output':
-            return project_naming(w)
+            return project_naming_state(w)
         if group == 'grouped':
-            return dict(selection=w.grouped.selection(), blend_options=w.grouped.blend_options())
+            return dict(selection=w.grouped.selection_state(), blend_options=w.grouped.blend_options_state())
         if group == "render":
-            from reezsynth_video_export import validate_video_export
             result = dict(options={n: control_value(v) for n, v in self.widgets[group].items()},
                 quality=w.quality.currentText(),
                 exports={name: widget.isChecked() for name, widget in self.export_widgets.items()},
-                video_export=validate_video_export(dict(enabled=self.video_export_enabled.isChecked(),
-                    fps=self.video_export_fps.value(), audio=self.video_export_audio.text())))
+                video_export=dict(enabled=self.video_export_enabled.isChecked(),
+                    fps=self.video_export_fps.value(), audio=self.video_export_audio.text()))
             result['engine_revision'] = engine_revision(result['options']['engine'])
             # Last-used setup retains related window controls. Named render presets
             # intentionally omit them so selecting a quality/render preset cannot
             # change output, resolution, or Blend / Flow choices.
             if include_related:
-                result.update(processing_size=w.processing_size(), max_width=w.processing_max_width(),
-                    output_naming=project_naming(w), blend_options=w.grouped.blend_options())
+                result.update(w.processing_state(), output_naming=project_naming_state(w),
+                    blend_options=w.grouped.blend_options_state())
             return result
         return {name: control_value(widget) for name, widget in self.widgets[group].items()}
 
@@ -827,53 +833,84 @@ class Options(QObject):
             self.discovery_changed()
 
     def restore(self):
+        try:
+            self._restore()
+        except Exception as exc:
+            self.errors.append(f"Startup settings could not be restored: {exc}")
+        finally:
+            self.loading = False
+            # Restoring folders does not arm unattended rendering on application startup.
+            self.auto_armed = False
+            for message in self.errors:
+                self.w.log.appendPlainText(message)
+            self.changed()
+
+    def _restore(self):
         # Old QSettings values have already been restored by the GUI. They migrate
         # into the separate last-used file unless an explicit policy says otherwise.
         defaults = {group: self.default_group(group) for group in GROUPS}
+        self.saved_groups = {group: validate_group(group, data) for group, data in defaults.items()}
         last, policy = {}, {}
-        try:
-            if self.app_path.exists():
+        if self.app_path.exists():
+            try:
                 data = json.loads(self.app_path.read_text(encoding="utf-8"))
                 if data.get("version") != 1 or not isinstance(data.get("startup"), dict):
                     raise ValueError("Invalid startup policy file.")
                 policy = data["startup"]
-            if self.last_path.exists():
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                self.errors.append(f"Startup policy file could not be restored: {exc}")
+        if self.last_path.exists():
+            try:
                 data = json.loads(self.last_path.read_text(encoding="utf-8"))
                 if data.get("version") != 1 or not isinstance(data.get("groups"), dict):
                     raise ValueError("Invalid last-used file.")
                 last = data["groups"]
-            for group in GROUPS:
-                mode = policy.get(group, "last")
-                box = self.policy_boxes[group]
-                index = box.findData(mode)
-                if index < 0:
-                    self.errors.append(f"Startup preset unavailable for {group}: {mode}; using defaults for this group.")
-                    box.addItem("Missing " + str(mode), mode)
-                    box.setCurrentIndex(box.count() - 1)
-                    self.apply(group, defaults[group])
-                    continue
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                self.errors.append(f"Last-used settings could not be restored: {exc}")
+        rejected = {}
+        for group in GROUPS:
+            mode = policy.get(group, "last")
+            box = self.policy_boxes[group]
+            index = box.findData(mode)
+            if index < 0:
+                self.errors.append(f"Startup preset unavailable for {group}: {mode}; using defaults for this group.")
+                box.addItem("Missing " + str(mode), mode)
+                box.setCurrentIndex(box.count() - 1)
+                candidate = defaults[group]
+            else:
                 box.setCurrentIndex(index)
-                try:
-                    if mode == "defaults":
-                        self.apply(group, defaults[group])
-                    elif mode.startswith("preset:"):
-                        self.apply(group, self.store.groups[group][mode[7:]])
-                    elif group in last:
-                        self.apply(group, last[group], restore_related=(group == 'render'))
-                except (ValueError, TypeError, KeyError) as exc:
-                    self.errors.append(f"Could not restore {group}: {exc}; using defaults for this group.")
-                    self.apply(group, defaults[group])
-        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-            self.errors.append(f"Startup settings could not be restored: {exc}")
+                if mode == "defaults":
+                    candidate = defaults[group]
+                elif mode.startswith("preset:"):
+                    if self.store is None:
+                        self.errors.append(f"Startup preset unavailable for {group}: preset storage could not be loaded; using defaults for this group.")
+                        candidate = defaults[group]
+                    else:
+                        try:
+                            candidate = self.store.groups[group][mode[7:]]
+                        except (KeyError, TypeError) as exc:
+                            self.errors.append(f"Startup preset unavailable for {group}: {exc}; using defaults for this group.")
+                            candidate = defaults[group]
+                else:
+                    candidate = last.get(group, self.snapshot(group, include_related=(group == 'render')))
+            try:
+                validated = validate_group(group, candidate)
+                self.apply(group, validated, restore_related=(group == 'render'))
+            except (ValueError, TypeError, KeyError) as exc:
+                if group in last and mode == 'last':
+                    rejected[group] = last[group]
+                self.errors.append(f"Could not restore {group}: {exc}; using defaults for this group.")
+                validated = self.saved_groups[group]
+                self.apply(group, validated, restore_related=(group == 'render'))
+            self.saved_groups[group] = validated
+        if rejected:
+            try:
+                atomic_json(self.directory / 'last-used.rejected.json', dict(version=1, groups=rejected))
+            except OSError as exc:
+                self.errors.append(f"Rejected settings could not be preserved: {exc}")
         if "render" not in last and policy.get("render", "last") == "last":
             for name, value in quality_profile(self.w.quality.currentText()).items():
                 set_control(self.widgets["render"][name], value)
-        self.loading = False
-        # Restoring folders does not arm unattended rendering on application startup.
-        self.auto_armed = False
-        for message in self.errors:
-            self.w.log.appendPlainText(message)
-        self.changed()
 
     def changed(self, *_):
         if not self.loading and not self.w.loading_project:
@@ -908,7 +945,12 @@ class Options(QObject):
         widgets['fuoum_raft_model'].setEnabled(editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'RAFT')
         widgets['flow_model'].setEnabled(editable and not fuoum and widgets['flow_model'].count() > 1)
         widgets['fuoum_sparse_anchor_weight'].setEnabled(editable and fuoum and widgets['sparse_features'].isChecked())
-        widgets['memory_efficient_raft'].setEnabled(editable and not fuoum)
+        memory_efficient = widgets['memory_efficient_raft']
+        compatible_memory_efficient = widgets['flow_arch'].currentText() == 'RAFT'
+        if memory_efficient.isChecked() and not compatible_memory_efficient:
+            with QSignalBlocker(memory_efficient):
+                memory_efficient.setChecked(False)
+        memory_efficient.setEnabled(editable and not fuoum and compatible_memory_efficient)
         for name in ('do_mask', 'pre_mask', 'feather', 'custom_edge_guides'):
             widgets[name].setEnabled(editable)
         for name in ('flow_arch', 'ebsynth_backend'):
@@ -939,13 +981,41 @@ class Options(QObject):
         if self.loading:
             return
         self.save_timer.stop()
+        groups = dict(self.saved_groups)
+        failures = []
+        # Render's last-used payload retains related controls for compatibility,
+        # but their authoritative persisted groups are output and grouped.  Use
+        # their already-validated values so an invalid name cannot poison render.
+        for group in PERSIST_GROUP_ORDER:
+            try:
+                state = self.snapshot(group, include_related=(group == 'render'))
+                if group == 'render':
+                    state['output_naming'] = groups['output']
+                    state['blend_options'] = groups['grouped']['blend_options']
+                groups[group] = validate_group(group, state)
+            except (ValueError, TypeError, KeyError) as exc:
+                failures.append((group, str(exc)))
+        for group, message in failures:
+            label = 'Rendering' if group == 'render' else group.capitalize()
+            detail = f'{label} settings were not saved: {message} Previous saved values were kept.'
+            self.w.log.appendPlainText(detail)
+            self.w.status.setText(detail)
+            self.persistence_error_status = detail
         try:
-            groups = {group: self.snapshot(group, include_related=(group == 'render')) for group in GROUPS}
             atomic_json(self.last_path, dict(version=1, groups=groups))
             atomic_json(self.app_path, dict(version=1,
                 startup={g: b.currentData() for g, b in self.policy_boxes.items()}))
         except (OSError, ValueError) as exc:
-            self.w.log.appendPlainText(f"Settings could not be saved: {exc}")
+            detail = f"Settings could not be saved: {exc} Previous saved values were kept."
+            self.w.log.appendPlainText(detail)
+            self.w.status.setText(detail)
+            self.persistence_error_status = detail
+            return
+        self.saved_groups = groups
+        if not failures:
+            if self.persistence_error_status == self.w.status.text():
+                self.w.status.clear()
+            self.persistence_error_status = None
 
     def quality_changed(self, quality):
         if not self.loading:
@@ -1128,7 +1198,7 @@ class Options(QObject):
         return self.snapshot("application")
 
     def render(self, effective=False):
-        options = self.snapshot('render')['options']
+        options = validate_group('render', self.snapshot('render'))['options']
         if effective and options['engine'] == FUOUM:
             options = dict(options, memory_efficient_raft=False, flow_arch='RAFT', ebsynth_backend='cuda')
             options['flow_model'] = options['fuoum_raft_model']
@@ -1138,12 +1208,13 @@ class Options(QObject):
         return validate_weights(self.snapshot("weights"))
 
     def project_data(self):
+        from reezsynth_video_export import validate_video_export
         return dict(render_options=self.render(), guide_weights=self.weights(), mask_dir=self.w.mask_dir.text(), edge_dir=self.w.edge_dir.text(),
-                    engine_revision=engine_revision(self.render()['engine']),
-                    image_synthesis=self.w.image_synthesis.settings(),
-                    exports=self.snapshot("render")["exports"],
-                    video_export=self.snapshot('render')['video_export'],
-                    blend_options=self.w.grouped.blend_options(), grouped_video=self.w.grouped.selection())
+            engine_revision=engine_revision(self.render()['engine']),
+            image_synthesis=self.w.image_synthesis.settings(),
+            exports=self.snapshot("render")["exports"],
+            video_export=validate_video_export(self.snapshot('render')['video_export']),
+            blend_options=self.w.grouped.blend_options(), grouped_video=self.w.grouped.selection())
 
     def load_project(self, data):
         render = dict(RENDER, **quality_profile(data["quality"]))

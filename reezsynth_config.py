@@ -12,7 +12,7 @@ from reezsynth_video_plan import validate_blend_options, validate_grouped_select
 from reezsynth_artifacts import validate_exports
 from reezsynth_image import validate_image_settings
 from reezsynth_engines import LEGACY, FUOUM, validate_engine, validate_revision
-from reezsynth_iterations import SCHEDULE_FIELDS, validate_schedule
+from reezsynth_iterations import SCHEDULE_FIELDS, parse_schedule, validate_schedule
 from reezsynth_modulation import VIDEO_MODES
 
 WEIGHTS = {"edg_wgt": 1.0, "img_wgt": 6.0, "pos_wgt": 2.0, "wrp_wgt": 0.5,
@@ -41,6 +41,13 @@ LIMITS = {"uniformity": (0, 100000), "patchsize": (3, 99), "pyramidlevels": (-1,
     "searchvoteiters": (1, 1000), "patchmatchiters": (1, 1000), "feather": (0, 999),
     "fuoum_stop_threshold": (0, 100000), "fuoum_search_pruning_threshold": (0, 100000),
     "fuoum_sparse_anchor_weight": (0, 10000), "parallel_limit": (0, 64), "preview_limit": (1, 64)}
+# UI projections of integer rules that remain authoritatively validated in
+# validate_render().
+SPIN_RULES = {
+    'patchsize': 'odd',
+    'feather': 'zero_or_odd',
+    'pyramidlevels': 'nonzero',
+}
 OPTIONAL_FLOW_HASHES = {
     '25000_ours-sintel.pth': '4fb2df7d7a44f2479262aa5f873472c9c48ee2fd4c4f5bf5e9b2df50a94ea52c',
     'ours-things.pth': 'adab5f373882e66aca4cefcd8783e50b280165367f145b16af708fe5aaf9fbc8',
@@ -349,6 +356,9 @@ def validate_group(group, data):
         if not isinstance(options, dict):
             raise ValueError('Invalid rendering settings.')
         options = dict(quality_profile(quality), **options)
+        for name in SCHEDULE_FIELDS:
+            if isinstance(options.get(name), str):
+                options[name] = parse_schedule(options[name])
         revision = validate_revision(options.get('engine', LEGACY), data.get('engine_revision'))
         from reezsynth_video_export import validate_video_export
         return dict(options=validate_render(options), quality=quality,

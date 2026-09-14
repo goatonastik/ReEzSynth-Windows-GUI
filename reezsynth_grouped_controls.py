@@ -150,14 +150,17 @@ class GroupedVideoControls(QWidget):
         self.full_range.setChecked(True)
         self.update_enabled()
 
-    def selection(self):
+    def selection_state(self):
         selected = [self.keys.item(i).data(Qt.ItemDataRole.UserRole)
                     for i in range(self.keys.count()) if self.keys.item(i).checkState() == Qt.CheckState.Checked]
-        return validate_grouped_selection(dict(start=None if self.full_range.isChecked() else self.start.value(),
+        return dict(start=None if self.full_range.isChecked() else self.start.value(),
             end=None if self.full_range.isChecked() else self.end.value(),
-            keyframes=selected, folder=self.folder.text()))
+            keyframes=selected, folder=self.folder.text())
 
-    def blend_options(self, effective=False):
+    def selection(self):
+        return validate_grouped_selection(self.selection_state())
+
+    def blend_options_state(self, effective=False):
         data = dict(only_mode=self.mode.currentData(), use_gpu=self.gpu.isChecked(),
             use_lsqr=self.solver.currentText() == "LSQR", use_poisson_cupy=self.poisson_gpu.isChecked(),
             poisson_maxiter=self.maxiter.value() or None, fuoum_poisson_solver=self.fuoum_solver.currentText(),
@@ -165,7 +168,10 @@ class GroupedVideoControls(QWidget):
             fuoum_poisson_grad_weight_ab=self.fuoum_grad_weight_ab.value())
         if effective and self.w.options.widgets['render']['engine'].currentText() == 'FuouM/ReEzSynth':
             data.update(use_gpu=False, use_poisson_cupy=False)
-        return validate_blend_options(data)
+        return data
+
+    def blend_options(self, effective=False):
+        return validate_blend_options(self.blend_options_state(effective))
 
     def set_blend_options(self, data):
         data = validate_blend_options(data)

@@ -332,14 +332,19 @@ def validate_project_naming(data):
     }
 
 
-def project_naming(window):
-    return validate_project_naming({
+def project_naming_state(window):
+    """Capture output controls without interpreting their current text."""
+    return {
         "batch_pattern": window.batch_name_pattern.text(),
         "job_pattern": window.job_name_pattern.text(),
         "batch_enabled": window.batch_enabled.isChecked(),
         "location": window.output_location.currentData(),
         "custom_folder": window.custom_output.text(),
-    })
+    }
+
+
+def project_naming(window):
+    return validate_project_naming(project_naming_state(window))
 
 
 def set_project_naming(window, naming):
@@ -627,8 +632,9 @@ def save_ui_state(window):
         "last_setup/quality",
         window.quality.currentText(),
     )
-    preferences.setValue("last_setup/processing_size", json.dumps(window.processing_size()))
-    preferences.setValue("last_setup/max_width", window.processing_max_width())
+    processing = window.processing_state()
+    preferences.setValue("last_setup/processing_size", json.dumps(processing['processing_size']))
+    preferences.setValue("last_setup/max_width", processing['max_width'])
     preferences.setValue(
         "last_setup/batch_pattern",
         window.batch_name_pattern.text(),

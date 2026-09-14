@@ -839,15 +839,20 @@ class MainWindow(QMainWindow):
         }
 
     def processing_size(self):
+        size = self.processing_state()['processing_size']
+        validate_processing_size(size)
+        return size
+
+    def processing_state(self):
+        """Capture processing controls without validating a custom size."""
         identifier = self.resolution.currentData()
         if identifier == 'original' or self.processing_max_width():
-            return None
-        if identifier == 'custom':
-            return validate_processing_size([self.processing_width.value(), self.processing_height.value()])
-        presets = {key: size for key, _, size in PROCESSING_PRESETS}
-        if identifier not in presets:
-            raise ValueError('Select a processing size.')
-        return presets[identifier]
+            size = None
+        elif identifier == 'custom':
+            size = [self.processing_width.value(), self.processing_height.value()]
+        else:
+            size = {key: value for key, _, value in PROCESSING_PRESETS}.get(identifier, [0, 0])
+        return dict(processing_size=size, max_width=self.processing_max_width())
 
     def processing_max_width(self):
         return {'legacy_512': 512, 'legacy_960': 960}.get(self.resolution.currentData(), 0)

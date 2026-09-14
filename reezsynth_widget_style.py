@@ -235,12 +235,53 @@ class QueueSpinBox(QSpinBox):
         self.update_buttons()
 
 
-class PyramidLevelsSpinBox(QueueSpinBox):
-    """Expose the native -1 automatic value and skip unsupported zero when stepping."""
+class ConstrainedQueueSpinBox(QueueSpinBox):
+    """A QueueSpinBox whose legal integers are described by a shared rule."""
+    def __init__(self, rule=None):
+        self.rule = rule
+        super().__init__()
+        self.setKeyboardTracking(False)
+        self.editingFinished.connect(self.commit_legal_value)
+
+    def legal(self, value):
+        if self.rule == 'odd':
+            return value % 2 == 1
+        if self.rule == 'zero_or_odd':
+            return value == 0 or value % 2 == 1
+        if self.rule == 'nonzero':
+            return value != 0
+        return True
+
+    def legal_value(self, value, direction):
+        for initial, step in ((value, 1 if direction >= 0 else -1),
+                              (self.value(), -1 if direction >= 0 else 1)):
+            candidate = initial
+            while self.minimum() <= candidate <= self.maximum():
+                if self.legal(candidate):
+                    return candidate
+                candidate += step
+        return None
+
     def stepBy(self, steps):
-        old = self.value()
-        super().stepBy(steps)
-        if self.value() == 0:
-            self.setValue(1 if steps > 0 else -1)
-        elif old == -1 and steps > 1:
-            self.setValue(min(self.maximum(), self.value() + 1))
+        direction = 1 if steps > 0 else -1
+        value = self.value()
+        for _ in range(abs(steps)):
+            candidate = value + direction
+            legal = self.legal_value(candidate, direction)
+            if legal is None:
+                return
+            value = legal
+        self.setValue(value)
+
+    def commit_legal_value(self):
+        value = self.value()
+        if not self.legal(value):
+            legal = self.legal_value(value, 1)
+            if legal is not None:
+                self.setValue(legal)
+
+
+class PyramidLevelsSpinBox(ConstrainedQueueSpinBox):
+    """Compatibility name for the automatic/nonzero pyramid-level control."""
+    def __init__(self):
+        super().__init__('nonzero')
