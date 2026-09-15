@@ -3,7 +3,9 @@ import contextlib
 import io
 import itertools
 import json
+from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
@@ -13,6 +15,7 @@ import test_reezsynth_render_adapter as adapter
 from test_reezsynth_grouped import upstream_engine
 from test_reezsynth_lifecycle import LifecycleFixture, gui
 from reezsynth_artifacts import artifact_records, save_artifacts, validate_exports
+from reezsynth_sequence import DiskSequence, array_sequence, frame_storage
 from reezsynth_video_plan import plan_grouped_video
 
 
@@ -23,6 +26,14 @@ class MappingTests(unittest.TestCase):
         ns = Engine.run_sequences_full.__globals__
         ns['get_flow'] = lambda images, raft, step, forward, i: np.full((2, 2, 3), min(i, i + step) + 10, np.uint8)
         ns['flow_to_image'] = lambda value, **kwargs: value
+        def aligned_blend(images, forward, backward, errors_f, errors_b, flows, cfg):
+            maps = array_sequence(errors_f[:1])
+            maps.extend(errors_f[:-1])
+            result = forward[:-1]
+            if not cfg.skip_blend_style_last:
+                result.append(backward[-1])
+            return result, maps, flows
+        ns['run_blend'] = aligned_blend
         frames = [np.full((2, 2, 3), i + 10, np.uint8) for i in range(6)]
         with contextlib.redirect_stdout(io.StringIO()):
             for length in range(1, 7):
@@ -44,10 +55,175 @@ class MappingTests(unittest.TestCase):
                                 target = record.get('error_frame', record.get('forward_error_frame'))
                                 self.assertTrue(np.all(values == target), (record, values))
 
+    def test_blend_artifacts_label_boundary_offset_and_interior_same_frame(self):
+        records = artifact_records([10, 11, 12, 13], [10, 13])
+        self.assertEqual(
+            [(r['forward_error_frame'], r['backward_error_frame']) for r in records],
+            [(11, 10), (11, 11), (12, 12)],
+        )
+
+    def test_multisegment_assembly_keeps_boundaries_and_final_append(self):
+        Engine = upstream_engine({})
+        ns = Engine.run_sequences_full.__globals__
+        ns['get_flow'] = lambda *args: np.zeros((2, 3, 2), np.float32)
+        ns['flow_to_image'] = lambda value, **kwargs: value
+
+        def aligned_blend(images, forward, backward, errors_f, errors_b, flows, cfg):
+            maps = array_sequence(errors_f[:1])
+            maps.extend(errors_f[:-1])
+            result = forward[:-1]
+            if not cfg.skip_blend_style_last:
+                result.append(backward[-1])
+            return result, maps, flows
+
+        ns['run_blend'] = aligned_blend
+        frames = [np.full((2, 3, 3), i, np.uint8) for i in range(5)]
+        cfg = types.SimpleNamespace(only_mode='none', do_mask=False,
+                                    edg_wgt=1, img_wgt=1, pos_wgt=1, wrp_wgt=1)
+        runner = Engine(cfg=cfg, img_frs_seq=frames,
+                        style_frs=[frames[i] + 100 for i in (0, 2, 4)],
+                        style_idxes=[0, 2, 4])
+        runner.eb.run = lambda style, guides: (
+            style, guides[1][1][:, :, 0].astype(np.float32))
+        with contextlib.redirect_stdout(io.StringIO()):
+            outputs, maps, _ = runner.run_sequences_full(return_flow=True)
+        self.assertEqual([int(value[0, 0, 0]) for value in outputs],
+                         [100, 100, 102, 102, 104])
+        self.assertEqual([int(value[0, 0]) for value in maps], [1, 1, 3, 3])
+        records = artifact_records(list(range(5)), [0, 2, 4])
+        self.assertEqual([(r['forward_error_frame'], r['backward_error_frame'])
+                          for r in records], [(1, 0), (1, 1), (3, 2), (3, 3)])
+
     def test_rejects_unknown_or_nonboolean_settings(self):
         for data in ({'maps': 1}, {'raw_flow': True}, []):
             with self.assertRaises(ValueError):
                 validate_exports(data)
+
+
+class LegacyInteriorAlignmentTests(unittest.TestCase):
+    @staticmethod
+    def _inputs(frame_count=4):
+        width = 6
+        images = [np.full((2, width, 3), i, np.uint8) for i in range(frame_count)]
+        forward = [np.full((2, width, 3), 10 + i, np.uint8) for i in range(frame_count)]
+        backward = [np.full((2, width, 3), 100 + i, np.uint8) for i in range(frame_count)]
+        alternating = np.tile([0.0, 9.0], (2, width // 2)).astype(np.float32)
+        inverse = np.tile([9.0, 0.0], (2, width // 2)).astype(np.float32)
+        errors_f = [alternating, inverse, alternating][:frame_count - 1]
+        errors_b = [np.full((2, width), 5.0, np.float32) for _ in range(frame_count - 1)]
+        flows = []
+        for _ in range(frame_count - 1):
+            flow = np.zeros((2, width, 2), np.float32)
+            flow[..., 0] = 1.0
+            flows.append(flow)
+        return images, forward, backward, errors_f, errors_b, flows
+
+    @staticmethod
+    def _run(inputs):
+        from ezsynth import aux_run
+        from ezsynth.utils.blend.blender import Blend
+
+        captured = {}
+
+        class ConsumerBlend(Blend):
+            def _hist_blend(self, forward, backward, masks):
+                captured['consumers'] = [
+                    (int(forward[i][0, 0, 0]), int(backward[i][0, 0, 0]),
+                     np.asarray(mask).copy())
+                    for i, mask in enumerate(masks)
+                ]
+                return array_sequence(np.asarray(value).copy() for value in forward[:len(masks)])
+
+            def _reconstruct(self, forward, backward, masks, hist_blends):
+                return array_sequence(
+                    np.where(np.asarray(mask)[..., None] == 0, forward[i], backward[i])
+                    for i, mask in enumerate(masks)
+                )
+
+        cfg = types.SimpleNamespace(
+            get_blender_cfg=lambda: dict(use_gpu=False, use_lsqr=False,
+                                         use_poisson_cupy=False, poisson_maxiter=None),
+            skip_blend_style_last=False,
+        )
+        with patch.object(aux_run, 'Blend', ConsumerBlend), \
+                contextlib.redirect_stdout(io.StringIO()):
+            outputs, masks, returned_flows = aux_run.run_blend(*inputs, cfg)
+        return outputs, masks, returned_flows, captured
+
+    def test_real_selection_uses_same_frame_errors_and_actual_style_consumers(self):
+        outputs, masks, flows, captured = self._run(self._inputs())
+        np.testing.assert_array_equal(masks[0][0], [255, 0, 255, 0, 255, 255])
+        np.testing.assert_array_equal(masks[1][0], [0, 1, 0, 1, 0, 1])
+        np.testing.assert_array_equal(masks[2][0], [1, 0, 1, 0, 1, 0])
+        self.assertEqual([(a, b) for a, b, _ in captured['consumers']],
+                         [(10, 100), (11, 101), (12, 102)])
+        self.assertEqual(outputs[1][0, :, 0].tolist(), [11, 101, 11, 101, 11, 101])
+        self.assertEqual(outputs[2][0, :, 0].tolist(), [102, 12, 102, 12, 102, 12])
+        self.assertEqual(int(outputs[-1][0, 0, 0]), 103)
+
+    def test_two_frame_segment_preserves_legacy_boundary_mask_and_output(self):
+        inputs = self._inputs(2)
+        outputs, masks, returned_flows, captured = self._run(inputs)
+        self.assertIs(returned_flows, inputs[-1])
+        self.assertEqual(len(masks), 1)
+        np.testing.assert_array_equal(masks[0][0], [255, 0, 255, 0, 255, 255])
+        self.assertEqual(outputs[0][0, :, 0].tolist(), [100, 10, 100, 10, 100, 100])
+        self.assertEqual(int(outputs[1][0, 0, 0]), 101)
+        self.assertEqual(captured['consumers'][0][:2], (10, 100))
+
+    def test_disk_backed_alignment_uses_the_same_indices(self):
+        with tempfile.TemporaryDirectory(prefix='.legacy-alignment-', dir=Path.cwd()) as directory:
+            job = {'output': directory, 'render_options': {'stream_frames': True}}
+            with frame_storage(job):
+                inputs = tuple(array_sequence(values) for values in self._inputs())
+                outputs, masks, _, _ = self._run(inputs)
+                self.assertIsInstance(masks, DiskSequence)
+                np.testing.assert_array_equal(masks[1][0], [0, 1, 0, 1, 0, 1])
+                np.testing.assert_array_equal(masks[2][0], [1, 0, 1, 0, 1, 0])
+                self.assertEqual(outputs[1][0, :, 0].tolist(), [11, 101, 11, 101, 11, 101])
+
+    def test_rgb_and_rgba_pass_origins_keep_their_seed_semantics(self):
+        from ezsynth import aux_run
+        from ezsynth.aux_classes import RunConfig
+        from ezsynth.sequences import EasySequence
+        import reezsynth_alpha
+
+        images = [np.full((2, 3, 3), i, np.uint8) for i in range(3)]
+        edges = [np.zeros((2, 3), np.uint8) for _ in images]
+        seq = EasySequence(0, 2, EasySequence.MODE_BLN, [0, 1])
+        cfg = RunConfig(use_gpu=False, use_lsqr=False, use_poisson_cupy=False)
+        seen_warp_seeds, synthesis_calls = [], []
+
+        def warped(stylized, *args):
+            seen_warp_seeds.append(np.asarray(stylized[-1]).copy())
+            return np.asarray(stylized[-1])
+
+        def synthesize(style, image, edge, eb, weights):
+            synthesis_calls.append((style.copy(), image.copy()))
+            return np.full_like(style, 77 + int(image[0, 0, 0]), dtype=np.uint8), np.zeros((2, 3))
+
+        eb = types.SimpleNamespace(run=lambda style, guides: (
+            np.asarray(guides[3][1]).copy(), np.zeros((2, 3), np.float32)))
+        flow = types.SimpleNamespace(_compute_flow=lambda a, b: np.zeros((2, 3, 2), np.float32))
+        rgb = np.full((2, 3, 3), 21, np.uint8)
+        rgba_left = np.full((2, 3, 4), 31, np.uint8)
+        rgba_right = np.full((2, 3, 4), 41, np.uint8)
+        with patch.object(aux_run, 'get_warped_img', warped), \
+                patch.object(reezsynth_alpha, 'synthesize_keyframe', synthesize), \
+                contextlib.redirect_stdout(io.StringIO()):
+            rgb_frames, _, _ = aux_run.run_a_pass(
+                seq, EasySequence.MODE_FWD, images, rgb, edges, cfg, flow, eb)
+            rgba_fwd, _, _ = aux_run.run_a_pass(
+                seq, EasySequence.MODE_FWD, images, rgba_left, edges, cfg, flow, eb)
+            rgba_bwd, _, _ = aux_run.run_a_pass(
+                seq, EasySequence.MODE_REV, images, rgba_right, edges, cfg, flow, eb)
+        np.testing.assert_array_equal(rgb_frames[0], rgb)
+        self.assertEqual(len(synthesis_calls), 2)
+        self.assertTrue(np.all(rgba_fwd[0] == 77))
+        self.assertTrue(np.all(rgba_bwd[-1] == 79))
+        np.testing.assert_array_equal(seen_warp_seeds[0], rgb)
+        self.assertTrue(np.all(seen_warp_seeds[2] == 77))
+        self.assertTrue(np.all(seen_warp_seeds[4] == 79))
 
 
 class ExportAdapterTests(unittest.TestCase):

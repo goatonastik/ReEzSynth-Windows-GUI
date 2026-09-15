@@ -56,8 +56,9 @@ def artifact_records(numbers, keys, mode='none'):
     """Mirror sequence boundary trimming, retaining original frame numbers.
 
     Both pass directions compute optical flow from the lower to higher frame.
-    Blended maps compare offset forward/backward errors; they are not raw errors
-    or a one-to-one map of final output frames.
+    A blend segment's boundary mask retains the legacy offset comparison.
+    Interior masks compare forward/backward errors on their output frame; masks
+    are selections rather than raw synthesis errors.
     """
     keys = sorted(keys)
     segments = []
@@ -79,7 +80,10 @@ def artifact_records(numbers, keys, mode='none'):
                 flow_from=lower, flow_to=lower + 1,
                 map_kind='selection_mask' if direction == 'blend' else 'synthesis_error')
             if direction == 'blend':
-                record.update(forward_error_frame=lower + 1, backward_error_frame=lower)
+                if ordinal == 0:
+                    record.update(forward_error_frame=lower + 1, backward_error_frame=lower)
+                else:
+                    record.update(forward_error_frame=lower, backward_error_frame=lower)
             else:
                 record['error_frame'] = lower + 1 if direction == 'forward' else lower
             entries.append(record)

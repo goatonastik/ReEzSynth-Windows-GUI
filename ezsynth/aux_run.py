@@ -175,7 +175,14 @@ def run_blend(
 
     err_masks = blender._create_selection_mask(err_fwd, err_bwd)
 
-    warped_masks = blender._warping_masks(img_frs_seq[0], flow_fwd, err_masks)
+    # Keep the legacy boundary-mask policy, including its existing warp.  Every
+    # later mask is already expressed on its output frame: forward error i - 1
+    # and backward error i describe that same frame.
+    warped_masks = blender._warping_masks(img_frs_seq[0], flow_fwd[:1], err_masks[:1])
+    if len(err_masks) > 1:
+        warped_masks.extend(
+            blender._create_selection_mask(err_fwd[:-1], err_bwd[1:])
+        )
 
     hist_blends = blender._hist_blend(style_fwd, style_bwd, warped_masks)
 
