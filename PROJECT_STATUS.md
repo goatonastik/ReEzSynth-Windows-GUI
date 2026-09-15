@@ -1,7 +1,48 @@
 # Project status
 
-Updated 2026-09-12. Live files are authoritative. Usage and settings are described
+Updated 2026-09-15. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
+
+## Native production-footage review and Legacy alignment fix (2026-09-15)
+
+- Reviewed the user's 73-frame s9 clip at its original 1536x1536 resolution with
+  six transparent styled keys and three imperfect real-world mask sequences.
+  Medium is the best baseline: sharp narrows some fringes but has hard contours
+  and invalid opening coverage; blurry ends with empty masks. Playback metadata
+  is 24 fps; no frame or evidence image was resampled.
+- The review exposed mismatched Legacy interior blend-error correspondence.
+  Commit `a782302` preserves the boundary mask and seed policies while pairing
+  each interior forward/backward error on the same frame. Focused tests cover
+  real selection/consumption, two-frame behavior, disk storage, RGB/RGBA seeds,
+  mapping and multi-segment metadata. The maintained suite passed 396 tests;
+  independent review returned SAFE TO COMMIT, and a seven-frame native check
+  passed before the normal fast-forward push to `origin/main`.
+- Post-fix Legacy Standard and Highest full renders passed in 840.062 and
+  904.657 seconds with 73 RGBA outputs, 72 directed flow arrays, videos and
+  provenance. Their outputs are close; Highest showed no reliable quality or
+  stability gain. Standard remains the practical Legacy profile for this clip.
+  Legacy's internal keys still drift because its blend assembly mixes the next
+  key's backward propagation at internal boundaries; changing key authority is
+  a separate product decision.
+- FuouM intentionally rejects the transparent keys. For a bounded RGB comparison,
+  diagnostic-only opaque keys were created at native size by alpha-compositing
+  each style over its matching source frame, with all hashes recorded. FuouM
+  Standard and Highest passed in 551.360 and 520.234 seconds. The sequential,
+  cache-warmed timings are not a performance ranking. Standard/Highest were
+  again visually close.
+- FuouM passes every supplied key through exactly by architecture, while Legacy's
+  internal keys are blended. FuouM Standard also retained clearer glove/finger
+  detail around frames 18-22 in the inspected native crops. Other cross-engine
+  differences were marginal or broadly tonal with unisolated causes; no general
+  engine-quality winner is claimed. Standard is the practical profile for both
+  engines on this sample. Use Legacy when native transparent output is required;
+  FuouM evidence applies only to explicitly prepared opaque keys.
+- Detailed ignored evidence is in `diagnostic_outputs/s9_quality_review/REVIEW.md`,
+  including mask geometry, key-core metrics, full run reports and unscaled native
+  sequences. Claude's initial cross-engine review required narrower visual claims
+  and clearer policy/method distinctions; after correction the final verdict was
+  CROSS-ENGINE REVIEW SOUND. Broader clips/styles, controlled playback, native
+  FuouM transparency policy and other-hardware validation remain open.
 
 ## Repaired experimental PyTorch backend verified (2026-09-12)
 

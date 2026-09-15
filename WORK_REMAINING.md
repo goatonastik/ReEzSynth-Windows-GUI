@@ -86,6 +86,15 @@ installed as part of the standard application setup, not as an optional engine.
   intended Standard/Highest settings. Include playback around styled-keyframe
   boundaries, occlusion, fast motion, fine detail and feathered masks. The recent
   4K/1080p smoke checks used Preview settings; they do not replace this comparison.
+  One user-owned 73-frame 1536x1536 clip now has reviewed Standard/Highest runs:
+  Legacy used native transparent keys; FuouM used explicitly source-composited
+  opaque diagnostic copies because native transparent keys remain unsupported.
+  Standard is the practical profile for both on this sample. FuouM preserved the
+  hand more clearly around frames 18-22 and passes keys through exactly by policy;
+  other sampled differences did not support a general engine ranking. Medium was
+  the best supplied mask baseline, but tracking gaps remain. Retained ignored
+  evidence: `diagnostic_outputs/s9_quality_review/REVIEW.md`. Broader clips/styles
+  and controlled playback are still required before checking this item complete.
 - [ ] Validate installation and short renders on another clean Windows system
   and a different supported GPU, including prerequisite errors and custom paths.
   The fresh local FuouM environment inherited this host's GUI/PyTorch/compiler/
