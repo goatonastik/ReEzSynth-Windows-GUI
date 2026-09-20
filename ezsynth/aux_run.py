@@ -11,6 +11,48 @@ from .utils.flow_utils.warp import Warp
 from .sequences import EasySequence
 
 
+def _weighted_transition(base, forward, backward, forward_weight, backward_weight):
+    """Mix motion-propagated candidates, preserving straight-alpha edge color."""
+    total = forward_weight + backward_weight
+    if total > 1.0:
+        forward_weight /= total
+        backward_weight /= total
+        base_weight = 0.0
+    else:
+        base_weight = 1.0 - total
+    frames = (np.asarray(base), np.asarray(forward), np.asarray(backward))
+    weights = (base_weight, forward_weight, backward_weight)
+    if frames[0].shape[2] != 4:
+        value = sum(frame.astype(np.float32) * weight for frame, weight in zip(frames, weights))
+        return np.clip(np.rint(value), 0, 255).astype(np.uint8)
+
+    alpha = sum(frame[..., 3:4].astype(np.float32) * weight
+                for frame, weight in zip(frames, weights))
+    premultiplied = sum(frame[..., :3].astype(np.float32) * (frame[..., 3:4] / 255.0) * weight
+                        for frame, weight in zip(frames, weights))
+    color = np.zeros_like(premultiplied)
+    np.divide(premultiplied, alpha / 255.0, out=color, where=alpha > 0)
+    return np.concatenate((np.clip(np.rint(color), 0, 255),
+                           np.clip(np.rint(alpha), 0, 255)), axis=2).astype(np.uint8)
+
+
+def apply_transition_aware_handoff(blends, style_fwd, style_bwd, radius=2):
+    """Favor each key's propagated candidate near a blend boundary."""
+    count = len(blends)
+    full_count = len(style_fwd)
+    for index in range(1, count):
+        left_distance = index
+        right_distance = full_count - 1 - index
+        left = ((radius + 1 - left_distance) / (radius + 1)
+                if 1 <= left_distance <= radius else 0.0)
+        right = ((radius + 1 - right_distance) / (radius + 1)
+                 if 1 <= right_distance <= radius else 0.0)
+        if left or right:
+            blends[index] = _weighted_transition(
+                blends[index], style_fwd[index], style_bwd[index], left, right)
+    return blends
+
+
 def run_a_pass(
     seq: EasySequence,
     seq_mode: str,
@@ -190,6 +232,9 @@ def run_blend(
 
     if not cfg.skip_blend_style_last:
         blends.append(style_bwd[-1])
+
+    if getattr(cfg, 'keyframe_preservation', 'Current behavior') == 'Transition-aware':
+        blends = apply_transition_aware_handoff(blends, style_fwd, style_bwd)
 
     return blends, warped_masks, flow_fwd
 

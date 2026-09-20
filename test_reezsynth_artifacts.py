@@ -119,7 +119,7 @@ class LegacyInteriorAlignmentTests(unittest.TestCase):
         return images, forward, backward, errors_f, errors_b, flows
 
     @staticmethod
-    def _run(inputs):
+    def _run(inputs, preservation='Current behavior'):
         from ezsynth import aux_run
         from ezsynth.utils.blend.blender import Blend
 
@@ -144,6 +144,7 @@ class LegacyInteriorAlignmentTests(unittest.TestCase):
             get_blender_cfg=lambda: dict(use_gpu=False, use_lsqr=False,
                                          use_poisson_cupy=False, poisson_maxiter=None),
             skip_blend_style_last=False,
+            keyframe_preservation=preservation,
         )
         with patch.object(aux_run, 'Blend', ConsumerBlend), \
                 contextlib.redirect_stdout(io.StringIO()):
@@ -170,6 +171,22 @@ class LegacyInteriorAlignmentTests(unittest.TestCase):
         self.assertEqual(outputs[0][0, :, 0].tolist(), [100, 10, 100, 10, 100, 100])
         self.assertEqual(int(outputs[1][0, 0, 0]), 101)
         self.assertEqual(captured['consumers'][0][:2], (10, 100))
+
+    def test_real_blend_dispatches_transition_aware_policy_after_reconstruction(self):
+        from ezsynth import aux_run
+
+        inputs = self._inputs()
+        with patch.object(aux_run, 'apply_transition_aware_handoff',
+                          wraps=aux_run.apply_transition_aware_handoff) as handoff:
+            transitioned, _, _, _ = self._run(inputs, 'Transition-aware')
+        handoff.assert_called_once()
+        called_blends, called_forward, called_backward = handoff.call_args.args[:3]
+        self.assertIs(called_blends, transitioned)
+        self.assertIs(called_forward, inputs[1])
+        self.assertIs(called_backward, inputs[2])
+        baseline, _, _, _ = self._run(inputs)
+        self.assertFalse(np.array_equal(transitioned[1], baseline[1]))
+        self.assertFalse(np.array_equal(transitioned[2], baseline[2]))
 
     def test_disk_backed_alignment_uses_the_same_indices(self):
         with tempfile.TemporaryDirectory(prefix='.legacy-alignment-', dir=Path.cwd()) as directory:
@@ -224,6 +241,71 @@ class LegacyInteriorAlignmentTests(unittest.TestCase):
         np.testing.assert_array_equal(seen_warp_seeds[0], rgb)
         self.assertTrue(np.all(seen_warp_seeds[2] == 77))
         self.assertTrue(np.all(seen_warp_seeds[4] == 79))
+
+
+class KeyframePreservationTests(unittest.TestCase):
+    def test_current_mode_leaves_completed_sequence_unchanged_and_exact_mode_pins_keys(self):
+        Engine = upstream_engine({})
+        namespace = Engine.run_sequences_full.__globals__
+        original = namespace['run_scratch']
+        missing = object()
+        original_mask_composite = namespace.get('apply_masked_back_seq', missing)
+        frames = [np.full((2, 3, 3), index, np.uint8) for index in range(5)]
+        styles = [np.full((2, 3, 3), value, np.uint8) for value in (100, 120, 140)]
+
+        def drifted(seq, *args):
+            count = seq.fr_end_idx - seq.fr_start_idx + 1
+            if args[3].skip_blend_style_last:
+                count -= 1
+            values = array_sequence(np.full((2, 3, 3), 9, np.uint8) for _ in range(count))
+            auxiliaries = array_sequence(np.zeros((2, 3), np.float32) for _ in range(count))
+            return values, auxiliaries, auxiliaries
+
+        try:
+            namespace['run_scratch'] = drifted
+            outputs = {}
+            for mode in ('Current behavior', 'Exact output'):
+                masked = mode == 'Exact output'
+                cfg = types.SimpleNamespace(only_mode='none', do_mask=masked, pre_mask=False, feather=0,
+                    keyframe_preservation=mode)
+                runner = Engine(cfg=cfg, img_frs_seq=frames, style_frs=styles,
+                                style_idxes=[0, 2, 4])
+                runner.msk_frs_seq = [np.full((2, 3), 255, np.uint8) for _ in frames]
+                if masked:
+                    namespace['apply_masked_back_seq'] = lambda images, results, masks, feather: array_sequence(
+                        np.zeros_like(frame) for frame in results)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    outputs[mode], _ = runner.run_sequences()
+        finally:
+            namespace['run_scratch'] = original
+            if original_mask_composite is missing:
+                namespace.pop('apply_masked_back_seq', None)
+            else:
+                namespace['apply_masked_back_seq'] = original_mask_composite
+
+        self.assertEqual([int(frame[0, 0, 0]) for frame in outputs['Current behavior']],
+                         [9, 9, 9, 9, 9])
+        self.assertEqual([int(frame[0, 0, 0]) for frame in outputs['Exact output']],
+                         [100, 0, 120, 0, 140])
+
+    def test_transition_handoff_favors_motion_propagated_candidates_for_two_frames(self):
+        from ezsynth.aux_run import apply_transition_aware_handoff
+
+        base = array_sequence(np.full((1, 1, 3), 50, np.uint8) for _ in range(6))
+        forward = array_sequence(np.full((1, 1, 3), 10 + index, np.uint8) for index in range(6))
+        backward = array_sequence(np.full((1, 1, 3), 100 + index, np.uint8) for index in range(6))
+        result = apply_transition_aware_handoff(base, forward, backward)
+        self.assertEqual([int(frame[0, 0, 0]) for frame in result],
+                         [50, 24, 37, 68, 86, 50])
+
+    def test_transition_handoff_blends_rgba_in_premultiplied_space(self):
+        from ezsynth.aux_run import _weighted_transition
+
+        transparent_red = np.array([[[0, 0, 255, 0]]], np.uint8)
+        opaque_blue = np.array([[[255, 0, 0, 255]]], np.uint8)
+        result = _weighted_transition(transparent_red, opaque_blue, transparent_red,
+                                      2 / 3, 0)
+        self.assertEqual(result[0, 0].tolist(), [255, 0, 0, 170])
 
 
 class ExportAdapterTests(unittest.TestCase):

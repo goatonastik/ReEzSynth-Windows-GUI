@@ -203,6 +203,12 @@ class EzsynthBase:
                 self.img_frs_seq, stylized_frames, self.msk_frs_seq, self.cfg.feather
             )
 
+        preservation = getattr(self.cfg, 'keyframe_preservation', 'Current behavior')
+        if preservation in ('Exact output', 'Transition-aware'):
+            for frame_index, style in zip(self.style_idxes, self.style_frs):
+                stylized_frames[frame_index] = np.asarray(style).copy()
+            print(f'Keyframe preservation: {preservation}')
+
         final_flows = array_sequence()
         if return_flow:
             for flow in tqdm.tqdm(flow_frames, desc="Converting flows"):

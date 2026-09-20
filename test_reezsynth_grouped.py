@@ -53,6 +53,7 @@ def upstream_engine(captured):
             self.cfg = kwargs['cfg']
             self.img_frs_seq = kwargs['img_frs_seq']
             self.style_frs = kwargs['style_frs']
+            self.style_idxes = kwargs['style_idxes']
             self.len_img = len(self.img_frs_seq)
             self.edge_guides = self.img_frs_seq
             self.rafter = None

@@ -52,7 +52,7 @@ class RenderAdapterTests(unittest.TestCase):
                          edg_wgt=1.0, img_wgt=6.0, pos_wgt=2.0, wrp_wgt=0.5,
                          use_gpu=False, use_lsqr=True, use_poisson_cupy=False,
                          poisson_maxiter=None, only_mode='none', do_mask=False,
-                         pre_mask=False, feather=0):
+                         pre_mask=False, feather=0, keyframe_preservation='Current behavior'):
                 captured["config"] = locals() | {}
                 captured["config"].pop("self")
         class Engine:

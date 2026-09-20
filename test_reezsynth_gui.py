@@ -80,6 +80,8 @@ class GuiFixture(unittest.TestCase):
 
 class ConstructionTests(GuiFixture):
     def test_construct_show_and_close_real_window(self):
+        heavy_modules_before = {name: sys.modules.get(name)
+                                for name in ('ezsynth.main_ez', 'torch')}
         window = self.window()
         window.show()
         self.app.processEvents()
@@ -100,8 +102,9 @@ class ConstructionTests(GuiFixture):
         self.assertFalse(window.isVisible())
         self.assertFalse(window.scan_timer.isActive())
         self.assertFalse(window.shutdown_timer.isActive())
-        self.assertNotIn("ezsynth.main_ez", sys.modules)
-        self.assertNotIn("torch", sys.modules)
+        for name, before in heavy_modules_before.items():
+            self.assertIs(sys.modules.get(name), before,
+                          f'Constructing the GUI imported or replaced {name}')
 
     def test_saved_false_worker_preference_survives_restart(self):
         self.preferences.setValue("reuse_queue_worker", False)

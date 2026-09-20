@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBo
     QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
-from reezsynth_config import (APPLICATION, GROUPS, LIMITS, SPIN_RULES, PREVIEW, RENDER, STANDARD, HIGHEST, quality_profile,
+from reezsynth_config import (APPLICATION, GROUPS, KEYFRAME_PRESERVATION_MODES, LIMITS, SPIN_RULES, PREVIEW, RENDER, STANDARD, HIGHEST, quality_profile,
     WEIGHTS, PresetStore, atomic_json, discover_pairs, install_optional_flow_files,
     optional_flow_status, validate_application,
     validate_group, validate_render, validate_weights)
@@ -32,7 +32,7 @@ assert set(PERSIST_GROUP_ORDER) == set(GROUPS) and len(PERSIST_GROUP_ORDER) == l
 # controls remain persisted so switching back to video restores the user's
 # setup, but they do not participate in an image job.
 VIDEO_ONLY_RENDER_FIELDS = (
-    'edge_method', 'do_mask', 'pre_mask', 'feather', 'custom_edge_guides',
+    'keyframe_preservation', 'edge_method', 'do_mask', 'pre_mask', 'feather', 'custom_edge_guides',
     'memory_efficient_raft', 'flow_arch', 'flow_model', 'temporal_nnf',
     'sparse_features', 'fuoum_sparse_anchor_weight', 'fuoum_flow_engine',
     'fuoum_neuflow_model', 'fuoum_raft_model', 'fuoum_bidirectional_flow',
@@ -68,6 +68,7 @@ LABELS.update(searchvote_schedule='Search/vote schedule (coarse to fine)',
               patchmatch_schedule='Patch-match schedule (coarse to fine)',
               modulation_guide='Video modulation', modulation_dir='Modulation frame directory')
 LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
+              keyframe_preservation='Keyframe preservation [Trentonom0r3 only]',
               fuoum_backend='Synthesis backend [FuouM only]',
               stream_frames='Store clip frames on disk to limit RAM',
               fuoum_flow_engine='Optical flow engine (FuouM only)',
@@ -404,6 +405,14 @@ class Options(QObject):
             widget.addItems([LEGACY, FUOUM])
             widget.currentTextChanged.connect(self.changed)
             widget.currentTextChanged.connect(self.refresh_engine_controls)
+        elif name == 'keyframe_preservation':
+            widget = QComboBox()
+            widget.addItems(KEYFRAME_PRESERVATION_MODES)
+            widget.setToolTip(
+                'Current behavior keeps Legacy blending unchanged. Exact output pins supplied keyframes without changing neighbors. '
+                'Transition-aware also favors the motion-propagated candidate from the nearby key over two adjacent frames. '
+                'FuouM already preserves supplied keyframes exactly.')
+            widget.currentTextChanged.connect(self.changed)
         elif name == "edge_method":
             widget = QComboBox()
             widget.addItems(["Classic", "PST", "PAGE"])
@@ -1008,6 +1017,7 @@ class Options(QObject):
         memory_efficient.setEnabled(video_editable and not fuoum and compatible_memory_efficient)
         for name in ('flow_arch', 'ebsynth_backend'):
             widgets[name].setEnabled((video_editable if name == 'flow_arch' else editable) and not fuoum)
+        widgets['keyframe_preservation'].setEnabled(video_editable and not fuoum)
         for widget in self.widgets['weights'].values():
             widget.setEnabled(video_editable)
         for field in (self.w.mask_dir, self.w.edge_dir):

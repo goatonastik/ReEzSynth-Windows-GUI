@@ -21,6 +21,10 @@ installed as part of the standard application setup, not as an optional engine.
   RAFT/NeuFlow checkpoints and legacy flow selections survive engine switches.
 - [x] Correct FuouM frame/error correspondence, exact styled-keyframe preservation,
   Poisson row boundaries, and flat-color histogram normalization.
+- [x] Add Legacy keyframe-preservation modes without changing the default:
+  Current behavior, Exact output, and a two-frame Transition-aware handoff using
+  existing motion-propagated candidates. Persistence, provenance, RGB/RGBA math,
+  exact pinning and the real blend dispatch have focused regression coverage.
 - [x] Fix zero-context build-patch application and Windows Path/PATH collisions
   in the FuouM builder. Build its native extension in a new checkout/environment.
 - [x] Add the guarded optional-engine installer with pinned source, official
@@ -95,6 +99,8 @@ installed as part of the standard application setup, not as an optional engine.
   the best supplied mask baseline, but tracking gaps remain. Retained ignored
   evidence: `diagnostic_outputs/s9_quality_review/REVIEW.md`. Broader clips/styles
   and controlled playback are still required before checking this item complete.
+  The next same-footage check should compare Legacy Current behavior, Exact output
+  and Transition-aware around the six s9 key boundaries at native resolution.
 - [ ] Validate installation and short renders on another clean Windows system
   and a different supported GPU, including prerequisite errors and custom paths.
   The fresh local FuouM environment inherited this host's GUI/PyTorch/compiler/

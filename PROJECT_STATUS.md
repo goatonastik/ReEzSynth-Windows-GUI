@@ -1,7 +1,31 @@
 # Project status
 
-Updated 2026-09-15. Live files are authoritative. Usage and settings are described
+Updated 2026-09-20. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
+
+## Legacy keyframe-preservation modes (2026-09-20)
+
+- Rendering now provides a Legacy-only Keyframe preservation selector. Current
+  behavior remains the default and retains previous output. Exact output pins the
+  supplied processed key at every styled frame after synthesis and optional mask
+  compositing, leaving neighboring frames unchanged.
+- Transition-aware also pins the keys exactly. For the two adjacent frames on
+  each side of a blend boundary, it biases the completed blend toward the
+  already generated forward/backward motion-propagated candidate; it does not
+  dissolve a stationary key over moving footage. RGBA candidates are mixed in
+  premultiplied space and returned as straight BGRA.
+- FuouM already preserves supplied keys exactly, so its UI disables this control.
+  Older projects and presets default to Current behavior. The selected mode is
+  retained in projects, Rendering presets, job settings and provenance.
+- The focused 127-test rendering/options/grouped/artifact set passed. A direct
+  real-`run_blend` dispatch regression was then added and passed with the pinning,
+  RGB transition and RGBA edge tests. Independent Claude review initially required
+  that missing dispatch coverage; the corrected patch received SAFE TO COMMIT.
+  The full maintained suite passed **402 tests in 68.954 seconds**. Its first run
+  exposed a shared-process test-order assumption: the GUI lazy-import check now
+  verifies that construction does not add or replace heavy modules already loaded
+  by earlier engine tests. Native s9 comparison of all three modes remains the
+  next visual-quality check.
 
 ## Native production-footage review and Legacy alignment fix (2026-09-15)
 

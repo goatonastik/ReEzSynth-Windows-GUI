@@ -54,6 +54,13 @@ from every tab, including while a worker is running.
   iteration counts, polishing, edge method, masks, RAFT model and EbSynth backend.
   Preview, Standard, and Highest reset only synthesis parameters while preserving
   guide weights and all controls outside this tab.
+- **Legacy keyframe preservation:** **Current behavior** retains the original
+  Trentonom0r3 blend assembly. **Exact output** restores every supplied styled
+  keyframe after synthesis and mask compositing without changing neighboring
+  frames. **Transition-aware** also restores each key exactly and, over the two
+  neighboring frames on either side, favors the motion-propagated candidate from
+  that key to reduce a one-frame boundary pop. FuouM already passes styled
+  keyframes through exactly, so this selector is disabled for that engine.
 - **Masks:** tick the Masks checkbox beside its directory input. Untick it to ignore
   the remembered mask folder for rendering and compositing. Supply one mask per source frame,
   matching its number and dimensions. White selects stylized pixels; black keeps

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QCheckBox
 
 from test_reezsynth_gui import GuiFixture, gui, controls
 from test_reezsynth_lifecycle import LifecycleFixture
-from reezsynth_config import (APPLICATION, GROUPS, LIMITS, PREVIEW, RENDER, SPIN_RULES, STANDARD, WEIGHTS, PresetStore,
+from reezsynth_config import (APPLICATION, GROUPS, KEYFRAME_PRESERVATION_MODES, LIMITS, PREVIEW, RENDER, SPIN_RULES, STANDARD, WEIGHTS, PresetStore,
     discover_pairs, validate_group, validate_render, validate_weights)
 from reezsynth_jobs import validate_masks
 from reezsynth_resources import estimate_job_vram, gpu_snapshot, safety_reserve_mib
@@ -49,6 +49,29 @@ class ResourceSchedulingUnitTests(unittest.TestCase):
             blend_options=dict(use_gpu=True, use_poisson_cupy=True)))
         self.assertEqual((legacy["width"], legacy["height"]), (1920, 1080))
         self.assertGreater(fuoum["estimated_mib"], legacy["estimated_mib"])
+
+
+class KeyframePreservationOptionTests(GuiFixture):
+    def test_modes_validate_and_current_behavior_is_default(self):
+        self.assertEqual(RENDER['keyframe_preservation'], 'Current behavior')
+        for mode in KEYFRAME_PRESERVATION_MODES:
+            self.assertEqual(validate_render({'keyframe_preservation': mode})['keyframe_preservation'], mode)
+        with self.assertRaisesRegex(ValueError, 'Unknown keyframe preservation mode'):
+            validate_render({'keyframe_preservation': 'Sometimes'})
+
+    def test_dropdown_persists_and_is_legacy_only(self):
+        window = self.window()
+        control = window.options.widgets['render']['keyframe_preservation']
+        self.assertEqual([control.itemText(index) for index in range(control.count())],
+                         list(KEYFRAME_PRESERVATION_MODES))
+        control.setCurrentText('Transition-aware')
+        snapshot = window.options.snapshot('render')
+        control.setCurrentText('Current behavior')
+        window.options.apply('render', snapshot)
+        self.assertEqual(control.currentText(), 'Transition-aware')
+        window.options.widgets['render']['engine'].setCurrentText(FUOUM)
+        window.options.refresh_engine_controls()
+        self.assertFalse(control.isEnabled())
 
 
 class PresetTests(GuiFixture):

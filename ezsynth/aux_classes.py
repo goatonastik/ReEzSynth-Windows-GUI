@@ -86,6 +86,7 @@ class RunConfig:
         do_mask=False,
         pre_mask=False,
         feather=0,
+        keyframe_preservation='Current behavior',
     ) -> None:
         # Ebsynth gen params
         self.uniformity = uniformity
@@ -182,6 +183,9 @@ class RunConfig:
         """Feather Gaussian radius to apply on the mask results. Only affect if `return_masked_only == False`.
 
         Expects integers. Defaults to `0`"""
+
+        self.keyframe_preservation = keyframe_preservation
+        """How supplied keyframes are treated in the completed Legacy sequence."""
 
     def get_ebsynth_cfg(self):
         return {

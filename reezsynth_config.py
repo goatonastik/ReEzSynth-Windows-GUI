@@ -24,7 +24,10 @@ STANDARD = dict(uniformity=3500.0, patchsize=7, pyramidlevels=6,
                 searchvoteiters=12, patchmatchiters=6, extrapass3x3=True,
                 searchvote_schedule=[], patchmatch_schedule=[])
 HIGHEST = dict(STANDARD, pyramidlevels=-1)
-RENDER = dict(engine=LEGACY, **STANDARD, edge_method="Classic", do_mask=False, pre_mask=False, feather=0,
+KEYFRAME_PRESERVATION_MODES = ('Current behavior', 'Exact output', 'Transition-aware')
+
+RENDER = dict(engine=LEGACY, keyframe_preservation=KEYFRAME_PRESERVATION_MODES[0], **STANDARD,
+              edge_method="Classic", do_mask=False, pre_mask=False, feather=0,
               custom_edge_guides=False, memory_efficient_raft=False, flow_arch="RAFT",
               flow_model="sintel", ebsynth_backend="cuda", temporal_nnf=True, sparse_features=True,
               fuoum_vote_mode="weighted", fuoum_cost_function="ssd", fuoum_stop_threshold=5,
@@ -239,6 +242,9 @@ def validate_render(data=None):
             result[name] = value.strip()
         elif name == "engine":
             validate_engine(value)
+        elif name == 'keyframe_preservation':
+            if value not in KEYFRAME_PRESERVATION_MODES:
+                raise ValueError('Unknown keyframe preservation mode.')
         elif name == "edge_method":
             if value not in ("Classic", "PST", "PAGE"):
                 raise ValueError("Unknown edge method.")
