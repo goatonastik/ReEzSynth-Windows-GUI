@@ -82,6 +82,27 @@ in [README.md](README.md).
   CROSS-ENGINE REVIEW SOUND. Broader clips/styles, controlled playback, native
   FuouM transparency policy and other-hardware validation remain open.
 
+## Native s6 scene-1 production review (2026-09-21)
+
+- Reviewed source frames 50-97 as an independent 48-frame scene at the original
+  1900x1060 resolution and 24 fps, excluding the 97/98 jump cut. Seven transparent
+  keys and generated masks anchored original frames 53, 59, 61, 63, 66, 75 and 78.
+- Legacy Standard used Transition-aware preservation; FuouM Standard used
+  hash-recorded opaque diagnostic keys composited over their matching source frames.
+  Both engines completed 48 native frames and videos. Legacy matched the documented
+  feathered source-over composite exactly at all keys; FuouM differed by at most
+  0.00525 RGB MAE. Both matched the source exactly outside blurred mask support.
+- The Legacy run had lower key-adjacent temporal change on twelve of fourteen
+  transitions, was effectively tied on one and higher on one. This run does not
+  isolate Transition-aware from other engine differences and establishes no general
+  engine ranking. Native inspection found only modest facial and line differences.
+- Both engines show microphone/left-helmet defects at original frame 97, nineteen
+  forward-only frames after the last key. A key near 97 is the most useful controlled
+  next test, but improvement remains a hypothesis. Scene 2 separately needs a late
+  key near original 117 for its observed mask-tracking failure. Independent review
+  returned REVIEW SOUND. Retained ignored evidence:
+  `diagnostic_outputs/s6_scene1_native_20260921_0001/REVIEW.md`.
+
 ## Repaired experimental PyTorch backend verified (2026-09-12)
 
 - User approved repairs following the failed upstream readiness audit below.

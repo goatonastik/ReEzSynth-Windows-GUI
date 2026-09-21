@@ -107,6 +107,14 @@ installed as part of the standard application setup, not as an optional engine.
   discontinuity at every boundary by 14.7%-55.0% and looked more coherent around
   the fast-moving hands. Retained ignored evidence:
   `diagnostic_outputs/s9_keyframe_preservation_native_20260920_0001/REVIEW.md`.
+  A second native production clip now covers s6 original frames 50-97 at 1900x1060
+  with seven transparent keys and generated masks. Legacy Transition-aware and
+  FuouM Standard both completed 48 frames; key composites and mask containment
+  passed, and reviewed engine differences were modest. The final nineteen-frame
+  forward-only tail shows defects in both engines, so a key near original 97 is the
+  next controlled scene-1 test. Scene 2 still needs a late key near original 117 to
+  address its observed mask-tracking drift. Retained ignored evidence:
+  `diagnostic_outputs/s6_scene1_native_20260921_0001/REVIEW.md`.
 - [ ] Validate installation and short renders on another clean Windows system
   and a different supported GPU, including prerequisite errors and custom paths.
   The fresh local FuouM environment inherited this host's GUI/PyTorch/compiler/
