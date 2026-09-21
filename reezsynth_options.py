@@ -409,7 +409,9 @@ class Options(QObject):
             widget = QComboBox()
             widget.addItems(KEYFRAME_PRESERVATION_MODES)
             widget.setToolTip(
-                'Current behavior keeps Legacy blending unchanged. Exact output pins supplied keyframes without changing neighbors. '
+                'Current behavior keeps Legacy blending unchanged. Exact output pins supplied keyframes without changing neighbors; '
+                'configured mask/background compositing still applies to every frame. '
+                'For RGBA styles, that composite reveals the source through transparent styled pixels. '
                 'Transition-aware also favors the motion-propagated candidate from the nearby key over two adjacent frames. '
                 'FuouM already preserves supplied keyframes exactly.')
             widget.currentTextChanged.connect(self.changed)

@@ -264,16 +264,19 @@ class KeyframePreservationTests(unittest.TestCase):
         try:
             namespace['run_scratch'] = drifted
             outputs = {}
-            for mode in ('Current behavior', 'Exact output'):
-                masked = mode == 'Exact output'
+            mask_inputs = []
+            for mode in ('Current behavior', 'Exact output', 'Transition-aware'):
+                masked = mode != 'Current behavior'
                 cfg = types.SimpleNamespace(only_mode='none', do_mask=masked, pre_mask=False, feather=0,
                     keyframe_preservation=mode)
                 runner = Engine(cfg=cfg, img_frs_seq=frames, style_frs=styles,
                                 style_idxes=[0, 2, 4])
                 runner.msk_frs_seq = [np.full((2, 3), 255, np.uint8) for _ in frames]
                 if masked:
-                    namespace['apply_masked_back_seq'] = lambda images, results, masks, feather: array_sequence(
-                        np.zeros_like(frame) for frame in results)
+                    def composite_after_pinning(images, results, masks, feather):
+                        mask_inputs.extend(np.asarray(frame).copy() for frame in results)
+                        return array_sequence(np.asarray(frame) + 1 for frame in results)
+                    namespace['apply_masked_back_seq'] = composite_after_pinning
                 with contextlib.redirect_stdout(io.StringIO()):
                     outputs[mode], _ = runner.run_sequences()
         finally:
@@ -285,8 +288,12 @@ class KeyframePreservationTests(unittest.TestCase):
 
         self.assertEqual([int(frame[0, 0, 0]) for frame in outputs['Current behavior']],
                          [9, 9, 9, 9, 9])
+        self.assertEqual([int(frame[0, 0, 0]) for frame in mask_inputs],
+                         [100, 9, 120, 9, 140] * 2)
         self.assertEqual([int(frame[0, 0, 0]) for frame in outputs['Exact output']],
-                         [100, 0, 120, 0, 140])
+                         [101, 10, 121, 10, 141])
+        self.assertEqual([int(frame[0, 0, 0]) for frame in outputs['Transition-aware']],
+                         [101, 10, 121, 10, 141])
 
     def test_transition_handoff_favors_motion_propagated_candidates_for_two_frames(self):
         from ezsynth.aux_run import apply_transition_aware_handoff

@@ -6,11 +6,14 @@ in [README.md](README.md).
 ## Legacy keyframe-preservation modes (2026-09-20)
 
 - Rendering now provides a Legacy-only Keyframe preservation selector. Current
-  behavior remains the default and retains previous output. Exact output pins the
-  supplied processed key at every styled frame after synthesis and optional mask
-  compositing, leaving neighboring frames unchanged.
-- Transition-aware also pins the keys exactly. For the two adjacent frames on
-  each side of a blend boundary, it biases the completed blend toward the
+  behavior remains the default and retains the previous synthesis/blend assembly.
+  Exact output pins the supplied processed key at every styled frame after synthesis,
+  leaving neighboring frames unchanged. Optional mask/background compositing runs
+  afterward so it is applied consistently to keys and propagated frames; without
+  masks, keys are byte-exact to the loaded keyframes at the processing size.
+- Transition-aware also restores each supplied key before optional compositing.
+  For the two adjacent frames on each side of a blend boundary, it biases the
+  completed blend toward the
   already generated forward/backward motion-propagated candidate; it does not
   dissolve a stationary key over moving footage. RGBA candidates are mixed in
   premultiplied space and returned as straight BGRA.
@@ -21,11 +24,21 @@ in [README.md](README.md).
   real-`run_blend` dispatch regression was then added and passed with the pinning,
   RGB transition and RGBA edge tests. Independent Claude review initially required
   that missing dispatch coverage; the corrected patch received SAFE TO COMMIT.
-  The full maintained suite passed **402 tests in 68.954 seconds**. Its first run
+  The full maintained suite passed **408 tests in 60.139 seconds** after the final
+  alpha-aware multi-frame and single-frame composite coverage. Its first run
   exposed a shared-process test-order assumption: the GUI lazy-import check now
   verifies that construction does not add or replace heavy modules already loaded
-  by earlier engine tests. Native s9 comparison of all three modes remains the
-  next visual-quality check.
+  by earlier engine tests. The native s9 comparison used post-fix Exact and
+  Transition-aware renders plus the earlier Current-behavior render. Their opaque
+  styled-key cores are directly comparable because the compositing change does not
+  affect fully opaque style pixels under a white mask. Exact and Transition-aware
+  preserved all six cores, while Current behavior measurably differed at four
+  interior keys (core RGB MAE 5.5-21.8). Relative to Exact output, Transition-aware
+  reduced adjacent-frame RGB discontinuity at every boundary by 14.7%-55.0% and
+  looked more coherent around the fast-moving hands at frames 25-33. Current remains
+  the compatibility default; Transition-aware is the best choice on this sample
+  when exact keys and smoother handoffs are both wanted. Retained ignored evidence:
+  `diagnostic_outputs/s9_keyframe_preservation_native_20260920_0001/REVIEW.md`.
 
 ## Native production-footage review and Legacy alignment fix (2026-09-15)
 
@@ -59,8 +72,9 @@ in [README.md](README.md).
   detail around frames 18-22 in the inspected native crops. Other cross-engine
   differences were marginal or broadly tonal with unisolated causes; no general
   engine-quality winner is claimed. Standard is the practical profile for both
-  engines on this sample. Use Legacy when native transparent output is required;
-  FuouM evidence applies only to explicitly prepared opaque keys.
+  engines on this sample. Use Legacy without mask/background compositing when native
+  transparent output is required; FuouM evidence applies only to explicitly prepared
+  opaque keys.
 - Detailed ignored evidence is in `diagnostic_outputs/s9_quality_review/REVIEW.md`,
   including mask geometry, key-core metrics, full run reports and unscaled native
   sequences. Claude's initial cross-engine review required narrower visual claims

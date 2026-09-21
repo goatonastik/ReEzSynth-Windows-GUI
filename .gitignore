@@ -22,6 +22,7 @@ env/
 /output_synth/
 /outputs/
 /diagnostic_outputs/
+/CLAUDE_HANDOFF.md
 .reezsynth-cache/
 /diagnostic_*.png
 

@@ -38,33 +38,28 @@ def apply_masked_back(
         from reezsynth_alpha import as_bgra
         original = as_bgra(original)
     if feather_radius > 0:
-        mask_blurred = cv2.GaussianBlur(mask, (feather_radius, feather_radius), 0)
-        mask_blurred = mask_blurred.astype(np.float32) / 255.0
+        mask = cv2.GaussianBlur(mask, (feather_radius, feather_radius), 0)
 
-        mask_inv_blurred = 1.0 - mask_blurred
-
-        # Expand dimensions to match the number of channels in the original image
-        mask_blurred_expanded = np.expand_dims(mask_blurred, axis=-1)
-        mask_inv_blurred_expanded = np.expand_dims(mask_inv_blurred, axis=-1)
-
-        background = original * mask_inv_blurred_expanded
-        foreground = processed * mask_blurred_expanded
-
-        # Combine the background and foreground
-        result = background + foreground
-        result = result.astype(np.uint8)
-
+    coverage = np.expand_dims(mask.astype(np.float32) / 255.0, axis=-1)
+    if processed.shape[2] == 4:
+        foreground_alpha = processed[..., 3:4].astype(np.float32) / 255.0
+        background_alpha = original[..., 3:4].astype(np.float32) / 255.0
+        effective_alpha = coverage * foreground_alpha
+        output_alpha = effective_alpha + background_alpha * (1.0 - effective_alpha)
+        premultiplied = (
+            processed[..., :3].astype(np.float32) * effective_alpha
+            + original[..., :3].astype(np.float32)
+            * background_alpha * (1.0 - effective_alpha)
+        )
+        output_rgb = np.zeros_like(premultiplied)
+        np.divide(premultiplied, output_alpha, out=output_rgb, where=output_alpha > 0)
+        result = np.concatenate((output_rgb, output_alpha * 255.0), axis=2)
+        return np.clip(np.rint(result), 0, 255).astype(np.uint8)
     else:
-        mask = mask.astype(np.float32) / 255.0
-        mask_inv = 1.0 - mask
-        mask_expanded = np.expand_dims(mask, axis=-1)
-        mask_inv_expanded = np.expand_dims(mask_inv, axis=-1)
-        background = original * mask_inv_expanded
-        foreground = processed * mask_expanded
-        result = background + foreground
-        result = result.astype(np.uint8)
+        # Preserve the historical RGB truncation; rounding here changes legacy output.
+        result = original * (1.0 - coverage) + processed * coverage
 
-    return result
+    return np.clip(result, 0, 255).astype(np.uint8)
 
 
 def apply_masked_back_seq(
@@ -77,7 +72,7 @@ def apply_masked_back_seq(
     len_stl = len(styled_msk_frs)
     len_msk = len(mask_frs_seq)
 
-    if len_img != len_stl != len_msk:
+    if not (len_img == len_stl == len_msk):
         raise ValueError(f"Lengths not match. [{len_img=}, {len_stl=}, {len_msk=}]")
 
     backed_seq = array_sequence()

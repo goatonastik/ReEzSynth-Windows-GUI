@@ -95,6 +95,23 @@ class AlphaAdapterTests(unittest.TestCase):
         np.testing.assert_array_equal(output, np.roll(style, 1, axis=0))
         self.assertFalse(np.array_equal(output, style))
 
+    def test_single_rgba_frame_uses_alpha_aware_mask_composite(self):
+        self.single()
+        style = np.full((128, 128, 4), [250, 240, 230, 0], np.uint8)
+        save(self.job['style'], style)
+        mask = self.root / 'mask.png'
+        save(mask, np.full((128, 128), 255, np.uint8))
+        self.job['masks'] = [[42, str(mask)]]
+        self.job['render_options'].update(do_mask=True)
+        self.fake_native([])
+
+        self.run_job()
+
+        result = cv2.imread(str(self.output / '042.png'), cv2.IMREAD_UNCHANGED)
+        np.testing.assert_array_equal(
+            result, np.full((128, 128, 4), [40, 40, 40, 255], np.uint8)
+        )
+
     def test_alpha_detection_precedes_rounding_during_downsize(self):
         self.single()
         value = samples(256)['opaque']
@@ -196,6 +213,70 @@ class AlphaAdapterTests(unittest.TestCase):
                     self.assertTrue(all(c == 4 and g == [3, 3, 3, 3] for c, g in boundaries))
                     # Disk sequences are deliberately cleaned after render_job returns.
                     self.assertEqual(len(captured['engine']['img_frs_seq']), 5)
+
+
+class AlphaMaskCompositeTests(unittest.TestCase):
+    def test_transparent_style_pixels_reveal_original_in_masked_output(self):
+        from ezsynth.aux_masker import apply_masked_back
+
+        original = np.full((1, 3, 3), [10, 20, 30], np.uint8)
+        processed = np.array([[[255, 255, 255, 0],
+                               [110, 120, 130, 128],
+                               [210, 220, 230, 255]]], np.uint8)
+        mask = np.full((1, 3), 255, np.uint8)
+        result = apply_masked_back(original, processed, mask)
+        np.testing.assert_array_equal(result[0, 0], [10, 20, 30, 255])
+        np.testing.assert_array_equal(result[0, 1], [60, 70, 80, 255])
+        np.testing.assert_array_equal(result[0, 2], [210, 220, 230, 255])
+
+    def test_zero_mask_keeps_original_with_rgba_style(self):
+        from ezsynth.aux_masker import apply_masked_back
+
+        original = np.array([[[17, 37, 91]]], np.uint8)
+        processed = np.array([[[250, 240, 230, 128]]], np.uint8)
+        result = apply_masked_back(original, processed, np.zeros((1, 1), np.uint8))
+        np.testing.assert_array_equal(result, np.array([[[17, 37, 91, 255]]], np.uint8))
+
+    def test_feathered_coverage_combines_both_rgba_alphas(self):
+        from ezsynth.aux_masker import apply_masked_back
+
+        original = np.full((1, 3, 4), [20, 40, 60, 128], np.uint8)
+        processed = np.full((1, 3, 4), [220, 140, 20, 128], np.uint8)
+        mask = np.array([[0, 255, 0]], np.uint8)
+        result = apply_masked_back(original, processed, mask, feather_radius=3)
+
+        coverage = cv2.GaussianBlur(mask, (3, 3), 0)[0, 1] / 255
+        foreground_alpha = 128 / 255
+        background_alpha = 128 / 255
+        effective_alpha = coverage * foreground_alpha
+        output_alpha = effective_alpha + background_alpha * (1 - effective_alpha)
+        expected_rgb = (
+            processed[0, 1, :3] * effective_alpha
+            + original[0, 1, :3] * background_alpha * (1 - effective_alpha)
+        ) / output_alpha
+        expected = np.rint(np.r_[expected_rgb, output_alpha * 255]).astype(np.uint8)
+        np.testing.assert_array_equal(result[0, 1], expected)
+
+    def test_two_fully_transparent_inputs_produce_clear_black(self):
+        from ezsynth.aux_masker import apply_masked_back
+
+        original = np.array([[[17, 37, 91, 0]]], np.uint8)
+        processed = np.array([[[250, 240, 230, 0]]], np.uint8)
+        result = apply_masked_back(original, processed, np.full((1, 1), 255, np.uint8))
+        np.testing.assert_array_equal(result, np.zeros((1, 1, 4), np.uint8))
+
+    def test_sequence_rejects_any_length_mismatch(self):
+        from ezsynth.aux_masker import apply_masked_back_seq
+
+        frame = np.zeros((1, 1, 3), np.uint8)
+        mask = np.zeros((1, 1), np.uint8)
+        for images, styles, masks in (
+            ([frame], [frame], [mask, mask]),
+            ([frame, frame], [frame, frame], [mask]),
+        ):
+            with self.subTest(lengths=tuple(map(len, (images, styles, masks)))):
+                with self.assertRaisesRegex(ValueError, 'Lengths not match'):
+                    apply_masked_back_seq(images, styles, masks)
 
 
 class AlphaReconstructionTests(unittest.TestCase):

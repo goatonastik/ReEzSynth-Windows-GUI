@@ -435,13 +435,10 @@ def _render_legacy_job(job_path):
         else:
             results = [style]
         if masks:
-            mask = masks[0]
-            if options["feather"]:
-                radius = options["feather"]
-                mask = cv2.GaussianBlur(mask, (radius, radius), 0)
-            alpha = mask.astype(np.float32)[:, :, None] / 255.0
-            background = as_bgra(frames[0]) if rgba else frames[0]
-            results = [(results[0] * alpha + background * (1 - alpha)).astype(np.uint8)]
+            from ezsynth.aux_masker import apply_masked_back
+            results = [apply_masked_back(
+                frames[0], results[0], masks[0], options["feather"]
+            )]
         if not rgba:
             progress(90, "Keyframe copy")
     else:

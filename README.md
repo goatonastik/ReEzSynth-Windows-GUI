@@ -56,15 +56,20 @@ from every tab, including while a worker is running.
   guide weights and all controls outside this tab.
 - **Legacy keyframe preservation:** **Current behavior** retains the original
   Trentonom0r3 blend assembly. **Exact output** restores every supplied styled
-  keyframe after synthesis and mask compositing without changing neighboring
-  frames. **Transition-aware** also restores each key exactly and, over the two
-  neighboring frames on either side, favors the motion-propagated candidate from
-  that key to reduce a one-frame boundary pop. FuouM already passes styled
+  keyframe after synthesis without changing neighboring frames. A configured
+  mask/background composite is then applied consistently to all frames, including
+  keys; without masks, the loaded keyframe is byte-exact at the processing size.
+  **Transition-aware** also restores each key and, over the two neighboring frames
+  on either side, favors the motion-propagated candidate from that key to reduce a
+  one-frame boundary pop. FuouM already passes styled
   keyframes through exactly, so this selector is disabled for that engine.
 - **Masks:** tick the Masks checkbox beside its directory input. Untick it to ignore
   the remembered mask folder for rendering and compositing. Supply one mask per source frame,
   matching its number and dimensions. White selects stylized pixels; black keeps
-  source pixels. Feather size is zero or an odd integer.
+  source pixels. Feather size is zero or an odd integer. With transparent RGBA
+  styles, style alpha participates in the source-over composite: transparent
+  styled areas reveal the opaque source frame, so masked output is opaque there.
+  Disable Masks when the rendered RGBA transparency itself must be retained.
 - **Custom edge guides:** select a numbered edge-guide sequence and enable **Use
   custom edge-guide frames** in Rendering to use those maps instead of automatic
   Classic, PST, or PAGE edge generation. Edge-guide numbers and dimensions must

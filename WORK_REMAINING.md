@@ -99,8 +99,14 @@ installed as part of the standard application setup, not as an optional engine.
   the best supplied mask baseline, but tracking gaps remain. Retained ignored
   evidence: `diagnostic_outputs/s9_quality_review/REVIEW.md`. Broader clips/styles
   and controlled playback are still required before checking this item complete.
-  The next same-footage check should compare Legacy Current behavior, Exact output
-  and Transition-aware around the six s9 key boundaries at native resolution.
+  A native-resolution same-footage comparison used post-fix Exact and
+  Transition-aware renders plus the earlier Current-behavior render. The opaque
+  key cores remain directly comparable across the alpha-compositing change. Exact
+  and Transition-aware preserved all six styled-key cores after mask compositing;
+  relative to Exact output, Transition-aware reduced adjacent-frame RGB
+  discontinuity at every boundary by 14.7%-55.0% and looked more coherent around
+  the fast-moving hands. Retained ignored evidence:
+  `diagnostic_outputs/s9_keyframe_preservation_native_20260920_0001/REVIEW.md`.
 - [ ] Validate installation and short renders on another clean Windows system
   and a different supported GPU, including prerequisite errors and custom paths.
   The fresh local FuouM environment inherited this host's GUI/PyTorch/compiler/
