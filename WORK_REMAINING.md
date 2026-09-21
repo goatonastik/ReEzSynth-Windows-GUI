@@ -123,6 +123,17 @@ installed as part of the standard application setup, not as an optional engine.
   preserved the documented key composite exactly. These mixed results establish a
   stable baseline rather than a general engine winner. Retained ignored evidence:
   `diagnostic_outputs/s1_native_20260921_0001/REVIEW.md`.
+  The s6 scene-2 one-key baseline now covers original frames 98-117 at native
+  1900x1060. Both Standard paths completed, preserved the expected frame-98
+  composite, and matched source exactly where the feathered mask was zero, but
+  false-positive vertical trails are discernible by frame 108 and clear by 110.
+  Late detail also degrades and the configured paths diverge substantially. This
+  is not a controlled engine ranking because Legacy used its transparent-key path
+  plus Transition-aware preservation while FuouM required an opaque key. A styled
+  key at original 117 is needed for controlled same-path comparisons of regenerated
+  two-anchor masks and grouped two-key synthesis; add 110-112 only if endpoint
+  anchoring still fails. Retained ignored evidence:
+  `diagnostic_outputs/s6_scene2_baseline_native_20260921_0001/REVIEW.md`.
 - [ ] Validate installation and short renders on another clean Windows system
   and a different supported GPU, including prerequisite errors and custom paths.
   The fresh local FuouM environment inherited this host's GUI/PyTorch/compiler/

@@ -129,6 +129,34 @@ in [README.md](README.md).
   analysis and narrower visual/causal wording. Retained ignored evidence:
   `diagnostic_outputs/s1_native_20260921_0001/REVIEW.md`.
 
+## Native s6 scene-2 single-key baseline (2026-09-21)
+
+- Reviewed original frames 98-117 as a separate 20-frame scene at the native
+  1900x1060 resolution and 24 fps, excluding the 97/98 jump cut. The available
+  input has one transparent style key at original frame 98, so this is an
+  intentionally forward-only failure baseline rather than a production setup.
+- Legacy Standard used its four-channel transparent-key path and Transition-aware
+  preservation. FuouM Standard used a hash-recorded opaque source-composited key.
+  Both completed 20 native frames and videos. The frame-98 expected composite was
+  exact in Legacy and within 0.00573 RGB MAE in FuouM. Both outputs matched the
+  source exactly where the feathered mask was zero. Legacy's saved RGBA frames
+  were fully opaque; FuouM's were RGB.
+- False-positive vertical mask trails can be discerned in the frame-108 render
+  panel and are clear by 110. Both configured render paths stylize those regions.
+  Their mask-core difference rises from 0.0078 RGB MAE at frame 98 to 26.236 at
+  117; late Legacy output retains more coherent helmet/face detail, while FuouM
+  is patchier. This is not an isolated engine comparison because the alpha/input
+  paths and keyframe-preservation behavior differ, and the known poor forward mask
+  is a further confound.
+- The controlled follow-up needs a transparent styled key at original frame 117.
+  First compare regenerated two-anchor masks on the same single-key forward path;
+  then compare current versus regenerated masks on the same grouped two-key path.
+  FuouM will still require source-composited opaque copies, so its within-engine
+  arms are controlled while cross-engine alpha-path differences remain. Add a key
+  around 110-112 only if the endpoint-anchored masks still fail. Independent
+  review returned REVIEW SOUND. Retained ignored evidence:
+  `diagnostic_outputs/s6_scene2_baseline_native_20260921_0001/REVIEW.md`.
+
 ## Repaired experimental PyTorch backend verified (2026-09-12)
 
 - User approved repairs following the failed upstream readiness audit below.
