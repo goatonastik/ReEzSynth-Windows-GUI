@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-09-20. Live files are authoritative. Usage and settings are described
+Updated 2026-09-21. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
 ## Legacy keyframe-preservation modes (2026-09-20)
@@ -102,6 +102,32 @@ in [README.md](README.md).
   key near original 117 for its observed mask-tracking failure. Independent review
   returned REVIEW SOUND. Retained ignored evidence:
   `diagnostic_outputs/s6_scene1_native_20260921_0001/REVIEW.md`.
+
+## Native s1 production review (2026-09-21)
+
+- Reviewed all 141 frames at the original 1440x1440 resolution and 24 fps with
+  seven transparent keys at frames 49, 73, 81, 99, 112, 121 and 126. Legacy
+  Standard used Transition-aware preservation; FuouM Standard used hash-recorded
+  opaque diagnostic keys composited over their corresponding source frames.
+- Both engines completed 141 native frames and videos. Legacy matched the
+  documented feathered source-over composite exactly at every key; FuouM differed
+  by at most 0.00764 RGB MAE. Both matched the source exactly outside blurred mask
+  support on every frame.
+- Sixteen subject-region transitions have effectively held source footage. FuouM
+  had lower output change on thirteen, often substantially; Legacy was lower on
+  three. This is direct evidence of lower held-frame flicker for FuouM on this
+  run, not a general engine ranking. The fourteen transitions immediately into or
+  out of keys were mixed: FuouM lower on eight and Legacy on six.
+- Native inspection found Legacy visibly cleaner at frame 0, forty-nine backward-
+  only propagation steps from the first key: FuouM showed a washed/ghosted raised
+  cannoli and hand plus mottled chest/lapel detail. Both engines remained
+  geometrically coherent through that opening span and the fourteen-frame final
+  forward-only tail. Feather 9 contained changes to mask support without a broad
+  exterior halo; a narrow styled contour remains inseparable from mask-edge
+  behavior in this material.
+- Independent review returned REVIEW SOUND after requiring the held-frame flicker
+  analysis and narrower visual/causal wording. Retained ignored evidence:
+  `diagnostic_outputs/s1_native_20260921_0001/REVIEW.md`.
 
 ## Repaired experimental PyTorch backend verified (2026-09-12)
 

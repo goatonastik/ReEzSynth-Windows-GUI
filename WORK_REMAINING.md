@@ -115,6 +115,14 @@ installed as part of the standard application setup, not as an optional engine.
   next controlled scene-1 test. Scene 2 still needs a late key near original 117 to
   address its observed mask-tracking drift. Retained ignored evidence:
   `diagnostic_outputs/s6_scene1_native_20260921_0001/REVIEW.md`.
+  A third native production clip now covers all 141 s1 frames at 1440x1440 with
+  seven transparent keys. Both Standard engines completed coherent masked renders,
+  exact source containment and visually correct key landings. FuouM had lower
+  synthesis change on thirteen of sixteen effectively held-source transitions;
+  Legacy was visibly cleaner on the 49-frame backward-only opening endpoint and
+  preserved the documented key composite exactly. These mixed results establish a
+  stable baseline rather than a general engine winner. Retained ignored evidence:
+  `diagnostic_outputs/s1_native_20260921_0001/REVIEW.md`.
 - [ ] Validate installation and short renders on another clean Windows system
   and a different supported GPU, including prerequisite errors and custom paths.
   The fresh local FuouM environment inherited this host's GUI/PyTorch/compiler/
