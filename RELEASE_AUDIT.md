@@ -29,9 +29,10 @@ clean-machine or CPU-only test.
 | Requirements, build/setup scripts, compatibility patch, licenses/notices | Keep with source distribution. |
 | `engine_sources/`, `.engine_envs/`, `diagnostic_outputs/`, generated renders, secrets, caches, logs | Already ignored; never stage or distribute them. |
 | `ReEzSynth-source-bundle.txt`, `examples/gui_keyframes_v03.backup-20260908-184704697`, root `reezsynth_gui_v02.py`, `reezsynth_gui_v03.txt`, `reezsynth_gui_v031.txt`, `reezsynth_gui_v04.py` | Developer snapshots untracked and ignored after dependency review. Useful local copies and Git history are preserved; new commits/clones no longer include them. |
-| Three tracked RAFT checkpoints (`sintel`, `kitti`, `small`) | Existing tracked exceptions despite `*.pth` ignore. Required GUI hashes cover Sintel/Kitti; `small` is not a GUI choice. Do not assume the ignore rule removes them from a commit/archive. Preserve the working installation; resolve distribution provenance before publishing. |
-| `ezsynth/utils/ebsynth.dll` and compiled RAFT wheel | Existing runtime assets. Hashes detect changes; they do not prove source correspondence or redistribution clearance. |
-| Sample photographs, paintings, masks and image-guide assets | Existing tracked examples, not generated test output. Audit their individual sources/permissions before including a public release. |
+| Three tracked RAFT checkpoints (`sintel`, `kitti`, `small`) | Byte-identical to the files in RAFT's official `models.zip`; exact hashes, the archive, and `download_models.sh` from pinned RAFT commit `2888e15` are retained in the 2026-09-21 audit. Required GUI hashes cover Sintel/Kitti; `small` is not a GUI choice. Do not assume the `*.pth` ignore rule removes them from a commit/archive. Decide whether to ship, setup-download, or omit each checkpoint and retain the BSD notice for distributed binary material. |
+| `ezsynth/utils/ebsynth.dll` | Byte-identical to Trentonom0r3/Ezsynth commit `b198f2d`, which records the same checksum and a build command and names Trentonom0r3/ebsynth as its build-source checkout. The source fork at examined commit `7c81b0f` has no DLL; the recorded build pins neither that source revision nor its toolchain and was not reproduced byte-for-byte. Replace the DLL with a documented reproducible build or explicitly accept this checksum/build-command provenance after release review. |
+| Compiled RAFT wheel | Added together with its tracked source in local commit `4aa832e`; its metadata and archive embed RAFT's BSD-3-Clause license. It is CPython 3.11/Windows AMD64-specific, not a universal binary. Decide whether it belongs in the selected release artifact. |
+| Sample photographs, paintings, masks and image-guide assets | Nineteen image-guide examples are byte-identical to the original jamriska/ebsynth repository. The eleven-frame video, eight styles, twenty-two masks and three local duplicate keyframes trace exactly to Trentonom0r3/Ezsynth but have no asset-specific ownership/redistribution statement there. Omit or replace that set unless its owner supplies permission or stronger provenance; update the release diagnostic, setup test and frame-storage documentation if the duplicate keyframes are removed. |
 
 No existing assets were deleted or removed from Git history in this audit. No
 release was uploaded. A GitHub source archive is not yet a cleared binary package.
@@ -51,6 +52,11 @@ be packaged; stop workers before deleting them to reclaim disk space.
 - RAFT declares BSD-3-Clause. The retained
   [license](third_party/raft_alt_cuda_corr/LICENSE) accompanies the compiled
   correlation source; see [upstream](https://github.com/princeton-vl/RAFT/blob/master/LICENSE).
+  The three tracked checkpoints were compared byte-for-byte with the official
+  archive referenced by `download_models.sh` at pinned RAFT commit `2888e15`;
+  that script and archive are retained in ignored evidence. This establishes their
+  source chain, while any model/training-data rights beyond the repository license
+  remain a release-review question.
 - NeuFlow v2 declares Apache-2.0. Retain [its license](licenses/NeuFlow-Apache-2.0.txt)
   and [official repository attribution](https://github.com/neufieldrobotics/NeuFlow_v2).
   Downloaded checkpoints are pinned to `204b5e3744461d90303b9ff82caa7a1bb56a2ca2`
@@ -85,3 +91,21 @@ be packaged; stop workers before deleting them to reclaim disk space.
    selected GPU architecture, paths with spaces, and a short render for both engines.
 3. Review the final Git diff/staged inventory and deliberately create the release.
    Neither a model switch nor passing tests grants publishing permission.
+
+## 2026-09-21 local provenance comparison
+
+The tracked DLL, checkpoints, wheel and all 65 example files now have a retained
+exact-hash inventory. The three RAFT checkpoints match the official RAFT download
+archive;
+the DLL and 60 of 65 example files match Trentonom0r3/Ezsynth `b198f2d`; nineteen
+example images also match jamriska/ebsynth `2f5c97c`. The three locally added GUI
+keyframes are byte-identical duplicates of upstream style images. The remaining
+two example differences are launcher scripts. Detailed hashes, method, limits and
+the concrete release choices are retained locally in ignored evidence:
+`diagnostic_outputs/provenance_audit_20260921/REPORT.md`.
+
+This reduces source-chain uncertainty but does not clear the remaining release
+decisions: the DLL's retained checksum/build command is not a reproducible pinned
+build; the video/style/mask set and its duplicate keyframes lack asset-specific
+permission; and checkpoint/wheel inclusion must match the chosen package and
+notices. No public artifact was created.

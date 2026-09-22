@@ -267,6 +267,16 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 - [ ] Resolve the existing DLL/weights/example/dependency provenance items in
   [RELEASE_AUDIT.md](RELEASE_AUDIT.md), and decide which assets to distribute.
+  The local 2026-09-21 exact-hash audit established that all three RAFT weights
+  match RAFT's official archive, the DLL matches Trentonom0r3/Ezsynth `b198f2d`,
+  nineteen examples match the original jamriska/ebsynth repository, and the
+  remaining video/style/mask set and three duplicate keyframes trace only to
+  Trentonom0r3/Ezsynth. Open choices are a reproducibly built versus accepted
+  checksum/build-command DLL, bundled versus downloaded checkpoints, removal of
+  unused `raft-small`, inclusion of the platform-specific wheel, and replacement/
+  permission for the remaining example set and duplicates. Removing the duplicates
+  also requires updating their diagnostic/test/docs references. Retained ignored
+  evidence: `diagnostic_outputs/provenance_audit_20260921/REPORT.md`.
 - [ ] Complete clean-machine validation and inspect the final tracked/archive
   inventory for the chosen distribution. Publishing a release is a separate action.
 
