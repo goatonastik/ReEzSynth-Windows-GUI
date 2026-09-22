@@ -13,6 +13,7 @@ import numpy as np
 from reezsynth_config import PREVIEW, validate_render, atomic_json
 from reezsynth_engines import ROOT, LEGACY, FUOUM, prepare_runtime
 from reezsynth_preview_transport import PREVIEW_DIR, preview_channels
+from reezsynth_synthetic_inputs import frame, image_case, style, write
 
 
 def gpu_memory():
@@ -65,6 +66,7 @@ def main():
     base = ROOT / 'diagnostic_outputs' / ('engines_' + args.engine + architecture + blending + '_'
                                          + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     base.mkdir(parents=True)
+    inputs = base / 'inputs'
     size = [3840, 2160] if args.four_k else [256, 144]
     jobs = []
     for kind in (('video',) if args.four_k else ('image', 'video', 'grouped')):
@@ -73,15 +75,18 @@ def main():
         job = dict(output=str(output), quality='Preview', processing_size=size,
                    render_options=options, engine_runtime=runtime)
         if kind == 'image':
-            example = ROOT / 'examples' / 'texbynum'
-            job.update(type='image_synthesis', image_synthesis=dict(style=str(example / 'source_photo.png'),
-                       source=str(example / 'source_segment.png'), target=str(example / 'target_segment.png')))
+            job.update(type='image_synthesis', image_synthesis=image_case(
+                inputs, 'image', source_size=tuple(size), target_size=tuple(size)))
         else:
-            job.update(key=100, style=str(ROOT / 'examples/styles/style000.jpg'), padding=3,
-                       frames=[[100 + n, str(ROOT / 'examples/input' / (str(n).zfill(3) + '.jpg'))] for n in range(3)],
+            images = [frame(tuple(size), n, 11) for n in range(3)]
+            paths = [write(inputs / f'frame_{n:03d}.png', image) for n, image in enumerate(images)]
+            first_style = write(inputs / 'style_100.png', style(images[0], 0))
+            last_style = write(inputs / 'style_102.png', style(images[2], 2))
+            job.update(key=100, style=first_style, padding=3,
+                       frames=[[100 + n, path] for n, path in enumerate(paths)],
                        video_export=dict(enabled=args.export_video, fps=12.0, audio=audio))
             if kind == 'grouped':
-                job.update(type='grouped_video', styles=[[100, job['style']], [102, str(ROOT / 'examples/styles/style002.png')]],
+                job.update(type='grouped_video', styles=[[100, first_style], [102, last_style]],
                            blend_options=dict(use_gpu=args.gpu_blending,
                                               use_poisson_cupy=args.cupy_poisson,
                                               use_lsqr=False, poisson_maxiter=10))

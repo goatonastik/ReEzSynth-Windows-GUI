@@ -55,7 +55,9 @@ with Python ast and compared syntax trees (ignoring formatting and comments):
 - Eight engine modules match: main_ez.py, aux_classes.py, constants.py,
   aux_run.py, sequences.py, edge_detection.py, aux_computations.py and
   utils/flow_utils/OpticalFlow.py.
-- Both example scripts, test_imgsynth.py and test_redux.py, also match.
+- The two upstream example scripts also matched at the time of comparison. They
+  were later removed from this repository with the bundled example media because
+  maintained diagnostics now generate their own inputs.
 - utils/_eb.py and utils/_ebsynth.py differ only by the existing backend argument
   and its forwarding to the native call. Preserve these fixes; upstream hardcodes
   automatic selection at that call. The frontend explicitly selects CUDA.

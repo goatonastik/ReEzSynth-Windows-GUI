@@ -386,9 +386,8 @@ preconfigured self-hosted runner labelled `reezsynth-gpu`.
 
 Tests isolate settings/files, use offscreen Qt, mock workers and a fake engine,
 and include CPU image handling and CPU RAFT numerical checks without pretrained
-weights. Audio playback is mocked. The older
-`test_imgsynth.py` and `test_redux.py` are rendering demos; do not use unrestricted
-test discovery for this lightweight suite.
+weights. Audio playback is mocked. The canonical runner selects the maintained
+lightweight suite.
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for results and remaining manual checks.
 Bounded GPU memory and output checks have passed; overnight/multi-GPU stability,
@@ -414,7 +413,7 @@ For small real CUDA checks of the frontend adapter, run
 `python -B diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
 `python -B diagnose_reezsynth_adapter.py --image` for Image Synthesis, or
 `python -B diagnose_reezsynth_adapter.py --grouped` for grouped blending. They use
-bundled examples and write ignored output under `diagnostic_outputs/`.
+procedurally generated inputs and write ignored output under `diagnostic_outputs/`.
 The separate `python -B diagnose_reezsynth_torch_backend.py` command compares
 FuouM's CUDA and alternate PyTorch backends against controlled mathematical
 invariants. Add `--repaired` to test the frontend repair layer. Without it, the

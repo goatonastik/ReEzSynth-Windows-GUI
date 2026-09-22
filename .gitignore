@@ -32,6 +32,7 @@ engine_sources/
 .engine_envs/
 # Historical developer snapshots, retained locally but not in new commits/clones.
 /ReEzSynth-source-bundle.txt
+/examples/
 /examples/gui_keyframes_v03.backup-20260908-184704697
 /reezsynth_gui_v02.py
 /reezsynth_gui_v03.txt

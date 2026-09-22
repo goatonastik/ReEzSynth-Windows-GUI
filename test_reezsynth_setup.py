@@ -24,6 +24,7 @@ from diagnose_reezsynth_adapter import (cancel_worker, render as run_adapter_dia
 from reezsynth_config import install_optional_flow_files, optional_flow_status, OPTIONAL_FLOW_HASHES
 import setup_flowdiffuser
 from setup_flowdiffuser import BACKBONES, PACKAGES
+from reezsynth_synthetic_inputs import frame, style, write
 
 ROOT = Path(__file__).resolve().parent
 
@@ -38,11 +39,18 @@ class SetupTests(unittest.TestCase):
         self.assertEqual({case['engine'] for case in plan['cases']}, {'legacy', 'fuoum'})
         self.assertTrue(all('--quality' in case['command'] for case in plan['cases']))
 
-    def test_quality_campaign_plan_validates_bundled_numbered_inputs(self):
+    def test_quality_campaign_plan_validates_generated_numbered_inputs(self):
+        video = self.root / 'video'
+        keys = self.root / 'keys'
+        for number in range(11):
+            image = frame((64, 48), number, 11)
+            write(video / f'{number:03d}.png', image)
+            if number in (0, 6, 10):
+                write(keys / f'{number:03d}.png', style(image, number))
         with contextlib.redirect_stdout(io.StringIO()) as output:
             result = diagnose_reezsynth_quality.main([
-                '--plan', '--video-dir', str(ROOT / 'examples/input'),
-                '--keyframe-dir', str(ROOT / 'examples/gui_keyframes_v03'),
+                '--plan', '--video-dir', str(video),
+                '--keyframe-dir', str(keys),
                 '--size', '256', '144'])
         plan = json.loads(output.getvalue())
         self.assertEqual(result, 0)

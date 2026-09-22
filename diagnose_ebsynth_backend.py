@@ -14,6 +14,7 @@ import numpy as np
 
 from reezsynth_config import PREVIEW, atomic_json, validate_render
 from reezsynth_engines import LEGACY, LEGACY_REVISION, ROOT
+from reezsynth_synthetic_inputs import frame, image_case, style, write
 
 
 def make_jobs(base, backend):
@@ -22,21 +23,21 @@ def make_jobs(base, backend):
     runtime = dict(engine=LEGACY, revision=LEGACY_REVISION,
                    source=str(ROOT), python=sys.executable)
     jobs = []
+    inputs = base / backend / 'inputs'
     for kind in ('image', 'video'):
         output = base / backend / kind
         output.mkdir(parents=True)
         job = dict(output=str(output), quality='Preview', processing_size=[256, 144],
                    render_options=options, engine_runtime=runtime)
         if kind == 'image':
-            example = ROOT / 'examples/texbynum'
-            job.update(type='image_synthesis', image_synthesis=dict(
-                style=str(example / 'source_photo.png'),
-                source=str(example / 'source_segment.png'),
-                target=str(example / 'target_segment.png')))
+            job.update(type='image_synthesis', image_synthesis=image_case(
+                inputs, 'image', source_size=(256, 144), target_size=(256, 144)))
         else:
-            job.update(key=100, style=str(ROOT / 'examples/styles/style000.jpg'), padding=3,
-                       frames=[[100 + index, str(ROOT / 'examples/input' / f'{index:03d}.jpg')]
-                               for index in range(2)])
+            images = [frame((256, 144), index, 11) for index in range(2)]
+            paths = [write(inputs / f'frame_{index:03d}.png', image)
+                     for index, image in enumerate(images)]
+            job.update(key=100, style=write(inputs / 'style_100.png', style(images[0])), padding=3,
+                       frames=[[100 + index, path] for index, path in enumerate(paths)])
         atomic_json(output / 'job.json', job)
         jobs.append((kind, job))
     return jobs

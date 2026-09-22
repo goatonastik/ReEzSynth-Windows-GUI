@@ -1,6 +1,6 @@
 """Run small real checks through the frontend renderer adapter.
 
-Uses three bundled examples at a 512-pixel processing width.  It deliberately
+Generates three deterministic inputs at a 512-pixel processing width. It deliberately
 exercises masks and custom edge guides, then verifies completion and output
 dimensions.  Results are written only under ignored diagnostic_outputs/.
 """
@@ -19,6 +19,7 @@ import numpy as np
 
 from reezsynth_jobs import render_job
 from reezsynth_preview_transport import PREVIEW_DIR
+from reezsynth_synthetic_inputs import frame, image_case, style, write
 
 
 def output_directory(root, label):
@@ -112,25 +113,22 @@ def render_parallel(job_paths, root):
 
 def run_image(root, shared_worker=False):
     output = output_directory(root, 'image_adapter')
-    example = root / 'examples' / 'texbynum'
+    settings = image_case(output / 'inputs', 'image', source_size=(512, 288),
+                          target_size=(512, 288))
+    settings['folder'] = 'image_adapter'
     job = {
         'type': 'image_synthesis',
         'output': str(output),
         'quality': 'Preview',
         'max_width': 512,
         'render_options': {'ebsynth_backend': 'cuda'},
-        'image_synthesis': {
-            'style': str(example / 'source_photo.png'),
-            'source': str(example / 'source_segment.png'),
-            'target': str(example / 'target_segment.png'),
-            'folder': 'image_adapter',
-        },
+        'image_synthesis': settings,
     }
     job_path = output / 'job.json'
     job_path.write_text(json.dumps(job, indent=2), encoding='utf-8')
     started = time.perf_counter()
     render(job_path, root, shared_worker)
-    target = cv2.imread(str(example / 'target_segment.png'), cv2.IMREAD_UNCHANGED)
+    target = cv2.imread(settings['target'], cv2.IMREAD_UNCHANGED)
     image = cv2.imread(str(output / 'image.png'), cv2.IMREAD_COLOR)
     error = np.load(output / 'error.npy', allow_pickle=False)
     expected = (*target.shape[:2], 3)
@@ -149,15 +147,14 @@ def run_video(root, shared_worker=False, live_preview=False, reuse_worker=False,
     output.mkdir(parents=True, exist_ok=False)
     masks.mkdir()
     edges.mkdir()
+    inputs = output / 'inputs'
 
     frames = []
     mask_entries = []
     edge_entries = []
     for number in range(3):
-        source = root / 'examples' / 'input' / f'{number:03d}.jpg'
-        image = cv2.imread(str(source), cv2.IMREAD_COLOR)
-        if image is None:
-            raise FileNotFoundError(f'Could not read bundled source frame: {source}')
+        image = frame((512, 288), number, 11)
+        source = write(inputs / f'frame{number:03d}.png', image)
         mask = masks / f'mask{number:03d}.png'
         edge = edges / f'edge{number:03d}.png'
         if not cv2.imwrite(str(mask), np.full(image.shape[:2], 255, np.uint8)):
@@ -165,13 +162,13 @@ def run_video(root, shared_worker=False, live_preview=False, reuse_worker=False,
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         if not cv2.imwrite(str(edge), cv2.Canny(gray, 80, 160)):
             raise RuntimeError(f'Could not create diagnostic edge guide: {edge}')
-        frames.append([number, str(source)])
+        frames.append([number, source])
         mask_entries.append([number, str(mask)])
         edge_entries.append([number, str(edge)])
 
     job = {
         'key': 0,
-        'style': str(root / 'examples' / 'styles' / 'style000.jpg'),
+        'style': write(inputs / 'style000.png', style(frame((512, 288), 0, 11))),
         'frames': frames,
         'masks': mask_entries,
         'edge_guides': edge_entries,
@@ -182,9 +179,9 @@ def run_video(root, shared_worker=False, live_preview=False, reuse_worker=False,
         'render_options': {'do_mask': True, 'custom_edge_guides': True},
     }
     if cancel:
-        # Reuse the three small bundled inputs under consecutive frame numbers.
+        # Reuse the three small generated inputs under consecutive frame numbers.
         # This keeps the diagnostic lightweight but guarantees enough work to stop.
-        job['frames'] = [[number, str(root / 'examples' / 'input' / f'{number % 3:03d}.jpg')]
+        job['frames'] = [[number, frames[number % 3][1]]
                          for number in range(24)]
         job['masks'] = [[number, str(masks / f'mask{number % 3:03d}.png')] for number in range(24)]
         job['edge_guides'] = [[number, str(edges / f'edge{number % 3:03d}.png')] for number in range(24)]
@@ -257,14 +254,17 @@ def run_video(root, shared_worker=False, live_preview=False, reuse_worker=False,
 
 def run_grouped(root, shared_worker=False):
     output = output_directory(root, 'grouped_adapter')
-    frames = [[number, str(root / 'examples' / 'input' / f'{number:03d}.jpg')]
-              for number in range(3)]
+    inputs = output / 'inputs'
+    images = [frame((512, 288), number, 11) for number in range(3)]
+    frames = [[number, write(inputs / f'frame{number:03d}.png', image)]
+              for number, image in enumerate(images)]
+    styles = [[0, write(inputs / 'style000.png', style(images[0], 0))],
+              [2, write(inputs / 'style002.png', style(images[2], 2))]]
     job = {
         'type': 'grouped_video',
         'key': 0,
-        'style': str(root / 'examples' / 'styles' / 'style000.jpg'),
-        'styles': [[0, str(root / 'examples' / 'styles' / 'style000.jpg')],
-                   [2, str(root / 'examples' / 'styles' / 'style002.png')]],
+        'style': styles[0][1],
+        'styles': styles,
         'frames': frames,
         'output': str(output),
         'padding': 3,

@@ -7,24 +7,15 @@ import numpy as np
 
 from ezsynth.aux_classes import RunConfig
 from ezsynth.main_ez import EzsynthBase
+from reezsynth_synthetic_inputs import frame, style
 
 
 def main():
     root = Path(__file__).resolve().parent
     size = (512, 288)
 
-    def read_image(relative_path):
-        path = root / relative_path
-        image = cv2.imread(str(path))
-        if image is None:
-            raise FileNotFoundError(f"Could not read: {path}")
-        return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
-
-    frames = [
-        read_image(f"examples/input/{index:03d}.jpg")
-        for index in range(3)
-    ]
-    style = read_image("examples/styles/style000.jpg")
+    frames = [frame(size, index, 11) for index in range(3)]
+    key_style = style(frames[0])
 
     cfg = RunConfig(
         patchsize=5,
@@ -39,7 +30,7 @@ def main():
     started = time.perf_counter()
 
     runner = EzsynthBase(
-        style_frs=[style],
+        style_frs=[key_style],
         style_idxes=[0],
         img_frs_seq=frames,
         cfg=cfg,

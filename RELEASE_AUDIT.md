@@ -28,13 +28,13 @@ clean-machine or CPU-only test.
 | Frontend/adapter source, maintained regressions, documented diagnostics | Keep; diagnostics help users validate their own GPU/install. |
 | Requirements, build/setup scripts, compatibility patch, licenses/notices | Keep with source distribution. |
 | `engine_sources/`, `.engine_envs/`, `diagnostic_outputs/`, generated renders, secrets, caches, logs | Already ignored; never stage or distribute them. |
-| `ReEzSynth-source-bundle.txt`, `examples/gui_keyframes_v03.backup-20260908-184704697`, root `reezsynth_gui_v02.py`, `reezsynth_gui_v03.txt`, `reezsynth_gui_v031.txt`, `reezsynth_gui_v04.py` | Developer snapshots untracked and ignored after dependency review. Useful local copies and Git history are preserved; new commits/clones no longer include them. |
+| `ReEzSynth-source-bundle.txt`, the former `examples/gui_keyframes_v03.backup-20260908-184704697`, root `reezsynth_gui_v02.py`, `reezsynth_gui_v03.txt`, `reezsynth_gui_v031.txt`, `reezsynth_gui_v04.py` | Developer snapshots untracked and ignored after dependency review. Useful local copies and Git history are preserved; new commits/clones no longer include them. |
 | Three tracked RAFT checkpoints (`sintel`, `kitti`, `small`) | Byte-identical to the files in RAFT's official `models.zip`; exact hashes, the archive, and `download_models.sh` from pinned RAFT commit `2888e15` are retained in the 2026-09-21 audit. Required GUI hashes cover Sintel/Kitti; `small` is not a GUI choice. Do not assume the `*.pth` ignore rule removes them from a commit/archive. Decide whether to ship, setup-download, or omit each checkpoint and retain the BSD notice for distributed binary material. |
 | `ezsynth/utils/ebsynth.dll` | Byte-identical to Trentonom0r3/Ezsynth commit `b198f2d`, which records the same checksum and a build command and names Trentonom0r3/ebsynth as its build-source checkout. The source fork at examined commit `7c81b0f` has no DLL; the recorded build pins neither that source revision nor its toolchain and was not reproduced byte-for-byte. Replace the DLL with a documented reproducible build or explicitly accept this checksum/build-command provenance after release review. |
 | Compiled RAFT wheel | Added together with its tracked source in local commit `4aa832e`; its metadata and archive embed RAFT's BSD-3-Clause license. It is CPython 3.11/Windows AMD64-specific, not a universal binary. Decide whether it belongs in the selected release artifact. |
-| Sample photographs, paintings, masks and image-guide assets | Nineteen image-guide examples are byte-identical to the original jamriska/ebsynth repository. The eleven-frame video, eight styles, twenty-two masks and three local duplicate keyframes trace exactly to Trentonom0r3/Ezsynth but have no asset-specific ownership/redistribution statement there. Omit or replace that set unless its owner supplies permission or stronger provenance; update the release diagnostic, setup test and frame-storage documentation if the duplicate keyframes are removed. |
+| Sample photographs, paintings, masks and image-guide assets | Removed from the current tree by owner decision; neither release format may include them. Diagnostics now generate deterministic inputs at run time under the ignored `diagnostic_outputs/` tree. Their earlier hashes and provenance findings remain in local audit evidence and Git history. |
 
-No existing assets were deleted or removed from Git history in this audit. No
+The media was removed from the current branch without rewriting Git history. No
 release was uploaded. A GitHub source archive is not yet a cleared binary package.
 Generated `.reezsynth-queue*.json` files are recovery data inside render batches.
 They contain absolute input, output and Python-runtime paths; inspect or remove
@@ -84,8 +84,8 @@ be packaged; stop workers before deleting them to reclaim disk space.
 ## Gates before publishing
 
 1. Record trusted provenance and applicable terms for the existing DLL, model
-   weights, sample artwork, optional flow sources/checkpoints, and dependency bundle.
-   Decide which examples/assets may actually ship; replace or omit uncleared files.
+   weights, optional flow sources/checkpoints, and dependency bundle. Confirm the
+   final inventory contains no removed example media.
 2. Validate the approved package on a separate clean Windows machine, including
    installation with no compiler/toolkit present (clear prerequisite errors),
    selected GPU architecture, paths with spaces, and a short render for both engines.
@@ -104,8 +104,8 @@ two example differences are launcher scripts. Detailed hashes, method, limits an
 the concrete release choices are retained locally in ignored evidence:
 `diagnostic_outputs/provenance_audit_20260921/REPORT.md`.
 
-This reduces source-chain uncertainty but does not clear the remaining release
-decisions: the DLL's retained checksum/build command is not a reproducible pinned
-build; the video/style/mask set and its duplicate keyframes lack asset-specific
-permission; and checkpoint/wheel inclusion must match the chosen package and
-notices. No public artifact was created.
+This reduced source-chain uncertainty. The example-media issue was subsequently
+resolved by removing the entire set from the current tree and generating diagnostic
+inputs procedurally. Remaining decisions concern the DLL's non-reproducible retained
+build provenance and whether checkpoint/wheel inclusion matches the chosen package
+and notices. No public artifact was created.

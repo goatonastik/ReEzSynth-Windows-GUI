@@ -7,27 +7,17 @@ import torch
 
 from ezsynth.utils.flow_utils.OpticalFlow import RAFT_flow
 from ezsynth.aux_flow_viz import flow_to_image
+from reezsynth_synthetic_inputs import frame
 
 
 def main():
     root = Path(__file__).resolve().parent
 
-    frames = [
-        cv2.imread(str(root / "examples" / "input" / name))
-        for name in ("000.jpg", "001.jpg")
-    ]
-
-    if any(frame is None for frame in frames):
-        raise FileNotFoundError("Could not read examples/input/000.jpg or 001.jpg.")
-
     if not torch.cuda.is_available():
         raise RuntimeError("PyTorch CUDA is unavailable.")
 
     # Small diagnostic resolution, not final rendering resolution.
-    frames = [
-        cv2.resize(frame, (512, 288), interpolation=cv2.INTER_AREA)
-        for frame in frames
-    ]
+    frames = [frame((512, 288), index, 11) for index in range(2)]
 
     print("GPU:", torch.cuda.get_device_name(0), flush=True)
     print("Loading RAFT sintel...", flush=True)

@@ -528,7 +528,8 @@ in [README.md](README.md).
   or isolated performance benchmarks; video auxiliary exports were not enabled.
 - Six dependency-free developer snapshots were untracked and given exact ignore
   rules. Their local copies and Git history remain intact. Active application
-  code, maintained tests/diagnostics, runtime assets and examples remain tracked.
+  code, maintained tests/diagnostics and runtime assets remain tracked. Bundled
+  third-party example media was later removed; diagnostics now generate inputs.
 - Corrected the older 1080p note: it did not test video auxiliary exports, and
   sampled GPU usage was device-wide, not a process-specific peak. The parity
   review now clearly separates its historical snapshot from current evidence.
@@ -1200,6 +1201,8 @@ are now implemented as described below.
 - `reezsynth_parallel.py`: optional bounded isolated-process queue. Disabled by
   default; enabling uses a limit of 2 initially, with 0 meaning all queued jobs.
   Failures stop pending/active work, and cancellation waits for all worker exits.
+- `reezsynth_synthetic_inputs.py`: deterministic procedural frames, styles,
+  masks and image-retargeting guides for diagnostics without bundled media.
 - `assets/complete.wav`: generated, replaceable placeholder notification tone.
 
 Sequential mode still defaults to worker reuse, honoring a saved false preference.

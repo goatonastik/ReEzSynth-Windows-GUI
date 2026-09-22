@@ -1,6 +1,6 @@
 """Run one small real queue through the offscreen MainWindow controller.
 
-Uses temporary preferences and copied bundled inputs. Output is written only to
+Uses temporary preferences and generated deterministic inputs. Output is written only to
 diagnostic_outputs/. This is an opt-in CUDA diagnostic, not a normal test.
 """
 import os
@@ -9,7 +9,6 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import argparse
 from datetime import datetime
 from pathlib import Path
-import shutil
 import sys
 import time
 from unittest.mock import patch
@@ -19,6 +18,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 import reezsynth_gui as gui
+from reezsynth_synthetic_inputs import frame, style, write
 
 
 def until(app, predicate, seconds, failure):
@@ -39,11 +39,13 @@ def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=
     video.mkdir(parents=True)
     keys.mkdir()
     project.mkdir()
-    for number in range(frames or (24 if cancel or close_window or restart_after_cancel else 3)):
-        shutil.copy2(root / 'examples' / 'input' / f'{number % 3:03d}.jpg', video / f'frame{number:03d}.jpg')
-    shutil.copy2(root / 'examples' / 'styles' / 'style000.jpg', keys / 'style000.jpg')
+    input_count = frames or (24 if cancel or close_window or restart_after_cancel else 3)
+    images = [frame((512, 288), number % 3, 11) for number in range(input_count)]
+    for number, image in enumerate(images):
+        write(video / f'frame{number:03d}.png', image)
+    write(keys / 'style000.png', style(images[0], 0))
     if parallel:
-        shutil.copy2(root / 'examples' / 'styles' / 'style002.png', keys / 'style002.png')
+        write(keys / 'style002.png', style(images[2], 2))
 
     app = QApplication.instance() or QApplication([])
     app.setStyle(gui.QueueStyle('Fusion'))

@@ -13,6 +13,7 @@ import numpy as np
 from reezsynth_config import atomic_json, quality_profile, validate_render
 from reezsynth_engines import ROOT, LEGACY, FUOUM, prepare_runtime
 from diagnose_reezsynth_engines import gpu_memory
+from reezsynth_synthetic_inputs import frame as synthetic_frame, image_case, mask as synthetic_mask, style as synthetic_style
 
 
 def rss_mib(pid):
@@ -45,30 +46,24 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
     modulation_inputs = inputs / 'modulation'
     if modulation:
         modulation_inputs.mkdir()
-    sources = sorted((ROOT / 'examples/input').glob('*.jpg'))
-    if len(sources) < 3:
-        raise RuntimeError('Bundled video example is missing.')
     frames, styles, masks, edges, anchors, modulation_frames = [], {}, [], [], [], []
     width, height = size
-    paintings = {0: ROOT / 'examples/gui_keyframes_v03/style000.jpg',
-                 6: ROOT / 'examples/gui_keyframes_v03/style006.png',
-                 10: ROOT / 'examples/gui_keyframes_v03/style010.png'}
+    source_count = 11
+    painting_keys = {0, source_count // 2, source_count - 1}
     for i in range(count):
-        # Ping-pong the real clip to exercise repeated motion without hard cuts.
-        phase = i % (2 * (len(sources) - 1))
-        source_index = min(phase, 2 * (len(sources) - 1) - phase)
-        source = sources[source_index]
-        image = cv2.resize(cv2.imread(str(source)), size)
+        # Ping-pong deterministic generated motion without hard cuts.
+        phase = i % (2 * (source_count - 1))
+        source_index = min(phase, 2 * (source_count - 1) - phase)
+        image = synthetic_frame(size, source_index, source_count)
         frames.append([100 + i, write(inputs / f'{i:04d}.png', image)])
-        stylized = np.clip((image.astype(np.int16) // 48) * 48 + 24, 0, 255).astype(np.uint8)
+        stylized = synthetic_style(image, source_index)
         if style_family == 'flat':
-            stylized[:] = (40, 100, 170)
-        elif style_family == 'painting' and source_index in paintings:
-            stylized = cv2.resize(cv2.imread(str(paintings[source_index])), size)
+            stylized = synthetic_style(image, flat=True)
+        elif style_family == 'painting' and source_index in painting_keys:
+            stylized = synthetic_style(image, source_index + 1)
             anchors.append(100 + i)
         styles[100 + i] = write(inputs / f'style_{i:04d}.png', stylized)
-        mask = np.zeros((height, width), np.uint8)
-        mask[:, width // 4:3 * width // 4] = 255
+        mask = synthetic_mask(size, source_index, source_count)
         masks.append([100 + i, write(inputs / f'mask_{i:04d}.png', mask)])
         edges.append([100 + i, write(inputs / f'edge_{i:04d}.png', cv2.Canny(image, 50, 150))])
         if modulation:
@@ -129,19 +124,8 @@ def make_jobs(base, engine, count, repeats, extended, style_family='poster', ima
             atomic_json(output / 'job.json', job)
             jobs.append((label, job))
     if images:
-        for name, style_name, primary, extras in (
-                ('facestyle', 'source_painting.png', 'Gapp', ['Gseg', 'Gpos']),
-                ('stylit', 'source_style.png', 'fullgi', ['dirdif', 'dirspc', 'indirb']),
-                ('texbynum', 'source_photo.png', 'segment', [])):
-            sample = ROOT / 'examples' / name
-            def resized(filename, target=False):
-                value = cv2.imread(str(sample / filename), cv2.IMREAD_UNCHANGED)
-                value = cv2.resize(value, (384, 128) if target else (256, 256), interpolation=cv2.INTER_NEAREST)
-                return write(inputs / (name + '_' + filename), value)
-            settings = dict(style=resized(style_name), source=resized('source_' + primary + '.png'),
-                target=resized('target_' + primary + '.png', True),
-                guides=[dict(source=resized('source_' + extra + '.png'),
-                             target=resized('target_' + extra + '.png', True), weight=1.0) for extra in extras])
+        for name, guide_count in (('two_guides', 2), ('three_guides', 3), ('no_extra_guides', 0)):
+            settings = image_case(inputs, name, guide_count)
             if modulation:
                 map_path = write(inputs / (name + '_modulation.png'),
                                  np.tile(np.linspace(0, 255, 384, dtype=np.uint8), (128, 1)))
