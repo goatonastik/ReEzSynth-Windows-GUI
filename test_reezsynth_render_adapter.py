@@ -269,7 +269,8 @@ class SynthesisDimensionTests(unittest.TestCase):
         runner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'EbsynthRunner')
         method = next(node for node in runner.body if isinstance(node, ast.FunctionDef) and node.name == 'get_max_pyramid_level')
         namespace = {}
-        exec(compile(ast.Module(body=[method], type_ignores=[]), '_eb.py', 'exec'), namespace)
+        # Compile only the selected method parsed from this checkout's fixed source.
+        exec(compile(ast.Module(body=[method], type_ignores=[]), '_eb.py', 'exec'), namespace)  # nosec B102
         for patchsize in (3, 7, 63, 99):
             for extent in (patchsize, 2 * patchsize, 2 * patchsize + 1, 512):
                 for style, target in (((extent, 512), (512, 512)), ((512, 512), (512, extent))):

@@ -44,7 +44,8 @@ class ScheduleTests(unittest.TestCase):
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'EbsynthRunner')
         method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'validate_per_levels')
         namespace = {'c_int': c_int}
-        exec(compile(ast.Module(body=[method], type_ignores=[]), '_eb.py', 'exec'), namespace)
+        # Compile only the selected method parsed from this checkout's fixed source.
+        exec(compile(ast.Module(body=[method], type_ignores=[]), '_eb.py', 'exec'), namespace)  # nosec B102
         runner = types.SimpleNamespace()
         original = types.MethodType(namespace['validate_per_levels'], runner)
         runner.validate_per_levels = original

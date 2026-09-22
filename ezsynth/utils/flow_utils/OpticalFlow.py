@@ -51,7 +51,9 @@ class RAFT_flow:
             )
         
 
-        state_dict = torch.load(model_path, map_location=self.DEVICE)
+        # Checkpoints are state dictionaries, so never permit pickle to construct
+        # arbitrary objects while loading a downloaded or replaced model file.
+        state_dict = torch.load(model_path, map_location=self.DEVICE, weights_only=True)
         self.model.load_state_dict(state_dict)
 
         self.model.to(self.DEVICE)

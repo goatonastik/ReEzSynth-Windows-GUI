@@ -34,6 +34,12 @@ available for troubleshooting memory growth or instability.
 ReEzSynth is under active development. The interface and workflow may
 change as rendering, queue management, and resource handling are refined.
 
+Contributions are welcome under the repository's GNU AGPL v3 license. See
+[CONTRIBUTING.md](CONTRIBUTING.md) before submitting code or assets,
+[SECURITY.md](SECURITY.md) for private vulnerability reporting, and
+[SECURITY_CHECKS.md](SECURITY_CHECKS.md) for the automated checks and evidence
+required before a downloadable public release.
+
 ## Using the interface
 
 For a new machine, follow [Windows setup](INSTALL_WINDOWS.md). The setup script

@@ -25,14 +25,15 @@ def upstream_engine(captured):
     # initialization, optical flow, native synthesis and blend reconstruction.
     from reezsynth_sequence import array_sequence
     ns = dict(np=np, time=time, array_sequence=array_sequence)
-    exec(compile((ROOT / 'ezsynth/sequences.py').read_text(), 'sequences.py', 'exec'), ns)
+    # Compile a fixed source file from this checkout; no external input is evaluated.
+    exec(compile((ROOT / 'ezsynth/sequences.py').read_text(), 'sequences.py', 'exec'), ns)  # nosec B102
     ns.update(tqdm=types.SimpleNamespace(tqdm=lambda items, *a, **k: items),
               Warp=lambda image: None,
               PositionalGuide=lambda: types.SimpleNamespace(create_from_flow=lambda *a: None))
     tree = ast.parse((ROOT / 'ezsynth/aux_run.py').read_text())
     functions = [n for n in tree.body if isinstance(n, ast.FunctionDef)]
     module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0)] + functions, type_ignores=[])
-    exec(compile(ast.fix_missing_locations(module), 'aux_run.py', 'exec'), ns)
+    exec(compile(ast.fix_missing_locations(module), 'aux_run.py', 'exec'), ns)  # nosec B102
     ns['get_flow'] = lambda *a: None
     ns['get_warped_img'] = lambda *a: None
     def blend(images, forward, backward, errors_f, errors_b, flows, cfg):
@@ -46,7 +47,7 @@ def upstream_engine(captured):
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and
                 (n.name.startswith('run_sequences') or n.name.startswith('_should_'))]
     module.body = [module.body[0], cls]
-    exec(compile(ast.fix_missing_locations(module), 'main_ez.py', 'exec'), ns)
+    exec(compile(ast.fix_missing_locations(module), 'main_ez.py', 'exec'), ns)  # nosec B102
     class Engine(ns['EzsynthBase']):
         def __init__(self, **kwargs):
             captured['engine'] = kwargs

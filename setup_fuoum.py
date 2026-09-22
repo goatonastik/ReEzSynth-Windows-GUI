@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 
 from reezsynth_engines import ROOT, FUOUM, FUOUM_REVISION, default_runtime, prepare_runtime, source_revision
@@ -78,7 +79,11 @@ def ensure_asset(destination, expected, *, local=None, url=None, check=False):
         if local is not None:
             shutil.copyfile(local, temporary)
         else:
-            with urllib.request.urlopen(url, timeout=120) as response, temporary.open('wb') as stream:
+            parsed_url = urllib.parse.urlsplit(url)
+            if parsed_url.scheme.lower() != 'https' or not parsed_url.netloc:
+                raise RuntimeError(f'Refusing non-HTTPS checkpoint URL: {url!r}')
+            # The scheme and host were validated directly above.
+            with urllib.request.urlopen(url, timeout=120) as response, temporary.open('wb') as stream:  # nosec B310
                 shutil.copyfileobj(response, stream)
         if sha256(temporary) != expected:
             raise RuntimeError(f'Checkpoint checksum mismatch: {destination.name}')

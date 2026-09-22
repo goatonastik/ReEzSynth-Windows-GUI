@@ -38,7 +38,8 @@ class ImageAdapterTests(unittest.TestCase):
         cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'run']
         module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0), cls], type_ignores=[])
         namespace = {}
-        exec(compile(ast.fix_missing_locations(module), 'main_ez.py', 'exec'), namespace)
+        # Compile only the selected method parsed from this checkout's fixed source.
+        exec(compile(ast.fix_missing_locations(module), 'main_ez.py', 'exec'), namespace)  # nosec B102
         class Engine(namespace['ImageSynthBase']):
             def __init__(runner, style_img, src_img, tgt_img, cfg):
                 runner.style_img, runner.src_img, runner.tgt_img, runner.cfg = style_img, src_img, tgt_img, cfg

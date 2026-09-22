@@ -22,8 +22,10 @@ jobs:
       CUDA_VISIBLE_DEVICES: "-1"
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
           cache: pip
@@ -45,7 +47,9 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
       - name: Check self-hosted runtime configuration
         shell: pwsh
         run: |
@@ -63,7 +67,7 @@ jobs:
           python -B diagnose_reezsynth_engines.py --engine fuoum --fuoum-source "$env:REEZSYNTH_FUOUM_SOURCE" --fuoum-python "$env:REEZSYNTH_FUOUM_PYTHON"
       - name: Upload diagnostic reports
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: gpu-diagnostics-${{ github.run_id }}
           path: diagnostic_outputs/

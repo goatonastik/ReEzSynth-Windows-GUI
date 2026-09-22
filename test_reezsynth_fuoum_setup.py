@@ -52,6 +52,15 @@ class InstallerTests(unittest.TestCase):
                     ensure_asset(target, '0' * 64, url='https://example.invalid/weight')
             self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_checkpoint_download_rejects_non_https_url_before_opening(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'weight.pth'
+            with patch('setup_fuoum.urllib.request.urlopen') as urlopen:
+                with self.assertRaisesRegex(RuntimeError, 'non-HTTPS'):
+                    ensure_asset(target, '0' * 64, url='file:///private/weight.pth')
+            urlopen.assert_not_called()
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_zero_context_patch_applies_and_reverse_checks_on_clean_headers(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
