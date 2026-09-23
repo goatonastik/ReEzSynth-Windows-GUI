@@ -1,6 +1,6 @@
 name: Build release candidates
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       version:

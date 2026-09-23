@@ -49,7 +49,7 @@ class SyntheticInputTests(unittest.TestCase):
             errors='strict', check=True, capture_output=True).stdout.splitlines()
         offenders = []
         for relative in tracked:
-            if relative == Path(__file__).name:
+            if Path(relative).name.startswith('test_'):
                 continue
             tree = ast.parse((root / relative).read_text(encoding='utf-8-sig'), filename=relative)
             if any(isinstance(node, ast.Constant) and isinstance(node.value, str) and

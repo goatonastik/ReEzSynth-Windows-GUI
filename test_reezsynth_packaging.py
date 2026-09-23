@@ -45,7 +45,7 @@ class PackagingTests(unittest.TestCase):
 
     def test_package_workflow_only_builds_manual_candidates(self):
         workflow = (ROOT / '.github' / 'workflows' / 'package.yml').read_text(encoding='utf-8')
-        parsed = yaml.load(workflow, Loader=yaml.BaseLoader)
+        parsed = yaml.safe_load(workflow)
         self.assertEqual(set(parsed['on']), {'workflow_dispatch'})
         self.assertNotIn('actions/create-release', workflow)
         self.assertNotIn('softprops/action-gh-release', workflow)
