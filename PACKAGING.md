@@ -2,8 +2,12 @@
 
 ReEzSynth produces two reviewable Windows artifacts from one exact Git commit:
 
-- `ReEzSynth-<version>-source.zip` is the curated source distribution.
-- `ReEzSynth-Windows-<version>.exe` installs that same tree for the current user.
+- `ReEzSynth-<version>-source.zip` is the complete curated source distribution,
+  including tests, hosted-CI configuration and maintainer documentation.
+- `ReEzSynth-Windows-<version>.exe` installs the runnable source, setup and
+  diagnostic tools, runtime assets, user documentation and license notices for
+  the current user. It omits tests and release-maintenance files that normal
+  operation does not use.
 
 Neither packaging command nor workflow publishes a GitHub release. The manual
 workflow uploads short-lived candidate artifacts for clean-machine testing. A
@@ -25,6 +29,12 @@ CUDA 12.8 toolkit, and Visual Studio 2022 C++ build tools. The finish-page setup
 choice is unchecked. Uninstalling removes installed application files and
 shortcuts; it does not delete separately created Conda environments or user
 projects.
+
+The installer inventory is intentionally narrower than the companion source ZIP.
+The source ZIP and public repository remain the authoritative corresponding source
+and retain the full test suite, CI workflows and release builder. Installer
+exclusions do not remove application modules, engine build/setup helpers, runtime
+diagnostics, runtime assets, documentation or license material.
 
 ## Build locally
 

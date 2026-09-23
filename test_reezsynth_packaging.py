@@ -40,13 +40,13 @@ class PackagingTests(unittest.TestCase):
                           'raft-small.pth').exists())
         self.assertTrue({
             'LICENSE',
+            'licenses/EF-RAFT-BSD-3-Clause.txt',
             'licenses/FuouM-MIT.txt',
             'licenses/NeuFlow-Apache-2.0.txt',
             'third_party/raft_alt_cuda_corr/LICENSE',
         } <= tracked)
         self.assertTrue((ROOT / 'THIRD_PARTY_NOTICES.md').is_file())
         self.assertTrue((ROOT / 'CLEAN_MACHINE_TEST.md').is_file())
-        self.assertTrue((ROOT / 'licenses' / 'EF-RAFT-BSD-3-Clause.txt').is_file())
         notices = (ROOT / 'THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8')
         self.assertIn('b198f2d7051eee542c4efc51c2d43dc442630bbf', notices)
         self.assertIn('imageio-ffmpeg 0.6.0', notices)
@@ -77,6 +77,21 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn('check_reezsynth_engines.py --all', clean_test)
         self.assertIn('--fuoum-source engine_sources\\fuoum_reezsynth', clean_test)
         self.assertIn(r'--fuoum-python .engine_envs\fuoum\Scripts\python.exe', clean_test)
+
+    def test_installer_omits_only_maintainer_inventory(self):
+        installer = (ROOT / 'installer' / 'ReEzSynth.iss').read_text(encoding='utf-8')
+        files_line = next(line for line in installer.splitlines()
+                          if line.startswith('Source:') and r'{#SourceDir}\*' in line)
+        for excluded in (
+                r'.github\*', r'installer\*', 'test_*.py', 'test_progress.txt',
+                'build_release.ps1', 'requirements-ci.txt', 'run_maintained_tests.py'):
+            self.assertIn(excluded, files_line)
+        for required in (
+                'reezsynth_gui.py', 'setup_reezsynth.ps1', 'check_reezsynth.py',
+                'diagnose_reezsynth_release.py', 'INSTALL_WINDOWS.md',
+                'THIRD_PARTY_NOTICES.md', 'PROJECT_STATUS.md', 'RELEASE_AUDIT.md',
+                'WORK_REMAINING.md', 'licenses', 'third_party', 'runtime-assets.json'):
+            self.assertNotIn(required, files_line)
 
     def test_package_workflow_only_builds_manual_candidates(self):
         workflow = (ROOT / '.github' / 'workflows' / 'package.yml').read_text(encoding='utf-8')

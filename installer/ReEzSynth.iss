@@ -45,7 +45,10 @@ VersionInfoProductName=ReEzSynth
 VersionInfoProductVersion={#MyNumericVersion}
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Keep the installer focused on the runnable application and user-facing support
+; material. The complete repository, tests and maintainer records remain in the
+; companion source ZIP and public Git repository.
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: ".github\*,installer\*,test_*.py,test_progress.txt,build_release.ps1,requirements-ci.txt,run_maintained_tests.py"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"
