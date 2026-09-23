@@ -46,6 +46,8 @@ or other example media may ship.
 
 ## Candidate validation
 
+The complete external-tester procedure is in `CLEAN_MACHINE_TEST.md`.
+
 1. Verify each artifact against `SHA256SUMS.txt`.
 2. Inspect `RELEASE_MANIFEST.json` and confirm its commit is the reviewed HEAD.
 3. Extract the source ZIP and inspect its file inventory.
@@ -55,9 +57,10 @@ or other example media may ship.
    through both engines.
 7. Uninstall and confirm user projects and external Conda environments remain.
 
-The candidate currently contains the tracked runtime DLL, RAFT checkpoints and
-the platform-specific correlation wheel. Their provenance and notices are recorded
-in `RELEASE_AUDIT.md`; public distribution still requires the final asset decision
-and clean-machine validation described there. Installed copies retain the third-party
-notices under `licenses/` and `third_party/`; reviewers should inspect those along
-with the top-level AGPL license.
+The candidate contains the retained, hash-locked runtime DLL, required RAFT
+Sintel/Kitti checkpoints and the platform-specific correlation wheel. The unused
+RAFT Small checkpoint is excluded. Their accepted stability-first distribution
+decision and provenance are recorded in `RELEASE_AUDIT.md`; public distribution
+still requires dependency-notice review and clean-machine validation. Installed
+copies retain `THIRD_PARTY_NOTICES.md`, the third-party licenses under `licenses/`
+and `third_party/`, and the top-level AGPL license.

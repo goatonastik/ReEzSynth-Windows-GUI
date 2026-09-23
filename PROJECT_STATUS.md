@@ -3,6 +3,29 @@
 Updated 2026-09-22. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
+## Stability-first runtime distribution decision (2026-09-23)
+
+- The public-candidate policy now preserves the exact runtime components that passed
+  development, production-footage and regression testing. The existing EbSynth DLL,
+  required RAFT Sintel/Kitti checkpoints and Windows correlation wheel remain
+  hash-locked in `runtime-assets.json`; no runtime algorithm or default changed.
+- The inherited DLL is retained because it is byte-identical to the precompiled DLL
+  published by Trentonom0r3/Ezsynth commit `b198f2d`, whose documentation permits
+  using the included DLL instead of rebuilding. Its source chain, public-domain
+  upstream statement, patent warning and AGPL context are consolidated in
+  `THIRD_PARTY_NOTICES.md`. Any replacement build must first pass separate output,
+  performance, CPU/GPU and production-footage comparisons.
+- `raft-small.pth` was removed because it is not a GUI choice, is absent from the
+  runtime manifest and has no operational reference. The required official-archive
+  Sintel/Kitti files remain unchanged, preserving offline installation and rendering.
+- The tested Windows correlation wheel remains bundled with its source, BSD license,
+  exact hash, compatibility limits and normal-RAFT fallback. Building it separately
+  on every user's machine was rejected as an unnecessary setup-stability risk.
+- `CLEAN_MACHINE_TEST.md` now gives an external tester a generated-media-only
+  install, dependency, two-engine render, restart, paths-with-spaces and uninstall
+  procedure. Clean-machine execution and the remaining dependency-notice audit are
+  still release gates.
+
 ## Source and Windows candidate packaging (2026-09-22)
 
 - Reviewed commit `2bbeb07` added clean-commit-bound source ZIP and per-user Inno

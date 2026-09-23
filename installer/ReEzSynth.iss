@@ -51,6 +51,8 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{group}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"
 Name: "{group}\Install ReEzSynth dependencies"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup_reezsynth.ps1"""; WorkingDir: "{app}"
 Name: "{group}\Windows setup guide"; Filename: "{app}\INSTALL_WINDOWS.md"
+Name: "{group}\Third-party notices"; Filename: "{app}\THIRD_PARTY_NOTICES.md"
+Name: "{group}\Clean-machine test guide"; Filename: "{app}\CLEAN_MACHINE_TEST.md"
 Name: "{group}\Uninstall ReEzSynth"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"; Tasks: desktopicon
 

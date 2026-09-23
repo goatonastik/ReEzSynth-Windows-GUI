@@ -29,9 +29,9 @@ clean-machine or CPU-only test.
 | Requirements, build/setup scripts, compatibility patch, licenses/notices | Keep with source distribution. |
 | `engine_sources/`, `.engine_envs/`, `diagnostic_outputs/`, generated renders, secrets, caches, logs | Already ignored; never stage or distribute them. |
 | `ReEzSynth-source-bundle.txt`, the former `examples/gui_keyframes_v03.backup-20260908-184704697`, root `reezsynth_gui_v02.py`, `reezsynth_gui_v03.txt`, `reezsynth_gui_v031.txt`, `reezsynth_gui_v04.py` | Developer snapshots untracked and ignored after dependency review. Useful local copies and Git history are preserved; new commits/clones no longer include them. |
-| Three tracked RAFT checkpoints (`sintel`, `kitti`, `small`) | Byte-identical to the files in RAFT's official `models.zip`; exact hashes, the archive, and `download_models.sh` from pinned RAFT commit `2888e15` are retained in the 2026-09-21 audit. Required GUI hashes cover Sintel/Kitti; `small` is not a GUI choice. Do not assume the `*.pth` ignore rule removes them from a commit/archive. Decide whether to ship, setup-download, or omit each checkpoint and retain the BSD notice for distributed binary material. |
-| `ezsynth/utils/ebsynth.dll` | Byte-identical to Trentonom0r3/Ezsynth commit `b198f2d`, which records the same checksum and a build command and names Trentonom0r3/ebsynth as its build-source checkout. The source fork at examined commit `7c81b0f` has no DLL; the recorded build pins neither that source revision nor its toolchain and was not reproduced byte-for-byte. Replace the DLL with a documented reproducible build or explicitly accept this checksum/build-command provenance after release review. |
-| Compiled RAFT wheel | Added together with its tracked source in local commit `4aa832e`; its metadata and archive embed RAFT's BSD-3-Clause license. It is CPython 3.11/Windows AMD64-specific, not a universal binary. Decide whether it belongs in the selected release artifact. |
+| Required RAFT checkpoints (`sintel`, `kitti`) | Keep the two proven, hash-locked checkpoints so clean installs and offline rendering retain the tested behavior. They are byte-identical to RAFT's official `models.zip`; exact hashes, the archive, and `download_models.sh` from pinned RAFT commit `2888e15` are retained in the 2026-09-21 audit. The unused `raft-small` checkpoint is removed. Retain the BSD notice and consolidated attribution. |
+| `ezsynth/utils/ebsynth.dll` | Keep the proven DLL for stability. It is byte-identical to the precompiled DLL intentionally published by Trentonom0r3/Ezsynth commit `b198f2d`, which records the same checksum, documents using it without rebuilding, records a build command and names its build-source checkout. Preserve the AGPL source, original EbSynth public-domain statement, patent warning, exact hash and attribution. A different locally built DLL must pass a separate parity/performance gate before replacement. |
+| Compiled RAFT wheel | Keep the tested CPython 3.11/Windows AMD64 wheel with its exact hash, platform limits, normal-RAFT fallback, included source and BSD-3-Clause license. It was added with its tracked source in local commit `4aa832e`; its metadata and archive embed the license. It is not represented as a universal or official upstream binary. |
 | Sample photographs, paintings, masks and image-guide assets | Removed from the current tree by owner decision; neither release format may include them. Diagnostics now generate deterministic inputs at run time under the ignored `diagnostic_outputs/` tree. Their earlier hashes and provenance findings remain in local audit evidence and Git history. |
 
 The media was removed from the current branch without rewriting Git history. No
@@ -83,9 +83,11 @@ be packaged; stop workers before deleting them to reclaim disk space.
 
 ## Gates before publishing
 
-1. Record trusted provenance and applicable terms for the existing DLL, model
-   weights, optional flow sources/checkpoints, and dependency bundle. Confirm the
-   final inventory contains no removed example media.
+1. Complete the dependency-bundle notice review, including the imageio-ffmpeg
+   executable and optional flow components. The retained DLL, required RAFT weights
+   and correlation wheel now have accepted exact-hash provenance and distribution
+   decisions in `THIRD_PARTY_NOTICES.md`. Confirm the final inventory contains no
+   removed example media.
 2. Validate the approved package on a separate clean Windows machine, including
    installation with no compiler/toolkit present (clear prerequisite errors),
    selected GPU architecture, paths with spaces, and a short render for both engines.
@@ -101,10 +103,10 @@ media and local output paths, and do not create a GitHub release. The installer
 copies the application tree and offers the several-gigabyte dependency setup as
 an explicit unchecked action. See `PACKAGING.md` for candidate validation.
 
-This packaging support does not clear the runtime-asset issues above. Current
-candidates still contain the tracked EbSynth DLL, RAFT checkpoints and Windows
-correlation wheel. Do not publish one until their final inclusion/download/build
-decisions and required notices are accepted and a clean-machine candidate passes.
+Current candidates retain the tested EbSynth DLL, required RAFT checkpoints and
+Windows correlation wheel under the stability-first decisions above. The unused
+RAFT Small checkpoint is excluded. Do not publish one until the remaining
+dependency notices are reviewed and a clean-machine candidate passes.
 
 ## 2026-09-21 local provenance comparison
 

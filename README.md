@@ -533,3 +533,7 @@ their developers.
 
 Please retain the upstream license files and attribution notices when
 redistributing this project.
+
+The consolidated runtime attribution and exact provenance references are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). A public candidate must also
+complete [CLEAN_MACHINE_TEST.md](CLEAN_MACHINE_TEST.md).

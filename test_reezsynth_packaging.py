@@ -23,6 +23,30 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual([name for name in tracked if Path(name).suffix.lower() in raster], [])
         self.assertFalse(any(name == 'examples' or name.startswith('examples/') for name in tracked))
 
+    def test_runtime_distribution_keeps_only_reviewed_assets_and_notices(self):
+        tracked = set(subprocess.run(
+            ['git', 'ls-files'], cwd=ROOT, check=True, capture_output=True,
+            text=True, encoding='utf-8', errors='strict').stdout.splitlines())
+        manifest = json.loads((ROOT / 'runtime-assets.json').read_text(encoding='utf-8'))
+        expected = {
+            'ezsynth/utils/ebsynth.dll',
+            'ezsynth/utils/flow_utils/models/raft-sintel.pth',
+            'ezsynth/utils/flow_utils/models/raft-kitti.pth',
+            'wheels/reezsynth_alt_cuda_corr-0.2.0-cp311-cp311-win_amd64.whl',
+        }
+        self.assertEqual(set(manifest['files']), expected)
+        self.assertTrue(expected <= tracked)
+        self.assertFalse((ROOT / 'ezsynth' / 'utils' / 'flow_utils' / 'models' /
+                          'raft-small.pth').exists())
+        self.assertTrue({
+            'LICENSE',
+            'licenses/FuouM-MIT.txt',
+            'licenses/NeuFlow-Apache-2.0.txt',
+            'third_party/raft_alt_cuda_corr/LICENSE',
+        } <= tracked)
+        self.assertTrue((ROOT / 'THIRD_PARTY_NOTICES.md').is_file())
+        self.assertTrue((ROOT / 'CLEAN_MACHINE_TEST.md').is_file())
+
     def test_builder_requires_reviewed_commit_and_rejects_private_inputs(self):
         script = (ROOT / 'build_release.ps1').read_text(encoding='utf-8')
         for required in (
@@ -42,6 +66,12 @@ class PackagingTests(unittest.TestCase):
                           if line.startswith('Filename:') and 'setup_reezsynth.ps1' in line)
         self.assertIn('postinstall', setup_line)
         self.assertIn('unchecked', setup_line)
+        self.assertIn(r'Filename: "{app}\THIRD_PARTY_NOTICES.md"', installer)
+        self.assertIn(r'Filename: "{app}\CLEAN_MACHINE_TEST.md"', installer)
+        clean_test = (ROOT / 'CLEAN_MACHINE_TEST.md').read_text(encoding='utf-8')
+        self.assertNotIn('check_reezsynth_engines.py --all', clean_test)
+        self.assertIn('--fuoum-source engine_sources\\fuoum_reezsynth', clean_test)
+        self.assertIn(r'--fuoum-python .engine_envs\fuoum\Scripts\python.exe', clean_test)
 
     def test_package_workflow_only_builds_manual_candidates(self):
         workflow = (ROOT / '.github' / 'workflows' / 'package.yml').read_text(encoding='utf-8')

@@ -99,8 +99,9 @@ Core references: [rendering entry points](https://github.com/Trentonom0r3/Ezsynt
 ## Environment readiness
 
 - Installed metadata: Python 3.11.16, PySide6 6.11.2, torch 2.11.0+cu128.
-- RAFT files present: raft-sintel.pth, raft-kitti.pth, raft-small.pth. The supported
-  RAFT constants only list sintel/kitti, and the model constructor sets small=False.
+- The original audit found raft-sintel.pth, raft-kitti.pth and raft-small.pth. The
+  supported RAFT constants only list Sintel/Kitti, and the model constructor sets
+  small=False; the current distribution therefore excludes the unused Small file.
 - EF-RAFT constants list 25000_ours-sintel, ours_sintel and ours-things; their
   configured weights directory currently contains no .pth files.
 - FlowDiffuser's configured weights directory contains no .pth files. Its encoder

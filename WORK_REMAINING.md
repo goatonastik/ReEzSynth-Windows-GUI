@@ -285,6 +285,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
   is to ship no source frames, keyframes, masks, or other example media; diagnostics
   now generate their inputs procedurally. Retained ignored
   evidence: `diagnostic_outputs/provenance_audit_20260921/REPORT.md`.
+  The stability-first runtime decision is now recorded: retain the exact tested DLL,
+  required Sintel/Kitti weights and Windows correlation wheel with hashes, source,
+  platform limits and notices; remove only unused `raft-small`. The remaining work
+  in this item is the broader dependency-notice review, including imageio-ffmpeg
+  and optional components.
 - [ ] Complete clean-machine validation and inspect the final tracked/archive
   inventory for the chosen distribution. Publishing a release is a separate action.
 
