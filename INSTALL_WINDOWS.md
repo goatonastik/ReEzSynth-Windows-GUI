@@ -163,7 +163,7 @@ python -B diagnose_ebsynth_backend.py both
 ```
 
 This starts separate CUDA-hidden workers and validates image/video outputs,
-completion and backend provenance. It passed locally on the bundled samples.
+completion and backend provenance. It passed locally on generated diagnostic inputs.
 A CPU-only installation remains a separate portability test.
 The Rendering tab includes the upstream EF-RAFT and FlowDiffuser architecture
 choices, but they are not part of the default installation. Before selecting one,

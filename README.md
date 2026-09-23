@@ -15,6 +15,8 @@ blending or directional passes.
 Engine-specific controls are labelled and greyed out when inapplicable. See
 [dual-engine setup and capabilities](DUAL_ENGINE.md), the
 [remaining-work checklist](WORK_REMAINING.md), and [release gates](RELEASE_AUDIT.md).
+Candidate source/installer builds are documented in [PACKAGING.md](PACKAGING.md);
+the packaging workflow never publishes a release automatically.
 
 ## Project goals
 
@@ -194,7 +196,7 @@ CUDA when it is available, so CPU EbSynth is not a complete CPU-only video mode.
 When PyTorch CUDA is unavailable, CPU/Auto jobs can proceed with CPU optical flow,
 Classic edges, GPU blending off and memory-efficient CUDA correlation off.
 `diagnose_ebsynth_backend.py` performs bounded real image/video frontend checks in
-fresh CUDA-hidden workers. CPU and Auto passed locally on the bundled samples; this
+fresh CUDA-hidden workers. CPU and Auto passed locally on generated diagnostic inputs; this
 is same-host functional evidence, not CPU-only installation portability coverage.
 Single-frame keyframe copies require no flow weights or GPU initialization.
 

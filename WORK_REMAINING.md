@@ -265,6 +265,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 
 ## Before a public release
 
+- [x] Add a manual candidate-packaging workflow that creates a commit-bound source
+  ZIP and per-user Windows installer, verifies SHA-256 hashes, rejects example/raster
+  media and local output paths, and never publishes a release. The installer's
+  large dependency/setup action is explicit and unchecked. Candidate compilation
+  and clean-machine installation still need validation.
 - [ ] Resolve the existing DLL/weights/dependency provenance items in
   [RELEASE_AUDIT.md](RELEASE_AUDIT.md), and decide which runtime assets to distribute.
   The local 2026-09-21 exact-hash audit established that all three RAFT weights

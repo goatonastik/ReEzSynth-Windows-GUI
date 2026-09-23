@@ -92,6 +92,20 @@ be packaged; stop workers before deleting them to reclaim disk space.
 3. Review the final Git diff/staged inventory and deliberately create the release.
    Neither a model switch nor passing tests grants publishing permission.
 
+## Candidate packaging
+
+`build_release.ps1` and the manual `Build release candidates` workflow produce a
+source ZIP and a per-user Inno Setup installer from one clean, reviewed commit.
+They write SHA-256 checksums and a commit manifest, reject bundled raster/example
+media and local output paths, and do not create a GitHub release. The installer
+copies the application tree and offers the several-gigabyte dependency setup as
+an explicit unchecked action. See `PACKAGING.md` for candidate validation.
+
+This packaging support does not clear the runtime-asset issues above. Current
+candidates still contain the tracked EbSynth DLL, RAFT checkpoints and Windows
+correlation wheel. Do not publish one until their final inclusion/download/build
+decisions and required notices are accepted and a clean-machine candidate passes.
+
 ## 2026-09-21 local provenance comparison
 
 The tracked DLL, checkpoints, wheel and all 65 example files now have a retained

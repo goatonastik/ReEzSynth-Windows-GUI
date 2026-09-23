@@ -1,0 +1,36 @@
+name: Build release candidates
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Candidate version (for example 0.1.0-preview.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install pinned Inno Setup compiler
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --yes --no-progress
+      - name: Build source and Windows installer candidates
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: .\build_release.ps1 -Version $env:RELEASE_VERSION
+      - name: Upload candidates for testing
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ReEzSynth-${{ inputs.version }}-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
