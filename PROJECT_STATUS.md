@@ -1,7 +1,31 @@
 # Project status
 
-Updated 2026-09-21. Live files are authoritative. Usage and settings are described
+Updated 2026-09-22. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
+
+## Source and Windows candidate packaging (2026-09-22)
+
+- Reviewed commit `2bbeb07` added clean-commit-bound source ZIP and per-user Inno
+  Setup packaging. It rejects raster/example media and local output paths, records
+  artifact hashes and the exact commit, and never publishes a release. The first
+  real local source and installer compile passed with Inno Setup 6.7.3.
+- The first hosted security run exposed unsafe PyYAML loader use in the packaging
+  workflow test. Commit `ff4dcbd` replaced it with `safe_load`, quoted the workflow's
+  YAML key to preserve GitHub semantics under PyYAML, and narrowed the existing
+  example-directory dependency scan to operational modules. Focused tests passed,
+  the canonical suite passed all 418 tests, the exact Bandit threshold found no
+  medium/high issues, and independent review returned SAFE TO COMMIT.
+- Every hosted check on `ff4dcbd` passed: Windows CPU tests, CodeQL Python and
+  Actions analysis, Bandit source scan, dependency audit and OpenSSF Scorecard.
+  GPU diagnostics were skipped because no self-hosted GPU run was requested.
+- Local `0.1.0-preview.2` artifacts were rebuilt from `ff4dcbd`. The source ZIP is
+  58,040,849 bytes with SHA-256
+  `acaeac7270eb8d562e8f7d8d6dae7464da6be6748ca97c9f1ac3167d58945bc6`; the
+  installer is 52,518,772 bytes with SHA-256
+  `bf126d8ad6a7d5ba656a5f42946f65e791269000bccb3a2ce98e87f64e3ff12b`.
+  They contain no bundled source frames, keyframes, masks or example raster media.
+  They remain private candidates pending runtime-asset decisions and clean-machine
+  installation/render/uninstall validation.
 
 ## Legacy keyframe-preservation modes (2026-09-20)
 

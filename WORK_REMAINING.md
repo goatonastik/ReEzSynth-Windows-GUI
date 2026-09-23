@@ -239,8 +239,11 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
     push/PR checks. Real Legacy/FuouM diagnostics require an explicit manual input
     and a preconfigured self-hosted `reezsynth-gpu` runner. The canonical command
     initially passed all 258 tests locally both normally and with the CI environment
-    flags; the suite has since expanded with flow and bounded-storage regressions;
-    the workflow itself remains unrun until this commit is pushed to GitHub.
+    flags; the suite has since expanded with flow and bounded-storage regressions.
+    At commit `ff4dcbd`, the hosted Windows CPU suite, CodeQL Python and Actions
+    analysis, Bandit source scan, dependency audit and OpenSSF Scorecard all passed.
+    GPU diagnostics remained correctly skipped because no self-hosted GPU run was
+    requested.
 
 ### Excluded by user preference
 
@@ -268,8 +271,9 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
 - [x] Add a manual candidate-packaging workflow that creates a commit-bound source
   ZIP and per-user Windows installer, verifies SHA-256 hashes, rejects example/raster
   media and local output paths, and never publishes a release. The installer's
-  large dependency/setup action is explicit and unchecked. Candidate compilation
-  and clean-machine installation still need validation.
+  large dependency/setup action is explicit and unchecked. Local source and installer
+  compilation passed for `0.1.0-preview.2` at reviewed commit `ff4dcbd`; clean-machine
+  installation still needs validation.
 - [ ] Resolve the existing DLL/weights/dependency provenance items in
   [RELEASE_AUDIT.md](RELEASE_AUDIT.md), and decide which runtime assets to distribute.
   The local 2026-09-21 exact-hash audit established that all three RAFT weights
@@ -358,5 +362,6 @@ diagnosis or fixes.
 Next evidence work: repeat overnight stability on an idle host, review supplied
 production frame/keyframe folders, and validate setup on another Windows/GPU
 system. The previous overnight guardrail result was inconclusive, not a confirmed
-renderer leak. Remote CI remains unrun because the commits are not pushed;
-publishing/pushing and distribution decisions require separate authorization.
+renderer leak. Remote CPU and security CI now passes on the pushed reviewed
+checkpoint. Publishing a release and the unresolved runtime-asset distribution
+choices remain separate owner decisions.

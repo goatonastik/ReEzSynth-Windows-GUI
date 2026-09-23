@@ -10,6 +10,13 @@ workflow uploads short-lived candidate artifacts for clean-machine testing. A
 public release remains a separate owner-approved action after the release gates
 in `RELEASE_AUDIT.md` pass.
 
+The latest locally compiled candidate is `0.1.0-preview.2`, bound to reviewed
+commit `ff4dcbd2c419e45431229228eed08cb147fbf809`. Its source ZIP SHA-256 is
+`acaeac7270eb8d562e8f7d8d6dae7464da6be6748ca97c9f1ac3167d58945bc6`; its
+Windows installer SHA-256 is
+`bf126d8ad6a7d5ba656a5f42946f65e791269000bccb3a2ce98e87f64e3ff12b`.
+These are local testing artifacts, not a published release.
+
 The installer copies application files to the current user's local Programs
 directory and creates Start-menu shortcuts. It does not require administrator
 rights. Engine and Python dependencies are intentionally a separate, visible
