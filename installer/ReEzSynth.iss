@@ -53,9 +53,9 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: ".github\*,installer\*,tes
 [Icons]
 Name: "{group}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"
 Name: "{group}\Install ReEzSynth dependencies"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup_reezsynth.ps1"""; WorkingDir: "{app}"
-Name: "{group}\Windows setup guide"; Filename: "{app}\INSTALL_WINDOWS.md"
-Name: "{group}\Third-party notices"; Filename: "{app}\THIRD_PARTY_NOTICES.md"
-Name: "{group}\Clean-machine test guide"; Filename: "{app}\CLEAN_MACHINE_TEST.md"
+Name: "{group}\Windows setup guide"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\INSTALL_WINDOWS.md"""
+Name: "{group}\Third-party notices"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\THIRD_PARTY_NOTICES.md"""
+Name: "{group}\Clean-machine test guide"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\CLEAN_MACHINE_TEST.md"""
 Name: "{group}\Uninstall ReEzSynth"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"; Tasks: desktopicon
 
@@ -64,7 +64,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\setup_reezsynth.ps1"""; WorkingDir: "{app}"; Description: "Install engines and dependencies now (large download; requires Git, Conda, CUDA 12.8 and Visual Studio C++ tools)"; Flags: postinstall skipifsilent unchecked
-Filename: "{app}\INSTALL_WINDOWS.md"; Description: "Open the Windows setup guide"; Flags: postinstall shellexec skipifsilent
+Filename: "{sys}\notepad.exe"; Parameters: """{app}\INSTALL_WINDOWS.md"""; Description: "Open the Windows setup guide"; Flags: postinstall skipifsilent
 
 [Registry]
 Root: HKCU; Subkey: "Software\ReEzSynth"; ValueType: string; ValueName: "Version"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekey

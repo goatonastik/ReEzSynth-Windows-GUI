@@ -71,8 +71,18 @@ class PackagingTests(unittest.TestCase):
                           if line.startswith('Filename:') and 'setup_reezsynth.ps1' in line)
         self.assertIn('postinstall', setup_line)
         self.assertIn('unchecked', setup_line)
-        self.assertIn(r'Filename: "{app}\THIRD_PARTY_NOTICES.md"', installer)
-        self.assertIn(r'Filename: "{app}\CLEAN_MACHINE_TEST.md"', installer)
+        for document in ('INSTALL_WINDOWS.md', 'THIRD_PARTY_NOTICES.md',
+                         'CLEAN_MACHINE_TEST.md'):
+            shortcut_line = next(line for line in installer.splitlines()
+                                 if line.startswith('Name:') and document in line)
+            self.assertIn(r'Filename: "{sys}\notepad.exe"', shortcut_line)
+            self.assertIn('Parameters: """{app}\\' + document + '"""', shortcut_line)
+        finish_guide = next(line for line in installer.splitlines()
+                            if line.startswith('Filename:') and
+                            'Open the Windows setup guide' in line)
+        self.assertIn(r'Filename: "{sys}\notepad.exe"', finish_guide)
+        self.assertIn(r'Parameters: """{app}\INSTALL_WINDOWS.md"""', finish_guide)
+        self.assertNotIn('shellexec', finish_guide)
         clean_test = (ROOT / 'CLEAN_MACHINE_TEST.md').read_text(encoding='utf-8')
         self.assertNotIn('check_reezsynth_engines.py --all', clean_test)
         self.assertIn('--fuoum-source engine_sources\\fuoum_reezsynth', clean_test)
