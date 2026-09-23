@@ -56,9 +56,39 @@ upstream project and verifies the expected SHA-256 before installation.
 - FuouM/ReEzSynth: https://github.com/FuouM/ReEzSynth
 - NeuFlow v2: https://github.com/neufieldrobotics/NeuFlow_v2
 
-## Other dependencies
+## Optional Legacy optical-flow implementations
 
-Python packages installed by the setup scripts retain their own licenses and
-notices. Optional EF-RAFT, FlowDiffuser and CuPy components are not bundled runtime
-assets. Their setup paths, sources and limitations are documented in
-`INSTALL_WINDOWS.md` and `RELEASE_AUDIT.md`.
+EF-RAFT revision `9ad323b373ba5f10f3bf97fdcf57e624be37d1b2` is distributed
+under BSD-3-Clause. Its retained license is
+`licenses/EF-RAFT-BSD-3-Clause.txt`. Optional EF-RAFT checkpoints are not bundled
+and must be obtained separately from their upstream source.
+
+The adapted FlowDiffuser implementation was distributed in
+Trentonom0r3/Ezsynth commit `b198f2d7051eee542c4efc51c2d43dc442630bbf`
+together with that repository's GNU AGPL v3 license. ReEzSynth retains that license,
+corresponding source and attribution. The optional FlowDiffuser checkpoint is not
+bundled and must be supplied separately; setup only downloads pinned Twin-SVT
+backbones after explicit confirmation.
+
+- EF-RAFT: https://github.com/n3slami/Ef-RAFT
+- FlowDiffuser: https://github.com/LA30/FlowDiffuser
+- AGPL source chain: https://github.com/Trentonom0r3/Ezsynth/tree/b198f2d7051eee542c4efc51c2d43dc442630bbf
+
+## Downloaded Python and media dependencies
+
+The source ZIP and Windows installer do not contain a Python environment or its
+third-party packages. The explicit dependency setup installs pinned packages from
+their package indexes, where their own licenses and notices remain included.
+
+`imageio-ffmpeg 0.6.0` is a direct video-export dependency. Its Python wrapper is
+BSD-2-Clause and its Windows wheel installs an FFmpeg 7.1 executable configured as
+GPL v3. The executable runs as a separate subprocess. Neither the wheel nor FFmpeg
+executable is embedded in ReEzSynth's release artifacts; it is downloaded by pip
+during dependency setup. Users can inspect the installed binary with `ffmpeg -L`
+and obtain FFmpeg corresponding source from https://ffmpeg.org/download.html.
+
+Optional CuPy/NVIDIA packages, FlowDiffuser dependencies and model backbones are
+also downloaded only after the user selects their setup path. They are not embedded
+in the source ZIP or Windows installer. If a future standalone package embeds a
+Python environment, FFmpeg, CUDA libraries, model files or wheels, it requires a
+new license and corresponding-source audit before distribution.

@@ -1,7 +1,25 @@
 # Project status
 
-Updated 2026-09-22. Live files are authoritative. Usage and settings are described
+Updated 2026-09-23. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
+
+## Dependency and optional-flow notice closure (2026-09-23)
+
+- Exact-tree inspection confirmed that Trentonom0r3/Ezsynth commit `b198f2d`
+  distributed the adapted FlowDiffuser implementation together with AGPL-3.0.
+  ReEzSynth preserves that license, corresponding source and upstream attribution;
+  no FlowDiffuser runtime code, behavior or performance path changed.
+- EF-RAFT's BSD-3-Clause license from pinned revision
+  `9ad323b373ba5f10f3bf97fdcf57e624be37d1b2` is now retained under `licenses/`.
+  EF-RAFT and FlowDiffuser checkpoints remain separately supplied optional assets.
+- The pinned `imageio-ffmpeg 0.6.0` package retains its BSD-2-Clause wrapper license
+  and installs a GPLv3 FFmpeg 7.1 Windows build. The source ZIP and installer do not
+  embed that package, executable, a Python environment, optional checkpoint or CUDA
+  library; explicit dependency setup downloads them into the user's environment.
+  A future standalone package would require a new dependency/corresponding-source
+  audit.
+- The current runtime/dependency notice gate is complete for the existing package
+  design. Clean-machine candidate validation remains required before publication.
 
 ## Stability-first runtime distribution decision (2026-09-23)
 
@@ -23,8 +41,7 @@ in [README.md](README.md).
   on every user's machine was rejected as an unnecessary setup-stability risk.
 - `CLEAN_MACHINE_TEST.md` now gives an external tester a generated-media-only
   install, dependency, two-engine render, restart, paths-with-spaces and uninstall
-  procedure. Clean-machine execution and the remaining dependency-notice audit are
-  still release gates.
+  procedure. Clean-machine execution remains a release gate.
 
 ## Source and Windows candidate packaging (2026-09-22)
 

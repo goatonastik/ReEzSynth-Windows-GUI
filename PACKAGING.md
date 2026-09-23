@@ -61,6 +61,6 @@ The candidate contains the retained, hash-locked runtime DLL, required RAFT
 Sintel/Kitti checkpoints and the platform-specific correlation wheel. The unused
 RAFT Small checkpoint is excluded. Their accepted stability-first distribution
 decision and provenance are recorded in `RELEASE_AUDIT.md`; public distribution
-still requires dependency-notice review and clean-machine validation. Installed
+still requires clean-machine validation. Installed
 copies retain `THIRD_PARTY_NOTICES.md`, the third-party licenses under `licenses/`
 and `third_party/`, and the top-level AGPL license.

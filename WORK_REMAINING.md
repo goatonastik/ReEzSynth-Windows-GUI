@@ -274,7 +274,7 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
   large dependency/setup action is explicit and unchecked. Local source and installer
   compilation passed for `0.1.0-preview.2` at reviewed commit `ff4dcbd`; clean-machine
   installation still needs validation.
-- [ ] Resolve the existing DLL/weights/dependency provenance items in
+- [x] Resolve the existing DLL/weights/dependency provenance items in
   [RELEASE_AUDIT.md](RELEASE_AUDIT.md), and decide which runtime assets to distribute.
   The local 2026-09-21 exact-hash audit established that all three RAFT weights
   match RAFT's official archive, the DLL matches Trentonom0r3/Ezsynth `b198f2d`,
@@ -285,11 +285,14 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
   is to ship no source frames, keyframes, masks, or other example media; diagnostics
   now generate their inputs procedurally. Retained ignored
   evidence: `diagnostic_outputs/provenance_audit_20260921/REPORT.md`.
-  The stability-first runtime decision is now recorded: retain the exact tested DLL,
+  The stability-first runtime decision is recorded: retain the exact tested DLL,
   required Sintel/Kitti weights and Windows correlation wheel with hashes, source,
-  platform limits and notices; remove only unused `raft-small`. The remaining work
-  in this item is the broader dependency-notice review, including imageio-ffmpeg
-  and optional components.
+  platform limits and notices; remove only unused `raft-small`. EF-RAFT's exact BSD
+  license is retained. FlowDiffuser's adapted source is covered through the exact
+  Trentonom0r3/Ezsynth AGPL distribution commit. Python packages, FFmpeg, optional
+  checkpoints and CUDA packages are downloaded during explicit setup and are not
+  embedded in either artifact; a future standalone environment would require a new
+  audit.
 - [ ] Complete clean-machine validation and inspect the final tracked/archive
   inventory for the chosen distribution. Publishing a release is a separate action.
 

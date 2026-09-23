@@ -65,9 +65,14 @@ be packaged; stop workers before deleting them to reclaim disk space.
 - [EbSynth's source README](https://github.com/jamriska/ebsynth#license) declares
   its code public domain and also gives a patent warning. That does not establish
   the provenance of this checkout's existing DLL or of the commercial application.
-- Preserve notices for copied EF-RAFT/FlowDiffuser code and dependencies. Their
-  optional checkpoint licensing and the complete dependency redistribution notice
-  set still need review before a packaged binary release.
+- EF-RAFT revision `9ad323b373ba5f10f3bf97fdcf57e624be37d1b2` is BSD-3-Clause;
+  retain [its exact license](licenses/EF-RAFT-BSD-3-Clause.txt). Its optional
+  checkpoints are not bundled.
+- The adapted FlowDiffuser files were distributed in Trentonom0r3/Ezsynth commit
+  `b198f2d` together with that repository's AGPL-3.0 license. ReEzSynth preserves
+  the same license, corresponding source and upstream attribution. The optional
+  FlowDiffuser checkpoint is not bundled; separately downloaded Twin-SVT files are
+  pinned and hash-verified.
 - Local validation used EF-RAFT revision `9ad323b` and the official FlowDiffuser
   Google Drive checkpoint. Pinned Twin-SVT artifacts came from
   `timm/twins_svt_large.in1k` revision `9985cdd` and
@@ -76,18 +81,20 @@ be packaged; stop workers before deleting them to reclaim disk space.
 - Optional CUDA 13 CuPy installation pulls NVIDIA runtime/toolkit component wheels.
   Review their licenses and redistribution terms separately before bundling them;
   the repository only records an opt-in requirements set.
-- Rendered-video export makes `imageio-ffmpeg 0.6.0` a direct dependency. Inspect
-  the bundled FFmpeg binary's build configuration, notices and redistribution
-  obligations for the final release artifact; successful local encoding is not
-  a licensing clearance.
+- Rendered-video export makes `imageio-ffmpeg 0.6.0` a direct setup dependency.
+  The installed package retains its BSD-2-Clause wrapper license and its pinned
+  Windows wheel contains an FFmpeg 7.1 GPLv3 build. Neither the Python wheel nor
+  FFmpeg executable is embedded in the source ZIP or installer; pip downloads it
+  into the user's environment during explicit dependency setup. A future standalone
+  package that embeds it must repeat the license and corresponding-source audit.
 
 ## Gates before publishing
 
-1. Complete the dependency-bundle notice review, including the imageio-ffmpeg
-   executable and optional flow components. The retained DLL, required RAFT weights
-   and correlation wheel now have accepted exact-hash provenance and distribution
-   decisions in `THIRD_PARTY_NOTICES.md`. Confirm the final inventory contains no
-   removed example media.
+1. Preserve `THIRD_PARTY_NOTICES.md`, all retained license files and the public
+   corresponding source beside any installer. The current source ZIP and installer
+   embed no Python environment, FFmpeg, optional model checkpoint or CUDA package.
+   Confirm the final inventory contains no removed example media; repeat this audit
+   if a future standalone package embeds downloaded dependencies.
 2. Validate the approved package on a separate clean Windows machine, including
    installation with no compiler/toolkit present (clear prerequisite errors),
    selected GPU architecture, paths with spaces, and a short render for both engines.
@@ -105,8 +112,9 @@ an explicit unchecked action. See `PACKAGING.md` for candidate validation.
 
 Current candidates retain the tested EbSynth DLL, required RAFT checkpoints and
 Windows correlation wheel under the stability-first decisions above. The unused
-RAFT Small checkpoint is excluded. Do not publish one until the remaining
-dependency notices are reviewed and a clean-machine candidate passes.
+RAFT Small checkpoint is excluded. The current dependency/notices audit is complete
+for this non-standalone package design. Do not publish until a clean-machine
+candidate passes.
 
 ## 2026-09-21 local provenance comparison
 

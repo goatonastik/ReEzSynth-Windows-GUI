@@ -46,6 +46,11 @@ class PackagingTests(unittest.TestCase):
         } <= tracked)
         self.assertTrue((ROOT / 'THIRD_PARTY_NOTICES.md').is_file())
         self.assertTrue((ROOT / 'CLEAN_MACHINE_TEST.md').is_file())
+        self.assertTrue((ROOT / 'licenses' / 'EF-RAFT-BSD-3-Clause.txt').is_file())
+        notices = (ROOT / 'THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8')
+        self.assertIn('b198f2d7051eee542c4efc51c2d43dc442630bbf', notices)
+        self.assertIn('imageio-ffmpeg 0.6.0', notices)
+        self.assertIn("embedded in ReEzSynth's release artifacts", notices)
 
     def test_builder_requires_reviewed_commit_and_rejects_private_inputs(self):
         script = (ROOT / 'build_release.ps1').read_text(encoding='utf-8')
