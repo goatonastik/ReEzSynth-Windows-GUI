@@ -24,11 +24,16 @@ These are local testing artifacts, not a published release.
 The installer copies application files to the current user's local Programs
 directory and creates Start-menu shortcuts. It does not require administrator
 rights. Engine and Python dependencies are intentionally a separate, visible
-setup step because they download several gigabytes and require Git, Conda, the
-CUDA 12.8 toolkit, and Visual Studio 2022 C++ build tools. The finish-page setup
-choice is unchecked. Uninstalling removes installed application files and
-shortcuts; it does not delete separately created Conda environments or user
-projects.
+setup step because they download several gigabytes. Four default-selected installer
+tasks control install-if-missing handling for Git, Miniforge, Visual Studio 2022 C++
+build tools/Windows SDK, and CUDA 12.8. The default-selected finish-page action runs
+`install_reezsynth.ps1`, preserving compatible installations and processing selected
+prerequisites in that order before creating and verifying both engine environments.
+System installers can request administrator approval. Uninstalling removes installed
+application files, shortcuts, app-local engine environments/source, caches, launcher
+configuration, and interrupted-setup state. It does not delete Git,
+Miniforge/Conda, Visual Studio Build Tools, CUDA, named Conda environments, or user
+projects outside the application directory.
 
 The installer inventory is intentionally narrower than the companion source ZIP.
 The source ZIP and public repository remain the authoritative corresponding source

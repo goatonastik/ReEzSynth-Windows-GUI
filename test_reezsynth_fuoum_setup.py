@@ -31,6 +31,36 @@ class InstallerTests(unittest.TestCase):
                 install(Path(directory) / 'source', directory)
             self.assertEqual(marker.read_text(), 'preserve')
 
+    def test_resume_rejects_environment_without_python(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = Path(directory) / 'env'
+            environment.mkdir()
+            marker_path = Path(directory) / 'resume.json'
+            marker_path.write_text(json.dumps({
+                'fuoum_environment': str(environment.resolve()),
+            }))
+            marker = environment / 'keep.txt'
+            marker.write_text('preserve')
+            with self.assertRaisesRegex(RuntimeError, r'without Scripts\\python.exe'):
+                install(Path(directory) / 'source', environment, resume=True,
+                        resume_marker=marker_path)
+            self.assertEqual(marker.read_text(), 'preserve')
+
+    def test_resume_rejects_worker_environment_not_recorded_by_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = Path(directory) / 'unrelated-env'
+            python = environment / 'Scripts' / 'python.exe'
+            python.parent.mkdir(parents=True)
+            python.write_bytes(b'preserve')
+            marker_path = Path(directory) / 'resume.json'
+            marker_path.write_text(json.dumps({
+                'fuoum_environment': str(Path(directory) / 'expected-env'),
+            }))
+            with self.assertRaisesRegex(RuntimeError, 'does not match the setup marker'):
+                install(Path(directory) / 'source', environment, resume=True,
+                        resume_marker=marker_path)
+            self.assertEqual(python.read_bytes(), b'preserve')
+
     def test_checkpoint_copy_is_verified_and_never_replaces_changed_files(self):
         with tempfile.TemporaryDirectory() as directory:
             source, target = Path(directory) / 'source', Path(directory) / 'target'

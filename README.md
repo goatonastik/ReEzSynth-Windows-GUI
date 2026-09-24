@@ -42,13 +42,98 @@ Contributions are welcome under the repository's GNU AGPL v3 license. See
 [SECURITY_CHECKS.md](SECURITY_CHECKS.md) for the automated checks and evidence
 required before a downloadable public release.
 
+## Windows installation
+
+The Windows installer presents four clearly labeled prerequisite checkboxes on its
+Additional Tasks page: Git, Miniforge/Conda, Visual Studio 2022 C++ Build Tools with
+MSVC and a Windows SDK, and CUDA Toolkit 12.8. All are selected by default and mean
+"install only if a compatible copy is missing." Its finish page has a fifth,
+default-selected **Set up and validate the ReEzSynth engine environment now**
+checkbox. The same complete setup is available later from **Start > ReEzSynth >
+Install ReEzSynth prerequisites and dependencies**.
+
+Setup requires an NVIDIA CUDA-capable GPU and an installed NVIDIA driver. It uses
+Windows Package Manager (`winget`) for third-party prerequisites, displays their
+package identities before running them, and may show Windows administrator
+approval prompts. It installs several gigabytes and can take a substantial amount
+of time. Do not close the setup window while an installer or engine build is
+running.
+
+Prerequisites and ReEzSynth components are installed in this order:
+
+1. Verify 64-bit Windows, `winget`, the NVIDIA GPU driver, and free access to the
+   required package sources.
+2. Keep an existing Git for Windows installation, or install `Git.Git`.
+3. Keep an existing Conda distribution, or install Miniforge with
+   `CondaForge.Miniforge3`. ReEzSynth never installs packages into Conda `base`.
+4. Keep compatible Visual Studio 2022 C++ x64 tools, or install
+   `Microsoft.VisualStudio.2022.BuildTools` with the C++ workload, recommended
+   components, and Windows SDK. This step can require administrator approval.
+5. Keep an exact CUDA 12.8 toolkit, or install `Nvidia.CUDA` version 12.8. The
+   NVIDIA driver-reported CUDA capability is not a toolkit and does not provide
+   `nvcc`.
+6. Create a new Python 3.11 Conda environment named `reezsynth`; install pinned
+   PyTorch CUDA 12.8 and frontend dependencies; and verify the Legacy engine,
+   bundled EbSynth DLL, RAFT checkpoints, and CUDA correlation extension.
+7. Create the separate FuouM worker environment, obtain its pinned source and
+   checksum-verified NeuFlow checkpoints, build its native CUDA extension, and
+   verify both engines.
+8. Save the successful Conda launcher location and environment name, then launch
+   ReEzSynth with `run_reezsynth.bat`.
+
+Compatible existing Git, Conda, compiler/SDK, and CUDA installations are preserved.
+Setup confirms runnable Git and Conda commands, Visual Studio 2022 with an x64 MSVC
+compiler and complete Windows SDK headers, and `nvcc` reporting CUDA 12.8. Clearing
+a checkbox prevents installation of that shared component; detection still uses a
+compatible existing copy, while an absent requirement produces a feature-specific
+warning and prevents engine setup from changing environments. CUDA detection refreshes
+`CUDA_HOME`, `CUDA_PATH`, and the running process's `PATH` before engine setup.
+Setup refuses to overwrite an unrelated existing `reezsynth` Conda environment or
+FuouM worker environment. Before creating the application environments it records
+an app-local resume marker containing the exact Conda executable, environment name,
+and app-local FuouM worker path. If that setup is interrupted, running the same Start-menu action continues
+the recorded installation with idempotent package steps; a missing, unreadable, or
+mismatched marker stops instead of modifying an existing environment. Partial
+installations are retained for diagnosis and are never automatically deleted.
+
+Uninstalling ReEzSynth removes the application, shortcuts, app-local FuouM worker
+environment, downloaded engine source, local and compiled-Python caches, launcher
+files, and an interrupted-setup marker. It preserves Git, Miniforge/Conda, Visual
+Studio Build Tools, CUDA, the selected external Conda environment, external projects
+and renders, and user test media because those components may be shared or user-owned.
+
+If an installer reports that Windows must restart, restart Windows and run the
+Start-menu setup shortcut again. The bootstrap rechecks every prerequisite and
+skips compatible components already installed. It does not restart Windows by
+itself and does not silently replace environments.
+
+To preview the prerequisite plan without installing anything, open PowerShell in
+the installed ReEzSynth directory and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -Plan
+```
+
+To verify an existing ReEzSynth installation without installing prerequisites or
+changing environments:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -CheckOnly
+```
+
+For manual installation, install the same components in the numbered order above,
+then run `setup_reezsynth.ps1`. Detailed custom-Conda, troubleshooting, optional
+component, and native rebuild instructions are in [Windows setup](INSTALL_WINDOWS.md).
+
 ## Using the interface
 
-For a new machine, follow [Windows setup](INSTALL_WINDOWS.md). The setup script
+For a new machine, use the installer workflow above or follow
+[Windows setup](INSTALL_WINDOWS.md). The setup script
 creates the GUI environment and the separate FuouM worker environment, installs
 pinned dependencies and FuouM's RAFT/NeuFlow checkpoints, and checks both engines
-without rendering. A fresh FuouM build requires Git, the CUDA 12.8 toolkit and
-Visual Studio 2022 C++ build tools; setup checks these before large package downloads.
+without rendering. The installer bootstrap supplies Git, Miniforge, the CUDA 12.8
+toolkit and Visual Studio 2022 C++ build tools when compatible installations are
+not already present.
 
 Launch `run_reezsynth.bat` with the existing `reezsynth` Conda environment.
 The entry point is `reezsynth_gui.py`.

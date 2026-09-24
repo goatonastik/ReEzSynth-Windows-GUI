@@ -104,7 +104,8 @@ def command(args, **kwargs):
             raise subprocess.CalledProcessError(process.returncode, args)
 
 
-def install(source, environment, *, plan=False, check=False, neuflow=False):
+def install(source, environment, *, plan=False, check=False, resume=False, neuflow=False,
+            resume_marker=None):
     source, environment = Path(source).resolve(), Path(environment).resolve()
     python = environment / 'Scripts/python.exe'
     if plan:
@@ -118,8 +119,23 @@ def install(source, environment, *, plan=False, check=False, neuflow=False):
         return
     if sys.platform != 'win32' or sys.version_info[:2] != (3, 11) or sys.maxsize < 2**32:
         raise RuntimeError('Run with the working GUI Python 3.11 environment on 64-bit Windows.')
-    if not check and environment.exists():
-        raise RuntimeError(f'Environment already exists; use --check-only or choose a NEW --venv: {environment}')
+    if not check and environment.exists() and not resume:
+        raise RuntimeError(f'Environment already exists; use --check-only, --resume, or choose a NEW --venv: {environment}')
+    if not check and resume:
+        marker_path = Path(resume_marker or ROOT / '.reezsynth-setup-resume.json')
+        try:
+            marker = json.loads(marker_path.read_text(encoding='utf-8'))
+            recorded_environment = Path(marker['fuoum_environment']).resolve()
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError(
+                f'Refusing FuouM resume without a readable setup marker containing '
+                f'the recorded worker environment: {marker_path}') from error
+        if recorded_environment != environment:
+            raise RuntimeError(
+                f'Refusing FuouM resume because the requested environment does not '
+                f'match the setup marker: {environment}')
+    if not check and resume and environment.exists() and not python.is_file():
+        raise RuntimeError(f'Refusing to resume an incomplete environment without Scripts\\python.exe: {environment}')
     if not check:
         check_build_prerequisites(source)
         import torch
@@ -138,7 +154,8 @@ def install(source, environment, *, plan=False, check=False, neuflow=False):
             command(['git', '-C', source, 'checkout', '--detach', FUOUM_REVISION])
         if source_revision(source) != FUOUM_REVISION:
             raise RuntimeError('Existing source is not the supported revision; it was not changed.')
-        command([sys.executable, '-m', 'venv', '--system-site-packages', environment])
+        if not environment.exists():
+            command([sys.executable, '-m', 'venv', '--system-site-packages', environment])
         command([python, '-m', 'pip', 'install', '--disable-pip-version-check', '-r', ROOT / 'requirements-fuoum.txt'])
     manifest = json.loads((ROOT / 'runtime-assets.json').read_text())['files']
     for model in ('sintel', 'kitti'):
@@ -166,9 +183,11 @@ if __name__ == '__main__':
     mode.add_argument('--plan', action='store_true', help='Print proposed work without changes or downloads.')
     mode.add_argument('--check-only', action='store_true', help='Validate an existing install without repairs.')
     mode.add_argument('--preflight', action='store_true', help='Check source/build prerequisites without changes, downloads or PyTorch imports.')
+    mode.add_argument('--resume', action='store_true', help='Continue a setup-created environment without deleting or replacing it.')
     parser.add_argument('--neuflow', action='store_true', help='Download/check all three official pinned NeuFlow checkpoints.')
     args = parser.parse_args()
     if args.preflight:
         print(json.dumps(dict(passed=True, **check_build_prerequisites(args.source)), indent=2))
     else:
-        install(args.source, args.venv, plan=args.plan, check=args.check_only, neuflow=args.neuflow)
+        install(args.source, args.venv, plan=args.plan, check=args.check_only,
+                resume=args.resume, neuflow=args.neuflow)

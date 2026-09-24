@@ -302,22 +302,33 @@ class DualEngineSetupTests(unittest.TestCase):
         self.root = Path(temporary.name)
         shutil.copy2(ROOT / 'setup_reezsynth.ps1', self.root)
 
-    def run_setup(self, *, check=False, fail_flag=''):
+    def run_setup(self, *, check=False, resume=False, existing_environment=False, fail_flag=''):
         # Replace Conda at its process boundary; no actual environment/package install.
         conda = self.root / 'fake conda.ps1'
+        environment = str(self.root / 'conda' / 'envs' / 'reezsynth')
+        environment_list = json.dumps({'envs': [environment] if existing_environment else []})
         conda.write_text('''$arguments = @($args | ForEach-Object { [string]$_ })
 $record = ConvertTo-Json -InputObject $arguments -Compress
 [IO.File]::AppendAllText((Join-Path $PSScriptRoot 'calls.jsonl'), $record + [Environment]::NewLine)
 $global:LASTEXITCODE = 0
-if ($arguments[0] -eq 'env') { Write-Output '{"envs":[]}' }
+if ($arguments[0] -eq 'env') { Write-Output '__ENVIRONMENT_LIST__' }
 if ('__FAIL_FLAG__' -and $arguments -contains '__FAIL_FLAG__') { $global:LASTEXITCODE = 9 }
-'''.replace('__FAIL_FLAG__', fail_flag), encoding='utf-8')
+'''.replace('__FAIL_FLAG__', fail_flag).replace('__ENVIRONMENT_LIST__', environment_list), encoding='utf-8')
         args = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                 str(self.root / 'setup_reezsynth.ps1'), '-CondaExe', str(conda)]
         if check:
             args.append('-CheckOnly')
+        if resume:
+            (self.root / '.reezsynth-setup-resume.json').write_text(json.dumps({
+                'version': 1,
+                'conda_exe': str(conda),
+                'environment_name': 'reezsynth',
+            }), encoding='utf-8')
+            args.append('-Resume')
         result = subprocess.run(args, capture_output=True, text=True, timeout=30)
-        calls = [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
+        call_log = self.root / 'calls.jsonl'
+        calls = ([json.loads(line) for line in call_log.read_text().splitlines()]
+                 if call_log.exists() else [])
         return result, calls
 
     def test_default_installs_both_and_only_then_writes_launcher_configuration(self):
@@ -340,6 +351,40 @@ if ('__FAIL_FLAG__' -and $arguments -contains '__FAIL_FLAG__') { $global:LASTEXI
         self.assertIn('--neuflow', calls[-1])
         self.assertNotIn('Both synthesis engines are installed and checked', result.stdout)
         self.assertFalse(list(self.root.glob('.reezsynth-*.txt')))
+
+    def test_resume_reuses_only_the_named_environment_and_marks_fuoum_resume(self):
+        fuoum = self.root / '.engine_envs' / 'fuoum'
+        fuoum.mkdir(parents=True)
+        result, calls = self.run_setup(resume=True, existing_environment=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(any(call[:2] == ['create', '--yes'] for call in calls))
+        self.assertIn('Resuming existing setup environment', result.stdout)
+        self.assertIn('--resume', calls[-1])
+        self.assertTrue((self.root / '.reezsynth-conda-path.txt').is_file())
+
+    def test_existing_environment_without_resume_is_not_modified(self):
+        result, calls = self.run_setup(existing_environment=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('already exists', result.stdout + result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:2], ['env', 'list'])
+        self.assertFalse(list(self.root.glob('.reezsynth-*.txt')))
+
+    def test_resume_marker_mismatch_stops_before_conda(self):
+        conda = self.root / 'fake conda.ps1'
+        conda.write_text('$global:LASTEXITCODE = 0\n', encoding='utf-8')
+        (self.root / '.reezsynth-setup-resume.json').write_text(json.dumps({
+            'version': 1,
+            'conda_exe': str(conda),
+            'environment_name': 'another-environment',
+        }), encoding='utf-8')
+        result = subprocess.run([
+            'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+            str(self.root / 'setup_reezsynth.ps1'), '-CondaExe', str(conda), '-Resume',
+        ], capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('does not exactly match', result.stdout + result.stderr)
+        self.assertFalse((self.root / 'calls.jsonl').exists())
 
     def test_missing_prerequisites_stop_before_package_downloads(self):
         result, calls = self.run_setup(fail_flag='--preflight')

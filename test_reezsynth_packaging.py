@@ -63,14 +63,45 @@ class PackagingTests(unittest.TestCase):
             self.assertIn(required, script)
         self.assertNotIn('gh release', script.lower())
 
-    def test_installer_is_per_user_and_heavy_setup_is_opt_in(self):
+    def test_installer_is_per_user_and_runs_ordered_bootstrap(self):
         installer = (ROOT / 'installer' / 'ReEzSynth.iss').read_text(encoding='utf-8')
         self.assertIn(r'DefaultDirName={localappdata}\Programs\ReEzSynth', installer)
         self.assertIn('PrivilegesRequired=lowest', installer)
         setup_line = next(line for line in installer.splitlines()
-                          if line.startswith('Filename:') and 'setup_reezsynth.ps1' in line)
+                          if line.startswith('Filename:') and '{code:GetBootstrapParameters}' in line)
         self.assertIn('postinstall', setup_line)
-        self.assertIn('unchecked', setup_line)
+        self.assertNotIn('unchecked', setup_line)
+        for task in ('prerequisites\\git', 'prerequisites\\conda',
+                     'prerequisites\\visualstudio', 'prerequisites\\cuda'):
+            task_line = next(line for line in installer.splitlines()
+                             if line.startswith('Name: "' + task + '"'))
+            self.assertNotIn('unchecked', task_line)
+            self.assertIn('required', task_line)
+        self.assertIn('{code:GetBootstrapParameters}', setup_line)
+        for switch in ('-SkipGit', '-SkipConda', '-SkipVisualStudio', '-SkipCuda'):
+            self.assertIn(switch, installer)
+        bootstrap = (ROOT / 'install_reezsynth.ps1').read_text(encoding='utf-8')
+        ordered = ['Git.Git', 'CondaForge.Miniforge3',
+                   'Microsoft.VisualStudio.2022.BuildTools', 'Nvidia.CUDA']
+        positions = [bootstrap.index(item) for item in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("-Version '12.8'", bootstrap)
+        self.assertIn('Microsoft.VisualStudio.Workload.VCTools', bootstrap)
+        self.assertIn("Join-Path $PSScriptRoot 'setup_reezsynth.ps1'", bootstrap)
+        self.assertIn("Join-Path $PSScriptRoot '.reezsynth-setup-resume.json'", bootstrap)
+        self.assertIn("$arguments += '-Resume'", bootstrap)
+        self.assertIn('$env:CUDA_HOME = $cuda', bootstrap)
+        self.assertIn('$env:CUDA_PATH = $cuda', bootstrap)
+        self.assertIn("'um\\Windows.h'", bootstrap)
+        self.assertIn("'ucrt\\stdio.h'", bootstrap)
+        self.assertIn('Engine setup cannot start because required components are unavailable', bootstrap)
+        for owned in (r'{app}\.engine_envs', r'{app}\engine_sources',
+                      r'{app}\__pycache__', r'{app}\ezsynth',
+                      r'{app}\.reezsynth-conda-path.txt',
+                      r'{app}\.reezsynth-env-name.txt',
+                      r'{app}\.reezsynth-setup-resume.json'):
+            self.assertIn(owned, installer)
+        self.assertNotIn('Name: "{app}"', installer)
         for document in ('INSTALL_WINDOWS.md', 'THIRD_PARTY_NOTICES.md',
                          'CLEAN_MACHINE_TEST.md'):
             shortcut_line = next(line for line in installer.splitlines()
@@ -97,11 +128,35 @@ class PackagingTests(unittest.TestCase):
                 'build_release.ps1', 'requirements-ci.txt', 'run_maintained_tests.py'):
             self.assertIn(excluded, files_line)
         for required in (
-                'reezsynth_gui.py', 'setup_reezsynth.ps1', 'check_reezsynth.py',
+                'reezsynth_gui.py', 'install_reezsynth.ps1', 'setup_reezsynth.ps1', 'check_reezsynth.py',
                 'diagnose_reezsynth_release.py', 'INSTALL_WINDOWS.md',
                 'THIRD_PARTY_NOTICES.md', 'PROJECT_STATUS.md', 'RELEASE_AUDIT.md',
                 'WORK_REMAINING.md', 'licenses', 'third_party', 'runtime-assets.json'):
             self.assertNotIn(required, files_line)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell installer plan')
+    def test_prerequisite_bootstrap_plan_executes_without_writes(self):
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        marker = ROOT / '.reezsynth-setup-resume.json'
+        before = marker.read_bytes() if marker.exists() else None
+        completed = subprocess.run([
+            str(powershell), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+            str(ROOT / 'install_reezsynth.ps1'), '-Plan', '-SkipGit', '-SkipConda',
+            '-SkipVisualStudio', '-SkipCuda', '-SkipEngineSetup',
+        ], cwd=ROOT, text=True, encoding='utf-8', errors='replace',
+            capture_output=True, timeout=30)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        output = completed.stdout + completed.stderr
+        positions = [output.index(label) for label in (
+            'Git for Windows', 'Miniforge (Conda)',
+            'Visual Studio 2022 C++ Build Tools and Windows SDK',
+            'NVIDIA CUDA Toolkit 12.8',
+            'ReEzSynth Python environments, engines, checkpoints and verification',
+        )]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('Plan only: no packages, environments or files were changed.', output)
+        after = marker.read_bytes() if marker.exists() else None
+        self.assertEqual(after, before)
 
     def test_package_workflow_only_builds_manual_candidates(self):
         workflow = (ROOT / '.github' / 'workflows' / 'package.yml').read_text(encoding='utf-8')

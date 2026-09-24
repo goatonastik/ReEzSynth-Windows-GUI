@@ -14,26 +14,72 @@ Allow several GB for the environment and download cache.
 
 ## First installation
 
-1. Install a 64-bit Conda distribution, such as
-   [Miniforge](https://github.com/conda-forge/miniforge#download). Keep your existing
-   Conda installation if you already have one.
-2. Install a current NVIDIA driver appropriate for your GPU. If a native DLL fails
+### Installer-managed setup (recommended)
+
+1. Install a current NVIDIA driver appropriate for your GPU. If a native DLL fails
    to load, check the [Microsoft x64 Visual C++ runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist).
    Do not fetch missing DLLs from third-party DLL sites.
-3. Download/clone the complete ReEzSynth repository into a writable folder and
-   extract it before running scripts. Keep `ezsynth/`, `assets/`, and the licenses.
-   Install Git for Windows, the NVIDIA CUDA **12.8 toolkit**, and Visual Studio
-   2022 C++ build tools with the C++ x64 workload and Windows SDK. FuouM is built
-   locally for your GPU. The CUDA runtime supplied by PyTorch does not include
-   this compiler/toolkit. If several toolkits are installed, set `CUDA_HOME` to
-   the CUDA 12.8 installation folder.
-4. Open PowerShell in that folder. Preview the commands if desired:
+2. On **Select Additional Tasks**, leave the four prerequisite checkboxes selected:
+   **Git for Windows**, **Miniforge/Conda**, **Visual Studio 2022 C++ Build Tools,
+   MSVC x64 toolchain, and Windows SDK**, and **NVIDIA CUDA Toolkit 12.8**. Each is
+   an install-if-missing choice: a compatible existing installation is kept.
+3. On the finish page, leave **Set up and validate the ReEzSynth engine environment
+   now** selected. This fifth checkbox is also selected by default. The same complete
+   setup action is available later from the ReEzSynth Start-menu folder.
+4. The bootstrap checks and processes selections in order: Git, Conda, Visual Studio
+   C++ tools/SDK, CUDA 12.8, then the engines. Visual Studio and CUDA can require
+   Windows administrator approval. ReEzSynth does not suppress those approval
+   prompts or restart Windows automatically.
+5. After prerequisites pass, setup records the exact Conda/environment pair, then
+   creates and verifies the Legacy environment and the separate FuouM worker
+   environment. If Windows, a prerequisite, download, or build interrupts setup,
+   restart if requested and run the same Start-menu action again. Compatible
+   prerequisites are preserved and only the recorded interrupted setup can resume.
+6. Launch ReEzSynth from the Start menu or desktop shortcut after setup reports that
+   both engines passed.
+
+Clearing a prerequisite checkbox prevents the installer from installing that shared
+component. It still detects and uses an already compatible installation. If the
+component is absent or incompatible, setup explains the consequence: without Git,
+FuouM source cannot be obtained; without Conda, the application environment cannot
+be created; without MSVC and a Windows SDK, native extensions cannot be built; and
+without CUDA 12.8, GPU engine/native-extension setup cannot pass. Engine setup stops
+before creating or changing environments if any required selected-or-existing
+component is unavailable. Clearing the finish-page engine checkbox installs only
+the application and shortcuts; rendering remains unavailable until the Start-menu
+setup action completes.
+
+Compatibility detection requires a runnable `git --version`, a runnable
+`conda --version`, Visual Studio 2022 (17.x) with an x64 `cl.exe` and a complete
+Windows 10/11 SDK containing the UM and UCRT headers, and `nvcc --version` reporting
+CUDA release 12.8. Detection does not replace, downgrade, or remove shared tools.
+Immediately after a selected install, the same process searches again and refreshes
+its executable paths. For CUDA it sets process `CUDA_HOME` and `CUDA_PATH`, prepends
+the toolkit `bin` directory, and verifies the detected `nvcc` before engine setup.
+
+Preview the full ordered bootstrap without making changes:
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_reezsynth.ps1 -Plan
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -Plan
    ```
 
-5. Create the environment and run installation checks:
+### Manual setup
+
+Use this path when `winget` is unavailable or an administrator manages system
+software separately.
+
+1. Install Git for Windows.
+2. Install a 64-bit Conda distribution such as
+   [Miniforge](https://github.com/conda-forge/miniforge#download). Keep an existing
+   Conda installation; never target its `base` environment.
+3. Install Visual Studio 2022 C++ Build Tools with the C++ x64 workload, recommended
+   components, and a Windows SDK.
+4. Install the NVIDIA CUDA **12.8 toolkit**. The CUDA runtime supplied by PyTorch and
+   the maximum CUDA version displayed by `nvidia-smi` are not substitutes for the
+   toolkit compiler. If several toolkits exist, set `CUDA_HOME` to CUDA 12.8.
+5. Download/clone and extract the complete ReEzSynth repository into a writable
+   folder, retaining `ezsynth/`, `assets/`, licenses, setup helpers, and runtime assets.
+6. Open PowerShell in that folder and create the environments and run checks:
 
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_reezsynth.ps1
@@ -51,18 +97,33 @@ Allow several GB for the environment and download cache.
    NeuFlow weights with SHA-256 verification, and builds/checks FuouM's extension.
    System compilers and the CUDA toolkit must already be installed.
 
-6. Launch `run_reezsynth.bat` and choose either engine in Rendering. Only after
+7. Launch `run_reezsynth.bat` and choose either engine in Rendering. Only after
    both engines pass does setup record two ignored local text
    files containing the Conda executable path and environment name so double-click
    launches can find custom installations. Do not share those machine-specific files.
 
-Setup refuses to modify an existing Conda environment or an existing FuouM
-worker environment. It never deletes environments, installs into base, or runs
-a render. If either engine's setup fails, setup reports failure and does not
-update launcher configuration; partial installations remain for inspection.
-Use a new Conda environment name when retrying a failed base setup. If a FuouM
-worker environment already exists, use check-only or a fresh repository folder
-for an independent installation; do not overwrite a working environment.
+Setup refuses to modify an unrelated existing Conda environment or FuouM worker
+environment. It never deletes environments, installs into base, or runs a render.
+The installer bootstrap writes `.reezsynth-setup-resume.json` immediately before
+engine setup and removes it only after both engines pass. A later run resumes only
+when that marker matches the exact resolved Conda executable, environment name, and
+app-local FuouM worker-environment path.
+If either engine fails, launcher configuration is not updated and partial work is
+retained. Manual `setup_reezsynth.ps1 -Resume` and `setup_fuoum.py --resume` are
+only for the same interrupted installation; do not use them to adopt or repair an
+unrelated environment. Use check-only or a fresh application folder for independent
+installations.
+
+The safest rerun/resume command is the Start-menu prerequisite/dependency action or:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1
+```
+
+It re-detects prerequisites and validates `.reezsynth-setup-resume.json` before
+passing `-Resume`. Direct `setup_reezsynth.ps1 -Resume` applies the same exact
+resolved-Conda-path and environment-name check. A missing, unreadable, or mismatched
+marker stops without invoking Conda. Do not edit the marker to adopt an environment.
 
 ## Custom Conda installations and existing environments
 
@@ -72,13 +133,52 @@ For a nonstandard installation location:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_reezsynth.ps1 -CondaExe 'E:\miniconda3\Scripts\conda.exe'
 ```
 
-To create a separate environment, add `-EnvironmentName reezsynth-new`. Use
+To run the full prerequisite bootstrap with a custom environment name, use
+`install_reezsynth.ps1 -EnvironmentName reezsynth-new`. To run only the engine
+setup with already installed prerequisites, use `setup_reezsynth.ps1` and the same
+option. Use
 `-NoLauncherConfig` if this is a temporary test environment and the launcher's local
 configuration should remain untouched. `REEZSYNTH_ENV` overrides the launcher's
 saved/default environment name. Without saved configuration the launcher also checks
 `CONDA_EXE`, PATH and common Conda installation folders.
 Both engine environments should be installed together in a fresh repository
 folder when creating a second independent installation.
+
+Uninstalling ReEzSynth removes the app-local FuouM worker environment/source,
+downloaded engine sources, local cache, compiled Python caches, launcher files, and
+any interrupted-setup marker along with the installed application. It does not
+remove Git, Conda/Miniforge, Visual Studio Build Tools, CUDA, the selected external
+named Conda environment, external projects/renders, or user test media. Those are
+shared or user-owned; remove them separately only after confirming that nothing
+else needs them.
+
+## Troubleshooting setup
+
+Verify the exact prerequisite commands seen by setup:
+
+```powershell
+git --version
+conda --version
+where.exe cl
+where.exe nvcc
+nvcc --version
+Get-ChildItem Env:CUDA_HOME,Env:CUDA_PATH
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -CheckOnly
+```
+
+`nvcc --version` must report release 12.8; the CUDA value printed by `nvidia-smi`
+describes driver capability and is not this test. Run the bootstrap from the same
+PowerShell window to refresh CUDA variables immediately. If a third-party installer
+requests a restart, restart Windows and rerun the bootstrap; its guarded marker and
+compatible-installation detection make that the supported recovery path.
+
+Setup output remains in its PowerShell window. To retain it, run the command through
+`Start-Transcript`/`Stop-Transcript`, or redirect both streams to a chosen log file.
+The Inno installer can produce its own install log when launched with
+`/LOG="C:\path\ReEzSynth-install.log"`. Render jobs write `worker.log`, `job.json`,
+and engine manifests in their selected output folder. The GUI's **Save Log...**
+button saves the current session log; inspect paths before sharing logs because they
+can contain local folder names.
 
 For an existing `reezsynth` environment, diagnose without installing anything:
 
@@ -105,7 +205,8 @@ python -B setup_fuoum.py --neuflow
 ```
 
 These component-install commands require an absent FuouM worker environment.
-Use `python -B setup_fuoum.py --check-only --neuflow` for an existing one.
+Use `python -B setup_fuoum.py --check-only --neuflow` for an existing working one,
+or `--resume` only for the same interrupted component setup.
 
 The original-engine check can also run through the launcher:
 
