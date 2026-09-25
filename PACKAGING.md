@@ -34,6 +34,8 @@ application files, shortcuts, app-local engine environments/source, caches, laun
 configuration, and interrupted-setup state. It does not delete Git,
 Miniforge/Conda, Visual Studio Build Tools, CUDA, named Conda environments, or user
 projects outside the application directory.
+Excluded directory names are not created in the installed tree, and uninstall uses
+an empty-directory-only final removal for the application root.
 
 The installer inventory is intentionally narrower than the companion source ZIP.
 The source ZIP and public repository remain the authoritative corresponding source

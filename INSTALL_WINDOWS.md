@@ -151,6 +151,9 @@ remove Git, Conda/Miniforge, Visual Studio Build Tools, CUDA, the selected exter
 named Conda environment, external projects/renders, or user test media. Those are
 shared or user-owned; remove them separately only after confirming that nothing
 else needs them.
+After removing registered and generated application files, uninstall removes the
+ReEzSynth installation directory only when it is empty. An unknown file is preserved
+and therefore keeps the directory for inspection rather than being deleted broadly.
 
 ## Troubleshooting setup
 

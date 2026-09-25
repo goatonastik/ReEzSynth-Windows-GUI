@@ -101,7 +101,8 @@ class PackagingTests(unittest.TestCase):
                       r'{app}\.reezsynth-env-name.txt',
                       r'{app}\.reezsynth-setup-resume.json'):
             self.assertIn(owned, installer)
-        self.assertNotIn('Name: "{app}"', installer)
+        self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
+        self.assertIn('Type: dirifempty; Name: "{app}"', installer)
         for document in ('INSTALL_WINDOWS.md', 'THIRD_PARTY_NOTICES.md',
                          'CLEAN_MACHINE_TEST.md'):
             shortcut_line = next(line for line in installer.splitlines()
@@ -127,6 +128,7 @@ class PackagingTests(unittest.TestCase):
                 r'.github\*', r'installer\*', 'test_*.py', 'test_progress.txt',
                 'build_release.ps1', 'requirements-ci.txt', 'run_maintained_tests.py'):
             self.assertIn(excluded, files_line)
+        self.assertNotIn('createallsubdirs', files_line)
         for required in (
                 'reezsynth_gui.py', 'install_reezsynth.ps1', 'setup_reezsynth.ps1', 'check_reezsynth.py',
                 'diagnose_reezsynth_release.py', 'INSTALL_WINDOWS.md',

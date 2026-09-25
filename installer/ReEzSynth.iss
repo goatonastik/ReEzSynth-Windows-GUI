@@ -48,7 +48,7 @@ VersionInfoProductVersion={#MyNumericVersion}
 ; Keep the installer focused on the runnable application and user-facing support
 ; material. The complete repository, tests and maintainer records remain in the
 ; companion source ZIP and public Git repository.
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: ".github\*,installer\*,test_*.py,test_progress.txt,build_release.ps1,requirements-ci.txt,run_maintained_tests.py"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: ".github\*,installer\*,test_*.py,test_progress.txt,build_release.ps1,requirements-ci.txt,run_maintained_tests.py"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"
@@ -88,6 +88,9 @@ Type: filesandordirs; Name: "{app}\.reezsynth-cache"
 Type: files; Name: "{app}\.reezsynth-conda-path.txt"
 Type: files; Name: "{app}\.reezsynth-env-name.txt"
 Type: files; Name: "{app}\.reezsynth-setup-resume.json"
+; Remove the installation root only after every registered and generated item is
+; gone. Unknown files keep the directory in place for preservation and review.
+Type: dirifempty; Name: "{app}"
 
 [Code]
 function GetBootstrapParameters(Param: String): String;

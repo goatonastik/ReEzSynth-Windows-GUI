@@ -101,6 +101,8 @@ environment, downloaded engine source, local and compiled-Python caches, launche
 files, and an interrupted-setup marker. It preserves Git, Miniforge/Conda, Visual
 Studio Build Tools, CUDA, the selected external Conda environment, external projects
 and renders, and user test media because those components may be shared or user-owned.
+The installation directory itself is removed when empty; unknown files prevent that
+final directory removal so they remain available for inspection.
 
 If an installer reports that Windows must restart, restart Windows and run the
 Start-menu setup shortcut again. The bootstrap rechecks every prerequisite and
