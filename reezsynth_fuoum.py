@@ -110,11 +110,6 @@ def render_fuoum_job(job, progress):
     validate_capabilities(options, image=image_job, blend=job.get('blend_options'), exports=job.get('exports'))
     if options['engine'] != FUOUM:
         raise ValueError('FuouM adapter received a different engine selection.')
-    from reezsynth_alpha import reject_fuoum_alpha
-    style_paths = ([job['image_synthesis']['style']] if image_job else
-                   [path for _, path in job['styles']] if job.get('type') == 'grouped_video' else
-                   [job['style']])
-    reject_fuoum_alpha(style_paths)
     runtime = job.get('engine_runtime')
     if not isinstance(runtime, dict) or runtime.get('engine') != FUOUM:
         raise ValueError('FuouM jobs need an engine_runtime prepared by the frontend.')
@@ -159,7 +154,21 @@ def render_fuoum_job(job, progress):
                 raise ValueError('Source and styled frames must have matching dimensions.')
             values.append(cv2.resize(frame, size, interpolation=cv2.INTER_AREA))
         return values
-    frames, styles = load_frames(entries), load_frames(style_entries)
+    frames = load_frames(entries)
+    from reezsynth_alpha import read_style, as_bgra
+    from reezsynth_fuoum_alpha import associated_style, straight_output
+    raw_styles = array_sequence((read_style(path) for _, path in style_entries), numbers=key_numbers)
+    rgba = any(style.shape[2] == 4 for style in raw_styles)
+    if any(style.shape[:2] != original_shape[:2] for style in raw_styles):
+        raise ValueError('Source and styled frames must have matching dimensions.')
+    if rgba:
+        styles = array_sequence((associated_style(as_bgra(style), size) for style in raw_styles), numbers=key_numbers)
+        exact_keys = array_sequence((as_bgra(style) if style.shape[1::-1] == size else
+            straight_output(associated_style(as_bgra(style), size)) for style in raw_styles), numbers=key_numbers)
+        if video_export['enabled'] and not (options['do_mask'] and options['fuoum_alpha_mask_mode'] == 'Composite onto source'):
+            raise ValueError('Transparent FuouM renders require PNG output. Disable MP4 export; it cannot preserve alpha.')
+    else:
+        styles = array_sequence((cv2.resize(style, size, interpolation=cv2.INTER_AREA) for style in raw_styles), numbers=key_numbers)
     def load_guides(field, enabled, interpolation):
         if not enabled:
             return []
@@ -180,10 +189,10 @@ def render_fuoum_job(job, progress):
     weights = validate_weights(job.get('guide_weights'))
     originals = frames
     if masks and options['pre_mask']:
-        frames = array_sequence(((frame * (mask[..., None].astype(np.float32) / 255)).astype(np.uint8)
-                  for frame, mask in zip(frames, masks)), numbers=numbers)
-        styles = array_sequence(((style * (masks[numbers.index(key)][..., None].astype(np.float32) / 255)).astype(np.uint8)
-                  for key, style in zip(key_numbers, styles)), numbers=key_numbers)
+        frames = array_sequence((np.clip(np.rint(frame * (mask[..., None].astype(np.float32) / 255)), 0, 255).astype(np.uint8)
+                                 for frame, mask in zip(frames, masks)), numbers=numbers)
+        styles = array_sequence((np.clip(np.rint(style * (masks[numbers.index(key)][..., None].astype(np.float32) / 255)), 0, 255).astype(np.uint8)
+                                 for key, style in zip(key_numbers, styles)), numbers=key_numbers)
     records, error_maps, flow_images = [], array_sequence(), array_sequence()
     if len(frames) > 1:
         if min(size) < 128:
@@ -244,7 +253,8 @@ def render_fuoum_job(job, progress):
                         flow_images.append(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
             pipeline = extend_pipeline(config, data, masks, edges, weights['mask_wgt'] / weights['key_wgt'],
                                        blend['only_mode'], capture_pass, cache_job=job, runtime=runtime,
-                                       bidirectional=options['fuoum_bidirectional_flow'],
+                                         bidirectional=options['fuoum_bidirectional_flow'],
+                                         edge_settings=options,
                                        on_flow=lambda a, b, f: vectors.add(numbers[a], numbers[b], f))
             backend_run_level = install_final_pass_compatibility(pipeline.synthesis_engine)
             original = pipeline.synthesis_engine.run
@@ -261,7 +271,8 @@ def render_fuoum_job(job, progress):
                 origin = number_of(style, origins)
                 preview = None
                 if target is not None and origin is not None:
-                    preview = publisher.publish(origin, 'Backward' if target < origin else 'Forward', target, result[0])
+                    preview = publisher.publish(origin, 'Backward' if target < origin else 'Forward', target,
+                        straight_output(result[0]) if rgba else result[0])
                 progress(15 + 65 * completed / max(1, expected), f'FuouM synthesis {completed}/{expected}', preview=preview)
                 print(f'[Timing] FuouM frame {completed}/{expected}: {time.perf_counter() - started:.3f}s', flush=True)
                 return result
@@ -278,15 +289,24 @@ def render_fuoum_job(job, progress):
         raise RuntimeError(f'FuouM returned {len(results)} frames; expected {len(frames)}.')
     modulation.finish(output)
     for index, (number, image) in enumerate(zip(numbers, results)):
+        expected_shape = (*frames[index].shape[:2], 4 if rgba else 3)
+        if not isinstance(image, np.ndarray) or image.shape != expected_shape or not np.isfinite(image).all():
+            raise RuntimeError(f'Invalid FuouM output at frame {number}.')
         if masks:
             mask = masks[index]
             if options['feather']:
                 radius = options['feather']
                 mask = cv2.GaussianBlur(mask, (radius, radius), 0)
-            alpha = mask[..., None].astype(np.float32) / 255
-            image = (image * alpha + originals[index] * (1 - alpha)).astype(np.uint8)
-        if not isinstance(image, np.ndarray) or image.shape != frames[index].shape or not np.isfinite(image).all():
-            raise RuntimeError(f'Invalid FuouM output at frame {number}.')
+            if rgba:
+                from reezsynth_fuoum_alpha import clip_artwork, composite_source
+                image = (composite_source(image, originals[index], mask) if
+                    options['fuoum_alpha_mask_mode'] == 'Composite onto source' else
+                    straight_output(clip_artwork(image, mask)))
+            else:
+                alpha = mask[..., None].astype(np.float32) / 255
+                image = (image * alpha + originals[index] * (1 - alpha)).astype(np.uint8)
+        elif rgba:
+            image = exact_keys[key_numbers.index(number)] if number in key_numbers else straight_output(image)
         ok, encoded = cv2.imencode('.png', np.clip(image, 0, 255).astype(np.uint8))
         if not ok:
             raise RuntimeError(f'Cannot encode FuouM frame {number}.')
@@ -299,6 +319,15 @@ def render_fuoum_job(job, progress):
     save_artifacts(output, exports, records, error_maps, flow_images,
                    scope='FuouM raw synthesis passes; frame-aligned errors before blending/compositing')
     vectors.finish()
+    if rgba:
+        from reezsynth_config import atomic_json
+        from reezsynth_fuoum_alpha import VERSION
+        atomic_json(output / 'alpha_manifest.json', dict(version=1, implementation=VERSION,
+            output_channels=4, png_alpha='straight', synthesis_color='associated',
+            reconstruction_alpha='same error-selected pass as color; not histogram matched or Poisson reconstructed',
+            mask_mode=options['fuoum_alpha_mask_mode'] if masks else 'No mask',
+            exact_keyframes=not masks and size == (width, height),
+            generated_hidden_rgb='zero for zero alpha', style_frames=key_numbers))
     if video_export['enabled']:
         progress(99, 'Encoding rendered video')
         from reezsynth_video_export import export_rendered_video

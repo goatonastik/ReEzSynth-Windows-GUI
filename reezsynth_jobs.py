@@ -230,6 +230,9 @@ def render_job(job_path):
 
 
 def _dispatch_render_job(job_path, job):
+    if job.get('type') == 'comparison_sheet':
+        from reezsynth_comparison import render_comparison_sheet
+        return render_comparison_sheet(job, progress)
     from reezsynth_engines import LEGACY, FUOUM, validate_engine, write_engine_manifest
     engine = validate_engine(job.get('render_options', {}).get('engine', LEGACY))
     if engine == FUOUM:
@@ -420,7 +423,7 @@ def _render_legacy_job(job_path):
             if masks and options['pre_mask']:
                 from ezsynth.aux_masker import apply_mask
                 source, synthesis_style = apply_mask(source, masks[0]), apply_mask(style, masks[0])
-            edge = edge_guides[0] if edge_guides else precompute_edge_guides([source], options['edge_method'])[0]
+            edge = edge_guides[0] if edge_guides else precompute_edge_guides([source], options['edge_method'], options)[0]
             guide_weights = {name: weights[name] / weights['key_wgt'] for name in
                              ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')}
             from reezsynth_alpha import keyframe_guides
@@ -471,7 +474,7 @@ def _render_legacy_job(job_path):
                                "flow_arch", "flow_model", "ebsynth_backend", "engine",
                                "temporal_nnf", "sparse_features", "stream_frames",
                                "searchvote_schedule", "patchmatch_schedule", "modulation_guide",
-                               "modulation_dir") and not name.startswith('fuoum_')},
+                               "modulation_dir") and not name.startswith(('fuoum_', 'edge_'))},
             **{name: weights[name] / weights['key_wgt'] for name in ('edg_wgt', 'img_wgt', 'pos_wgt', 'wrp_wgt')},
             **{name: value for name, value in blend_options.items() if not name.startswith('fuoum_')},
         )
@@ -483,6 +486,7 @@ def _render_legacy_job(job_path):
             img_frs_seq=frames,
             cfg=config,
             edge_method=options["edge_method"],
+            edge_settings=options,
             raft_flow_model_name=options["flow_model"],
             flow_arch=options["flow_arch"],
             do_mask=options["do_mask"],
@@ -503,7 +507,7 @@ def _render_legacy_job(job_path):
                             if options['do_mask'] and options['pre_mask'] else frames)
             frame_digests = [array_digest(frame) for frame in cache_frames]
             identity = edge_identity(engine_runtime['engine'], engine_runtime['revision'],
-                                     options['edge_method'])
+                                     options['edge_method'], options)
             cached_edges, missing = array_sequence([None] * count), []
             for index, digest in enumerate(frame_digests):
                 directory = cache_entry_from_digests(job, 'edges', [digest], identity)
@@ -515,7 +519,7 @@ def _render_legacy_job(job_path):
                     cached_edges[index] = value
             if missing:
                 computed = precompute_edge_guides(
-                    array_sequence(cache_frames[index] for index, _ in missing), options['edge_method'])
+                    array_sequence(cache_frames[index] for index, _ in missing), options['edge_method'], options)
                 for (index, directory), value in zip(missing, computed):
                     cached_edges[index] = value
                     if directory is not None:

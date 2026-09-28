@@ -156,5 +156,11 @@ def store_array(path, value):
                 pass
 
 
-def edge_identity(engine, revision, method):
-    return dict(engine=engine, revision=revision, method=method)
+def edge_identity(engine, revision, method, settings=None):
+    from reezsynth_edges import edge_parameters
+    parameters = edge_parameters(method, settings)
+    identity = dict(engine=engine, revision=revision, method=method)
+    # Preserve valid old default caches; only effective non-default tuning changes keys.
+    if parameters != edge_parameters(method):
+        identity.update(tuning_version=1, parameters=parameters)
+    return identity

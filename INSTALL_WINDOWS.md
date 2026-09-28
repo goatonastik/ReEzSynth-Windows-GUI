@@ -30,6 +30,9 @@ Allow several GB for the environment and download cache.
    C++ tools/SDK, CUDA 12.8, then the engines. Visual Studio and CUDA can require
    Windows administrator approval. ReEzSynth does not suppress those approval
    prompts or restart Windows automatically.
+   WinGet is preferred when available. If it is missing or fails, the default
+   `Auto` mode uses verified installers from the official Git for Windows,
+   conda-forge, Microsoft, and NVIDIA sites instead.
 5. After prerequisites pass, setup records the exact Conda/environment pair, then
    creates and verifies the Legacy environment and the separate FuouM worker
    environment. If Windows, a prerequisite, download, or build interrupts setup,
@@ -63,10 +66,30 @@ Preview the full ordered bootstrap without making changes:
    powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -Plan
    ```
 
+The installer source can also be selected explicitly:
+
+   ```powershell
+   # Never use WinGet; use the verified official direct installers.
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -PrerequisiteSource Direct
+
+   # Require WinGet and stop rather than falling back.
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -PrerequisiteSource WinGet
+   ```
+
+Direct mode currently pins Git for Windows 2.55.0(5), Miniforge 26.7.2-0, and
+the CUDA 12.8.1 network bootstrapper by SHA-256. The Visual Studio 2022 Build
+Tools permalink changes as Microsoft services it, so setup instead requires a
+valid Microsoft Authenticode signature before execution. The NVIDIA download is
+also signature checked. Downloads are published atomically into the app-local
+`.prerequisite-cache` only after verification and can be reused after an
+interruption. CUDA direct mode requests the documented 12.8 toolkit subpackages
+and Visual Studio integration but deliberately omits `Display.Driver`, preserving
+the already-detected NVIDIA driver.
+
 ### Manual setup
 
-Use this path when `winget` is unavailable or an administrator manages system
-software separately.
+Use this path when an administrator manages system software separately or when
+both the automatic WinGet and verified direct-download methods are unsuitable.
 
 1. Install Git for Windows.
 2. Install a 64-bit Conda distribution such as
@@ -145,8 +168,9 @@ Both engine environments should be installed together in a fresh repository
 folder when creating a second independent installation.
 
 Uninstalling ReEzSynth removes the app-local FuouM worker environment/source,
-downloaded engine sources, local cache, compiled Python caches, launcher files, and
-any interrupted-setup marker along with the installed application. It does not
+downloaded engine sources, verified prerequisite-download cache, local cache,
+compiled Python caches, launcher files, and any interrupted-setup marker along
+with the installed application. It does not
 remove Git, Conda/Miniforge, Visual Studio Build Tools, CUDA, the selected external
 named Conda environment, external projects/renders, or user test media. Those are
 shared or user-owned; remove them separately only after confirming that nothing

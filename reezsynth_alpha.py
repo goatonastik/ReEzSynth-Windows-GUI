@@ -16,6 +16,8 @@ def read_style(path):
     raw = cv2.imdecode(data, cv2.IMREAD_UNCHANGED) if data.size else None
     if raw is None:
         raise ValueError(f'Cannot decode image: {path}')
+    if raw.ndim == 3 and raw.shape[2] not in (3, 4):
+        raise ValueError(f'Keyframes must decode as grayscale, RGB, or RGBA images: {path}')
     if raw.ndim == 3 and raw.shape[2] == 4:
         opaque = np.iinfo(raw.dtype).max
         if np.any(raw[..., 3] != opaque):
@@ -32,14 +34,6 @@ def as_bgra(image):
         return image
     from reezsynth_sequence import copy_number
     return copy_number(cv2.cvtColor(image, cv2.COLOR_BGR2BGRA), image)
-
-
-def reject_fuoum_alpha(paths):
-    for path in paths:
-        if read_style(path).shape[2] == 4:
-            raise ValueError('FuouM transparent RGBA keyframes are not supported by the pinned '
-                             'video/reconstruction pipeline. Select Trentonom0r3/Ezsynth '
-                             '(Legacy) to preserve transparency. Alpha will not be flattened.')
 
 
 def keyframe_guides(style, source, edge, weights):

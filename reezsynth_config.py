@@ -14,6 +14,7 @@ from reezsynth_image import validate_image_settings
 from reezsynth_engines import LEGACY, FUOUM, validate_engine, validate_revision
 from reezsynth_iterations import SCHEDULE_FIELDS, parse_schedule, validate_schedule
 from reezsynth_modulation import VIDEO_MODES
+from reezsynth_edges import EDGE_DEFAULTS, EDGE_SPECS, validate_edge_settings
 
 WEIGHTS = {"edg_wgt": 1.0, "img_wgt": 6.0, "pos_wgt": 2.0, "wrp_wgt": 0.5,
            "key_wgt": 1.0, "mask_wgt": 0.0}
@@ -27,13 +28,15 @@ HIGHEST = dict(STANDARD, pyramidlevels=-1)
 KEYFRAME_PRESERVATION_MODES = ('Current behavior', 'Exact output', 'Transition-aware')
 
 RENDER = dict(engine=LEGACY, keyframe_preservation=KEYFRAME_PRESERVATION_MODES[0], **STANDARD,
-              edge_method="Classic", do_mask=False, pre_mask=False, feather=0,
+              edge_method="Classic", **EDGE_DEFAULTS, do_mask=False, pre_mask=False, feather=0,
               custom_edge_guides=False, memory_efficient_raft=False, flow_arch="RAFT",
               flow_model="sintel", ebsynth_backend="cuda", temporal_nnf=True, sparse_features=True,
               fuoum_vote_mode="weighted", fuoum_cost_function="ssd", fuoum_stop_threshold=5,
               fuoum_search_pruning_threshold=50.0, fuoum_sparse_anchor_weight=10.0,
               fuoum_flow_engine='RAFT', fuoum_neuflow_model='neuflow_sintel', fuoum_raft_model='sintel',
-              fuoum_bidirectional_flow=False, stream_frames=False,
+              fuoum_bidirectional_flow=False, fuoum_force_recompute_flow=False,
+              fuoum_force_recompute_edge=False, stream_frames=False,
+              fuoum_alpha_mask_mode='Transparent artwork',
               modulation_guide='Off', modulation_dir='', fuoum_backend='cuda')
 APPLICATION = dict(discover=False, keys_prefix="keys", video_prefix="video",
     auto_start=False, wait_for_mask=False, parallel=False, parallel_limit=2,
@@ -225,7 +228,9 @@ def validate_render(data=None):
         result['fuoum_raft_model'] = data['flow_model']
     for name, default in RENDER.items():
         value = result[name]
-        if name in SCHEDULE_FIELDS:
+        if name in EDGE_SPECS:
+            continue  # Validated together below, including the threshold relationship.
+        elif name in SCHEDULE_FIELDS:
             result[name] = validate_schedule(value)
         elif isinstance(default, bool):
             if type(value) is not bool:
@@ -233,6 +238,9 @@ def validate_render(data=None):
         elif name == 'fuoum_backend':
             if value not in ('cuda', 'torch'):
                 raise ValueError('Unknown FuouM synthesis backend.')
+        elif name == 'fuoum_alpha_mask_mode':
+            if value not in ('Transparent artwork', 'Composite onto source'):
+                raise ValueError('Unknown transparent FuouM mask output mode.')
         elif name == 'modulation_guide':
             if value not in VIDEO_MODES:
                 raise ValueError('Unknown video modulation guide.')
@@ -283,6 +291,7 @@ def validate_render(data=None):
             low, high = LIMITS[name]
             if not low <= value <= high:
                 raise ValueError(f"{name} must be between {low} and {high}.")
+    result.update(validate_edge_settings(result, result['edge_method']))
     if result["patchsize"] % 2 != 1:
         raise ValueError("Patch size must be odd.")
     if result['pyramidlevels'] == 0:

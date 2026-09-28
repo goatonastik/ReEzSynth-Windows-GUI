@@ -1119,6 +1119,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def run_rows(self, rows, grouped=False):
+        if self.options.edge_preview_active():
+            self.status.setText('Wait for Edge Preview to finish, or cancel it before rendering.')
+            return
         if self.busy or self.process is not None or self.close_when_idle:
             return
 
@@ -1291,6 +1294,9 @@ class MainWindow(QMainWindow):
         self.start_records(records, batch, shared, parallel, worker_script, application)
 
     def run_image(self):
+        if self.options.edge_preview_active():
+            self.status.setText('Wait for Edge Preview to finish, or cancel it before rendering.')
+            return
         if self.busy or self.process is not None or self.close_when_idle:
             return
         self.options.auto_timer.stop()
@@ -1411,14 +1417,25 @@ class MainWindow(QMainWindow):
             records = []
             from reezsynth_config import atomic_json
             from reezsynth_output_location import create_unique_directory
+            replacements = {}
             for item in recoverable:
                 entry, job = item['entry'], dict(item['job'])
                 output, job_path = item['output'], item['job_path']
-                if item['partial']:
+                original_path = str(job_path.resolve())
+                redirected = False
+                if job.get('type') == 'comparison_sheet':
+                    from reezsynth_comparison import remap_sheet_dependencies
+                    redirected_job = remap_sheet_dependencies(job, replacements)
+                    redirected = redirected_job != job
+                    job = redirected_job
+                if item['partial'] or redirected:
                     output = create_unique_directory(output.parent, output.name + '_recovered')
                     job['output'] = str(output)
                     job_path = output / 'job.json'
                     atomic_json(job_path, job)
+                replacements[original_path] = str(job_path.resolve())
+                if job.get('type') == 'comparison_sheet':
+                    self.options.last_comparison_sheet = output / 'contact_sheet.png'
                 row = self.recovery_row(entry, output)
                 runtime = job.get('engine_runtime') if isinstance(job.get('engine_runtime'), dict) else {}
                 records.append(dict(row=row, key=entry.get('key'), job_path=job_path,
@@ -1448,7 +1465,10 @@ class MainWindow(QMainWindow):
             return False
 
     def start_records(self, records, batch, shared, parallel, worker_script, application,
-                      journal_name='.reezsynth-queue.json'):
+                        journal_name='.reezsynth-queue.json'):
+        if self.options.edge_preview_active():
+            self.status.setText('Wait for Edge Preview to finish, or cancel it before rendering.')
+            return
         if self.options.installation_active():
             QMessageBox.information(
                 self, 'Component maintenance',
@@ -2277,6 +2297,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save diagnostics log", str(exc))
 
     def closeEvent(self, event):
+        if self.options.edge_preview_active():
+            preview = self.options.edge_preview
+            preview.close_parent = True
+            preview.cancel()
+            event.ignore()
+            return
         if self.options.installation_active():
             event.ignore()
             if self.close_when_idle:

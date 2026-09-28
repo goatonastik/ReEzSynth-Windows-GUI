@@ -18,6 +18,7 @@ def file_sha256(path):
 
 def _paths(job, job_path):
     values = []
+    values.extend(variant['job'] for variant in job.get('comparison_variants', []))
     image = job.get('image_synthesis', {})
     for name in ('style', 'source', 'target', 'modulation'):
         if image.get(name):

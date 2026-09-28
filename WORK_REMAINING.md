@@ -359,6 +359,135 @@ Numeric/indexing decisions: [NUMERIC_SETTINGS.md](NUMERIC_SETTINGS.md).
 Release gates: [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
 Detailed evidence: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
+## User-selected next feature: advanced edge tuning and preview
+
+- [x] After the current installer work, add a collapsible Advanced edge settings
+  panel below Edge method in Rendering, showing only relevant detector controls.
+- [x] Add a separate resizable Edge Preview window with source-frame selection,
+  source/edge views, optional overlay, and comparison with detector defaults.
+  Start with explicit Update Preview and an outdated indicator. Compute one
+  frame in a separate process using the same edge path and processing size as
+  rendering; label any reduced-resolution preview clearly.
+- [x] Persist tuning in rendering presets/projects and include Reset edge settings
+  to defaults. Old documents retain current detector defaults. Custom edge-guide
+  sequences bypass automatic detector tuning.
+- [x] Apply tuning and preview through each supported engine's actual edge path,
+  including FuouM; previewed settings must also affect rendering and cache identity.
+
+Implemented locally on 2026-09-26; see EDGE_TUNING.md for use and verification.
+Existing detector defaults are preserved. One-frame real-worker checks passed
+Classic/PST/PAGE in both engines at 256x128. Offscreen GUI checks exercise preview,
+cleanup and outdated indicators. Full production synthesis quality comparison and
+normal Windows interactive visual review remain separate acceptance work.
+Final maintained suite: 439 passed in 79.583s, including 12 new edge tests.
+Real GUI cancel/restart, cleanup and equal-size comparison checks passed for both
+engines. Retained screenshots: `edge_preview_20260926_010349_757191` (FuouM)
+and `edge_preview_20260926_010454_151191` (Legacy), under diagnostic_outputs.
+No full synthesis job, installer execution, commit, or push was performed for
+this edge-feature pass; existing unrelated installer edits were preserved.
+
+## Additional user-selected FuouM TODOs (priority order)
+
+These follow the advanced edge-tuning/preview feature above. The recompute controls
+and the other listed FuouM features are implemented locally; production acceptance
+work remains separate.
+
+1. [x] **Force-recompute flow and edges:** FuouM video controls now compute fresh
+   precomputations for each render when requested, with an explanation of what
+   will be recalculated. They bypass shared reads/writes without deleting or
+   replacing immutable cache entries; normal reuse remains unchanged. This is
+   per-render recomputation, not shared-cache refresh. See PRECOMPUTE_RECOMPUTE.md.
+   Validation on 2026-09-26: 449 maintained tests passed in 82.686s, including
+   10 new recompute tests. Real two-frame 128x128 FuouM warm/reuse/forced renders
+   passed with both flow directions and unchanged shared-cache hashes. Retained
+   explicit Preview diagnostic: `recompute_20260926_020605_860142`.
+   No commit or push was created; unrelated existing installer edits were preserved.
+2. [x] **Short comparison renders:** prepare selected-frame/range comparisons of
+   RAFT versus NeuFlow, independently measured backward flow, reconstruction
+   methods, or CUDA versus experimental torch. Use fresh outputs and record
+   settings; provide static comparison/contact sheets, without synchronized playback.
+   Implemented with sequential isolated queue jobs, frozen settings, separate
+   output folders, a final static sheet/manifest job, and recovery dependency
+   remapping. See COMPARISON_RENDERS.md for scope and validation limitations.
+   Validation on 2026-09-26: 456 maintained tests passed in 82.793s;
+   seven comparison regressions also passed after the final wording update.
+   Real three-frame 128x128 FuouM one/two-direction renders and static sheet
+   passed; retained diagnostic: `comparison_20260926_023457_363342`.
+   The sheet was visually inspected. Other templates have planning coverage,
+   not new real-GPU quality certification. No commit or push was created.
+3. [x] **Native FuouM YAML import/export:** add validated translation between the
+   pinned native schema and frontend project settings for upstream interchange.
+   Clearly report unsupported or non-equivalent fields rather than silently
+   dropping them. Keep existing frontend project/preset formats compatible.
+   Implemented as settings-only native import into the current GUI project and
+   native full-folder project export, with confirmation and compatibility notes
+   embedded in exported YAML comments. Arbitrary native input layouts are NOT
+   automatically loaded; full frontend round trips and native visual parity are
+   not promised. Existing GUI project/preset formats are unchanged.
+   See NATIVE_FUOUM_YAML.md for supported mappings, limitations and diagnostics.
+   Validation on 2026-09-26: 475 maintained tests passed in 85.597s, including
+   18 new native-interchange tests. The installed pinned FuouM Pydantic schema
+   accepted the generated YAML; no native render/output/cache was launched or
+   created. Diagnostic retained: `native_yaml_20260926_140432_288993`.
+   Shared-planner verification also corrected short comparisons to exclude keys
+   outside their selected range, with a new regression (eight comparison tests).
+   No commit or push was created; installer edits and transparent-keyframe work
+   were left untouched.
+4. [x] **Transparent FuouM keyframes:** the user explicitly authorized this work
+   on 2026-09-26 and requested both transparent-artwork and source-composite mask
+   choices. Implemented associated-color RGBA synthesis, propagation, separate
+   alpha selection in grouped reconstruction, exact unmasked native-size keys,
+   alpha-aware resize/preview, both persisted mask modes and PNG output metadata.
+   RGB-only and Legacy render paths retain their existing behavior. Transparent
+   MP4 output is rejected; explicitly opaque source composites may export MP4.
+   Native YAML rejects transparent styles rather than flattening them upstream.
+   See TRANSPARENT_FUOUM.md. 496 maintained tests passed in 99.062s, including
+   19 alpha tests and two additional native alpha-export compatibility tests.
+   Live thumbnail publication preserves inputs; composite MP4 success/failure
+   tests verify completion ordering and disk-storage cleanup. A real three-frame
+   composite MP4 encode/decode passed (retained diagnostic linked in the feature doc).
+   Preview checkerboard/opaque coverage is verified; offscreen caption placeholders
+   were isolated to offscreen font resolution (normal Windows glyphs resolve).
+   Resized-keyframe input preservation and 16-bit rejection are
+   covered; a repeated 16-job matrix also verified all input file hashes.
+   Sixteen real backend probes and sixteen real 128x128
+   full-worker jobs passed. Production line-art quality and long-run acceptance
+   remain open; these small checks do not establish visual quality or geometry
+   preservation in generated frames. No commit or push was created.
+
+## User-requested major feature: AI-assisted Keyframe Generator
+
+Specification: [KEYFRAME_GENERATOR_PLAN.md](KEYFRAME_GENERATOR_PLAN.md).
+Planned, not implemented. Its position relative to the additional FuouM items
+is not yet selected; the advanced edge-tuning panel is now implemented locally.
+
+- [ ] Build deterministic protected-contour bands, editable masks, exact protected
+  pixel restoration, and geometry QC. The drawing is the geometry authority.
+- [ ] Add a reusable Keyframe Engine with semantic settings and a verified
+  model-family adapter to ComfyUI; keep node IDs out of frontend code.
+- [ ] Integrate a Keyframe Generator tab and frame action, source/drawing/style
+  context, candidate previews, explicit approval, and safe numbered key assignment.
+- [ ] Add asynchronous generation/progress/cancellation, compatible project/preset
+  metadata, non-destructive versioning, and coordination with synthesis GPU jobs.
+- [ ] Provide an optional isolated, pinned managed Windows backend, selected
+  existing/external backend support, capability checks, and owned-process cleanup.
+- [ ] Deliver two first-class modes: Generate New Keyframe is the broader product
+  purpose; Modify Existing Keyframe is the owner's specialized personal priority
+  and may receive implementation attention first. Share conditioning, style,
+  backend, and QC infrastructure, with mode-specific geometry authority and
+  protection policies. Expand controls/model families only after verification.
+- [ ] Within Modify Existing Keyframe, develop the owner's transparent line-art
+  profile: black antialiased strokes, transparent background, and sparse intentional
+  color accents (for example white eyes/teeth and dark red mouth interiors).
+  Provide explicit protection/edit masks and alpha-aware previews; do not limit
+  general refinement to this artwork type or implicitly flatten/fill the drawing.
+  Agree the intended refinement effects with the owner before selecting defaults.
+
+The generator specification did not authorize transparent FuouM work; the user
+separately granted that permission on 2026-09-26 (implementation described above).
+The generator itself remains planned. It does not
+reintroduce direct video import or synchronized video comparison playback.
+
 ## Next model handoff
 
 The high-reasoning implementation sequence is complete, including the approved

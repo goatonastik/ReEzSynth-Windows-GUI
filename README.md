@@ -52,17 +52,21 @@ default-selected **Set up and validate the ReEzSynth engine environment now**
 checkbox. The same complete setup is available later from **Start > ReEzSynth >
 Install ReEzSynth prerequisites and dependencies**.
 
-Setup requires an NVIDIA CUDA-capable GPU and an installed NVIDIA driver. It uses
-Windows Package Manager (`winget`) for third-party prerequisites, displays their
-package identities before running them, and may show Windows administrator
-approval prompts. It installs several gigabytes and can take a substantial amount
-of time. Do not close the setup window while an installer or engine build is
-running.
+Setup requires an NVIDIA CUDA-capable GPU and an installed NVIDIA driver. It prefers
+Windows Package Manager (`winget`) for third-party prerequisites. When WinGet is
+unavailable or an automatic WinGet install fails, setup falls back to official
+direct downloads. Pinned Git, Miniforge, and CUDA installers are checked against
+reviewed SHA-256 values; the moving Microsoft Visual Studio bootstrapper must have
+a valid Microsoft Authenticode signature. The CUDA fallback installs toolkit
+components without replacing the display driver. Administrator approval can still
+be required for Visual Studio and CUDA. Setup installs several gigabytes and can
+take a substantial amount of time. Do not close the setup window while an installer
+or engine build is running.
 
 Prerequisites and ReEzSynth components are installed in this order:
 
-1. Verify 64-bit Windows, `winget`, the NVIDIA GPU driver, and free access to the
-   required package sources.
+1. Verify 64-bit Windows, the NVIDIA GPU driver, and access to either WinGet or the
+   official prerequisite download sites.
 2. Keep an existing Git for Windows installation, or install `Git.Git`.
 3. Keep an existing Conda distribution, or install Miniforge with
    `CondaForge.Miniforge3`. ReEzSynth never installs packages into Conda `base`.
@@ -97,8 +101,9 @@ mismatched marker stops instead of modifying an existing environment. Partial
 installations are retained for diagnosis and are never automatically deleted.
 
 Uninstalling ReEzSynth removes the application, shortcuts, app-local FuouM worker
-environment, downloaded engine source, local and compiled-Python caches, launcher
-files, and an interrupted-setup marker. It preserves Git, Miniforge/Conda, Visual
+environment, downloaded engine source, verified prerequisite-download cache, local
+and compiled-Python caches, launcher files, and an interrupted-setup marker. It
+preserves Git, Miniforge/Conda, Visual
 Studio Build Tools, CUDA, the selected external Conda environment, external projects
 and renders, and user test media because those components may be shared or user-owned.
 The installation directory itself is removed when empty; unknown files prevent that
@@ -115,6 +120,10 @@ the installed ReEzSynth directory and run:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -Plan
 ```
+
+Use `-PrerequisiteSource Direct` to bypass WinGet, or
+`-PrerequisiteSource WinGet` to require WinGet without fallback. `Auto` is the
+default.
 
 To verify an existing ReEzSynth installation without installing prerequisites or
 changing environments:
@@ -160,11 +169,14 @@ from every tab, including while a worker is running.
   keyframes through exactly, so this selector is disabled for that engine.
 - **Masks:** tick the Masks checkbox beside its directory input. Untick it to ignore
   the remembered mask folder for rendering and compositing. Supply one mask per source frame,
-  matching its number and dimensions. White selects stylized pixels; black keeps
-  source pixels. Feather size is zero or an odd integer. With transparent RGBA
-  styles, style alpha participates in the source-over composite: transparent
+  matching its number and dimensions. For RGB renders, white selects stylized pixels;
+  black keeps source pixels. Feather size is zero or an odd integer. For Legacy
+  transparent RGBA styles, alpha participates in the source-over composite: transparent
   styled areas reveal the opaque source frame, so masked output is opaque there.
-  Disable Masks when the rendered RGBA transparency itself must be retained.
+  Legacy retains that source-over behavior. FuouM transparent styles instead offer
+  **Transparent artwork** (mask clips opacity) or **Composite onto source** in
+  Rendering. Without masks, FuouM preserves transparent PNG output. See
+  [TRANSPARENT_FUOUM.md](TRANSPARENT_FUOUM.md) for guarantees and limitations.
 - **Custom edge guides:** select a numbered edge-guide sequence and enable **Use
   custom edge-guide frames** in Rendering to use those maps instead of automatic
   Classic, PST, or PAGE edge generation. Edge-guide numbers and dimensions must
@@ -223,6 +235,10 @@ from every tab, including while a worker is running.
 Projects and shareable preset libraries may also be saved or imported as `.yaml`
 or `.yml`. JSON remains the default. YAML uses PyYAML safe loading and the same
 version and field validation as JSON; job files and worker protocol remain JSON.
+Rendering also offers separate **native FuouM YAML** interchange: settings-only
+import into the current GUI project and full-source-folder native project export,
+with compatibility confirmation and unsupported-feature reporting. This is not
+a lossless frontend/native round trip. See [NATIVE_FUOUM_YAML.md](NATIVE_FUOUM_YAML.md).
 Queue journals are local recovery records, not shareable presets: they contain
 absolute input and runtime paths and should be removed or reviewed before sharing
 a render folder.
@@ -493,6 +509,17 @@ independently estimated FuouM flow directions, and `--fuoum-flow-engine NeuFlow`
 to exercise NeuFlow. In Rendering, **Estimate both flow directions** is opt-in;
 **Export numerical flow vectors** saves lossless dx/dy arrays and explicit frame
 direction metadata under `flow_vectors/`.
+Rendering now includes a collapsible **Advanced edge settings** panel beneath
+Edge method, with PST/PAGE tuning and a separate **Edge Preview…** window.
+Preview one source frame at the render processing size, inspect an overlay or
+compare with defaults, then save the tuning in rendering presets/projects.
+Custom edge-guide frames bypass detector tuning. See [EDGE_TUNING.md](EDGE_TUNING.md).
+
+FuouM video also offers **Recompute optical flow** and **Recompute edges** controls
+in Rendering. They compute fresh data for each render without reading or replacing
+shared cache entries. Both default to off; projects/presets remember the choices.
+See [PRECOMPUTE_RECOMPUTE.md](PRECOMPUTE_RECOMPUTE.md) for scope and verification.
+
 Rendering also has an opt-in **Store clip frames on disk to limit RAM** switch.
 It keeps complete propagation/blending sequences while using a bounded decoded
 array cache and temporary disk storage. It needs additional disk space and I/O;
@@ -565,8 +592,9 @@ Select or drop a styled image, its source guide and a target guide, then click
 Source guides must match the style's dimensions, and target guides must match each
 other; the target may have a different size from the style. Each guide pair must
 have the same channel count. Inputs must be 8-bit images, with at most 24 guide
-channels in total. The style is read as a three-channel color image; its alpha is
-not used as a mask. Outputs use the target dimensions after processing-size limits.
+channels in total. Nonopaque 8-bit RGBA styles preserve alpha in synthesis/output
+for both engines; alpha is a style/output channel, not an automatic guide mask.
+Outputs use the target dimensions after processing-size limits.
 
 Quality, processing size, synthesis parameters and iteration schedules are shared with video.
 Image jobs use their own primary-guide and style weights (defaults 6 and 1).

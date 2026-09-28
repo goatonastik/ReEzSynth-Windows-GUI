@@ -10,7 +10,9 @@ param(
     [switch]$SkipVisualStudio,
     [switch]$SkipCuda,
     [switch]$SkipEngineSetup,
-    [switch]$NoLauncherConfig
+    [switch]$NoLauncherConfig,
+    [ValidateSet('Auto', 'WinGet', 'Direct')]
+    [string]$PrerequisiteSource = 'Auto'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -29,6 +31,30 @@ $wingetPackages = [ordered]@{
     VisualStudio = 'Microsoft.VisualStudio.2022.BuildTools'
     Cuda = 'Nvidia.CUDA'
 }
+$directPackages = [ordered]@{
+    Git = [ordered]@{
+        Url = 'https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.5/Git-2.55.0.5-64-bit.exe'
+        FileName = 'Git-2.55.0.5-64-bit.exe'
+        Sha256 = 'd065a4e23c3d9a6b5073d609b5be0830227ec3ca053c083ba385061ddfaf94c6'
+    }
+    Conda = [ordered]@{
+        Url = 'https://github.com/conda-forge/miniforge/releases/download/26.7.2-0/Miniforge3-26.7.2-0-Windows-x86_64.exe'
+        FileName = 'Miniforge3-26.7.2-0-Windows-x86_64.exe'
+        Sha256 = '71cf9519087be74fa53021219ff292beb2fc05fa49e0bb6eb0e0b6b14fccbaab'
+    }
+    VisualStudio = [ordered]@{
+        Url = 'https://aka.ms/vs/17/release/vs_buildtools.exe'
+        FileName = 'vs_buildtools.exe'
+        Publisher = 'Microsoft Corporation'
+    }
+    Cuda = [ordered]@{
+        Url = 'https://developer.download.nvidia.com/compute/cuda/12.8.1/network_installers/cuda_12.8.1_windows_network.exe'
+        FileName = 'cuda_12.8.1_windows_network.exe'
+        Sha256 = '779bee8ff557255c1cf5f36e0230f081675b9bb41e44be38839920cd5209bdeb'
+        Publisher = 'NVIDIA Corporation'
+    }
+}
+$downloadCache = Join-Path $PSScriptRoot '.prerequisite-cache'
 $resumeMarker = Join-Path $PSScriptRoot '.reezsynth-setup-resume.json'
 $resumeSetup = $false
 $git = $null
@@ -152,7 +178,184 @@ function Invoke-WingetInstall {
     }
 }
 
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Assert-AuthenticodePublisher {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Publisher
+    )
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    $subject = if ($signature.SignerCertificate) { [string]$signature.SignerCertificate.Subject } else { '' }
+    $escaped = [regex]::Escape($Publisher)
+    if ($signature.Status -ne 'Valid' -or $subject -notmatch "(?:^|,\s*)O=$escaped(?:,|$)") {
+        throw "Downloaded installer did not have a valid '$Publisher' Authenticode signature: $Path"
+    }
+}
+
+function Get-VerifiedInstaller {
+    param([Parameter(Mandatory = $true)]$Package)
+    if ($Package.Url -notmatch '^https://') { throw "Refusing non-HTTPS prerequisite URL: $($Package.Url)" }
+    if (-not (Test-Path -LiteralPath $downloadCache -PathType Container)) {
+        New-Item -ItemType Directory -Path $downloadCache | Out-Null
+    }
+    $destination = Join-Path $downloadCache $Package.FileName
+    $expectedHash = if ($Package.Contains('Sha256')) { [string]$Package.Sha256 } else { '' }
+    $publisher = if ($Package.Contains('Publisher')) { [string]$Package.Publisher } else { '' }
+    if (-not $expectedHash -and -not $publisher) {
+        throw "Prerequisite metadata must pin a SHA-256 checksum or Authenticode publisher: $($Package.FileName)"
+    }
+    $reuse = $false
+    if (Test-Path -LiteralPath $destination -PathType Leaf) {
+        $reuse = (-not $expectedHash -or (Get-FileSha256 -Path $destination) -eq $expectedHash)
+        if ($reuse -and $publisher) {
+            try { Assert-AuthenticodePublisher -Path $destination -Publisher $publisher }
+            catch { $reuse = $false }
+        }
+        if (-not $reuse) { Remove-Item -LiteralPath $destination -Force }
+    }
+    if (-not $reuse) {
+        $partial = "$destination.partial-$PID"
+        if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force }
+        Write-Host "Downloading verified prerequisite from $($Package.Url)"
+        $previousProgress = $ProgressPreference
+        try {
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -UseBasicParsing -Uri $Package.Url -OutFile $partial
+            if ($expectedHash) {
+                $actualHash = Get-FileSha256 -Path $partial
+                if ($actualHash -ne $expectedHash) {
+                    throw "Downloaded prerequisite checksum mismatch. Expected $expectedHash, got $actualHash."
+                }
+            }
+            if ($publisher) { Assert-AuthenticodePublisher -Path $partial -Publisher $publisher }
+            Move-Item -LiteralPath $partial -Destination $destination
+        } finally {
+            $ProgressPreference = $previousProgress
+            if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force }
+        }
+    } else {
+        Write-Host "Reusing verified prerequisite download: $destination"
+    }
+    return $destination
+}
+
+function ConvertTo-ProcessArgumentLine {
+    param([string[]]$Arguments)
+    $quoted = foreach ($argument in $Arguments) {
+        if ($argument -notmatch '[\s"]') { $argument; continue }
+        $value = $argument -replace '(\\*)"', '$1$1\"'
+        $value = $value -replace '(\\+)$', '$1$1'
+        '"' + $value + '"'
+    }
+    return ($quoted -join ' ')
+}
+
+function Invoke-InstallerProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    Write-Host ("Direct installer arguments for ${Name}: " + (ConvertTo-Json -InputObject $Arguments -Compress))
+    $argumentLine = ConvertTo-ProcessArgumentLine -Arguments $Arguments
+    $process = Start-Process -FilePath $Path -ArgumentList $argumentLine -Wait -PassThru
+    if ($process.ExitCode -notin @(0, 1641, 3010)) {
+        throw "$Name direct installer failed (exit $($process.ExitCode)). Existing installations were not removed."
+    }
+    if ($process.ExitCode -in @(1641, 3010)) {
+        Write-Warning "$Name completed and requested a Windows restart. Setup will verify the component now; restart before retrying if verification fails."
+    }
+}
+
+function Invoke-DirectInstall {
+    param([Parameter(Mandatory = $true)][ValidateSet('Git', 'Conda', 'VisualStudio', 'Cuda')][string]$Name)
+    $package = $directPackages[$Name]
+    if ($Plan) {
+        Write-Host "Direct fallback for ${Name}: $($package.Url)"
+        return
+    }
+    $installer = Get-VerifiedInstaller -Package $package
+    switch ($Name) {
+        'Git' {
+            Invoke-InstallerProcess -Path $installer -Name 'Git for Windows' -Arguments @(
+                '/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOCANCEL', '/SP-')
+        }
+        'Conda' {
+            if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is required for direct Miniforge installation.' }
+            $shortLocalAppData = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:LOCALAPPDATA).ShortPath
+            if (-not $shortLocalAppData -or $shortLocalAppData -match '\s') {
+                throw 'Direct Miniforge setup cannot safely pass an NSIS /D path for this Windows profile because its Local AppData path contains spaces and has no short-path alias. Install Miniforge manually to a path without spaces, then rerun ReEzSynth setup.'
+            }
+            # NSIS requires /D= to be the final, unquoted argument. A short path
+            # preserves the normal per-user destination without invalid quoting.
+            $destination = Join-Path $shortLocalAppData 'miniforge3'
+            if (Test-Path -LiteralPath $destination) {
+                throw "Direct Miniforge destination already exists but a compatible conda.exe was not found. It was not modified: $destination"
+            }
+            Invoke-InstallerProcess -Path $installer -Name 'Miniforge' -Arguments @(
+                '/InstallationType=JustMe', '/RegisterPython=0', '/AddToPath=0', '/S', "/D=$destination")
+        }
+        'VisualStudio' {
+            Invoke-InstallerProcess -Path $installer -Name 'Visual Studio 2022 Build Tools' -Arguments @(
+                '--passive', '--wait', '--norestart', '--add',
+                'Microsoft.VisualStudio.Workload.VCTools', '--includeRecommended')
+        }
+        'Cuda' {
+            $components = @(
+                'cuda_profiler_api_12.8', 'cudart_12.8', 'cuobjdump_12.8', 'cupti_12.8',
+                'cuxxfilt_12.8', 'nvcc_12.8', 'nvdisasm_12.8', 'nvfatbin_12.8',
+                'nvjitlink_12.8', 'nvml_dev_12.8', 'nvprune_12.8', 'nvrtc_12.8',
+                'nvrtc_dev_12.8', 'nvtx_12.8', 'sanitizer_12.8', 'thrust_12.8',
+                'cublas_12.8', 'cublas_dev_12.8', 'cufft_12.8', 'cufft_dev_12.8',
+                'curand_12.8', 'curand_dev_12.8', 'cusolver_12.8', 'cusolver_dev_12.8',
+                'cusparse_12.8', 'cusparse_dev_12.8', 'npp_12.8', 'npp_dev_12.8',
+                'nvjpeg_12.8', 'nvjpeg_dev_12.8', 'visual_studio_integration_12.8')
+            Invoke-InstallerProcess -Path $installer -Name 'NVIDIA CUDA Toolkit 12.8' -Arguments (@('-s', '-n') + $components)
+        }
+    }
+}
+
+function Invoke-PrerequisiteInstall {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('Git', 'Conda', 'VisualStudio', 'Cuda')][string]$Name,
+        [Parameter(Mandatory = $true)][string]$WingetId,
+        [string]$Version = '',
+        [string]$Override = '',
+        [switch]$Force
+    )
+    if ($Plan) {
+        Write-Host "Prerequisite source for ${Name}: $PrerequisiteSource (WinGet preferred in Auto; verified direct fallback available)."
+        if ($PrerequisiteSource -ne 'Direct') {
+            Invoke-WingetInstall -Id $WingetId -Version $Version -Override $Override -Force:$Force
+        }
+        if ($PrerequisiteSource -ne 'WinGet') { Invoke-DirectInstall -Name $Name }
+        return
+    }
+    if ($PrerequisiteSource -ne 'Direct') {
+        $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+        if ($winget) {
+            try {
+                Invoke-WingetInstall -Id $WingetId -Version $Version -Override $Override -Force:$Force
+                return
+            } catch {
+                if ($PrerequisiteSource -eq 'WinGet') { throw }
+                Write-Warning "WinGet could not install $Name. Falling back to the verified official direct installer. $($_.Exception.Message)"
+            }
+        } elseif ($PrerequisiteSource -eq 'WinGet') {
+            throw 'Windows Package Manager (winget) was explicitly selected but is unavailable.'
+        } else {
+            Write-Host "WinGet is unavailable; using the verified official direct installer for $Name."
+        }
+    }
+    Invoke-DirectInstall -Name $Name
+}
+
 Write-Host 'ReEzSynth installation order:'
+Write-Host "Prerequisite installer source: $PrerequisiteSource (Auto prefers WinGet and falls back to verified official downloads)."
 Write-Host '  1. NVIDIA GPU driver check'
 Write-Host '  2. Git for Windows'
 Write-Host '  3. Miniforge (Conda)'
@@ -174,7 +377,7 @@ if ($CheckOnly) {
         if ($SkipGit) {
             Write-SkippedDependency -Name 'Git for Windows' -Impact 'FuouM source setup cannot complete without Git.'
         } else {
-            Invoke-WingetInstall -Id $wingetPackages.Git
+            Invoke-PrerequisiteInstall -Name Git -WingetId $wingetPackages.Git
             $git = Find-Git
             if (-not $Plan -and -not $git) { throw 'Git installation completed but a working git.exe could not be located.' }
         }
@@ -186,7 +389,7 @@ if ($CheckOnly) {
         if ($SkipConda) {
             Write-SkippedDependency -Name 'Miniforge/Conda' -Impact 'The ReEzSynth Python environment cannot be created and the application cannot run.'
         } else {
-            Invoke-WingetInstall -Id $wingetPackages.Conda
+            Invoke-PrerequisiteInstall -Name Conda -WingetId $wingetPackages.Conda
             $CondaExe = Find-Conda
             if (-not $Plan -and -not $CondaExe) { throw 'Miniforge installation completed but a working conda.exe could not be located.' }
         }
@@ -229,7 +432,7 @@ if ($CheckOnly) {
         if ($SkipVisualStudio) {
             Write-SkippedDependency -Name 'Visual Studio 2022 C++ Build Tools and Windows SDK' -Impact 'FuouM and native CUDA extensions cannot be built.'
         } else {
-            Invoke-WingetInstall -Id $wingetPackages.VisualStudio -Force -Override '--passive --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
+            Invoke-PrerequisiteInstall -Name VisualStudio -WingetId $wingetPackages.VisualStudio -Force -Override '--passive --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
             $visualStudio = Find-VisualCppTools
             if (-not $Plan -and -not $visualStudio) {
                 throw 'Visual Studio installation completed but the MSVC x64 compiler and a Windows 10/11 SDK were not both detected. Restart Windows, then run this installer again.'
@@ -242,7 +445,7 @@ if ($CheckOnly) {
         if ($SkipCuda) {
             Write-SkippedDependency -Name 'NVIDIA CUDA Toolkit 12.8' -Impact 'GPU engine setup, FuouM, and the Legacy CUDA extension cannot be built or validated.'
         } else {
-            Invoke-WingetInstall -Id $wingetPackages.Cuda -Version '12.8'
+            Invoke-PrerequisiteInstall -Name Cuda -WingetId $wingetPackages.Cuda -Version '12.8'
             $cuda = Find-Cuda128
             if (-not $Plan -and -not $cuda) {
                 throw 'CUDA installation completed but nvcc from the CUDA 12.8 toolkit was not detected. Restart Windows, then run this installer again.'

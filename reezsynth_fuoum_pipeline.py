@@ -131,11 +131,21 @@ def blend_aligned(fwd, rev, fwd_errors, rev_errors, flows, config, *, pull_flows
     reconstructor = AlignedReconstructor(solver=settings['poisson_solver'], poisson_maxiter=maximum,
         grad_weights=[settings['poisson_grad_weight_l'], settings['poisson_grad_weight_ab'],
                       settings['poisson_grad_weight_ab']])
-    return reconstructor.run(hist, fwd, rev, masks)
+    color_fwd, color_rev = fwd, rev
+    if fwd[0].shape[2] == 4:
+        color_fwd = array_sequence(np.ascontiguousarray(a[..., :3]) for a in fwd)
+        color_rev = array_sequence(np.ascontiguousarray(b[..., :3]) for b in rev)
+    reconstructed = reconstructor.run(hist, color_fwd, color_rev, masks)
+    if fwd[0].shape[2] == 4:
+        from reezsynth_alpha import selected_alpha
+        return array_sequence(np.dstack((rgb, selected_alpha(a, b, mask)))
+            for rgb, a, b, mask in zip(reconstructed, fwd, rev, masks))
+    return reconstructed
 
 
 def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, cache_job=None,
-                    runtime=None, bidirectional=False, on_flow=lambda *args: None):
+                    runtime=None, bidirectional=False, on_flow=lambda *args: None,
+                    edge_settings=None):
     from ezsynth.pipeline import SynthesisPipeline
     from reezsynth_precompute_cache import (array_digest, cache_entry_from_digests,
         edge_identity, flow_identity, load_array, store_array)
@@ -144,17 +154,24 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
     cache_job = cache_job or {}
     runtime = runtime or {'engine': 'FuouM/ReEzSynth', 'revision': 'unknown', 'source': '.'}
     cache_enabled = bool(cache_job.get('precompute_cache'))
+    options = cache_job.get('render_options', {})
+    force_flow = options.get('fuoum_force_recompute_flow', False)
+    force_edge = options.get('fuoum_force_recompute_edge', False)
+    # Forced results belong to this render. Never replace immutable shared entries
+    # or reload an older winner after publishing fresh data in a parallel race.
+    cache_flow = cache_enabled and not force_flow
+    cache_edges = cache_enabled and not force_edge and not edges
     flow_cache_identity = (flow_identity(cache_job.get('render_options', {}), runtime)
-                           if cache_enabled else None)
+                           if cache_flow else None)
     def flow_directory(source, target):
         return (cache_entry_from_digests(cache_job, 'flow',
             [frame_digests[source], frame_digests[target]], flow_cache_identity)
-            if cache_enabled else None)
+            if cache_flow else None)
     edge_cache_identity = edge_identity(runtime['engine'], runtime['revision'],
-                                        config.precomputation.edge_method)
+                                        config.precomputation.edge_method, edge_settings)
     edge_directories = ([cache_entry_from_digests(
         cache_job, 'edges', [digest], edge_cache_identity) for digest in frame_digests]
-        if cache_enabled else [None] * len(frame_digests))
+        if cache_edges else [None] * len(frame_digests))
 
     class FrontendPipeline(SynthesisPipeline):
         def _compute_all_data(self, frames):
@@ -170,8 +187,12 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
 
         def _compute_edge_maps(self, frames):
             if edges:
+                if force_edge:
+                    print('[Cache] Edge recomputation bypassed: custom edge guides supplied.', flush=True)
                 self._edge_maps = edges
                 return
+            if force_edge:
+                print('[Cache] Automatic edges: forced recomputation; shared cache unchanged.', flush=True)
             shape = (*frames[0].shape[:2], 3)
             cached = array_sequence(None if directory is None else load_array(
                 directory / 'edge.npy', shape, kinds=('u', 'i')) for directory in edge_directories)
@@ -179,21 +200,25 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
                 self._edge_maps = cached
                 print(f'[Cache] Reused {len(cached)} validated edge maps.', flush=True)
                 return
-            if storage_enabled():
-                from ezsynth.engines.edge_engine import EdgeEngine
-                engine = EdgeEngine(method=config.precomputation.edge_method)
-                for index, frame in enumerate(frames):
-                    if cached[index] is None:
-                        cached[index] = engine.compute([frame])[0]
-                self._edge_maps = cached
-            else:
-                super()._compute_edge_maps(frames)
+            from reezsynth_edges import compute_edge_frames
+            method = config.precomputation.edge_method
+            missing = [index for index, value in enumerate(cached) if value is None]
+            computed = compute_edge_frames((frames[index] for index in missing),
+                method, edge_settings, runtime['engine'])
+            for index, value in zip(missing, computed):
+                cached[index] = value
+            self._edge_maps = cached
             for directory, value in zip(edge_directories, self._edge_maps):
                 if directory is not None:
                     store_array(directory / 'edge.npy', value)
 
         def _prepare_guides_for_frame(self, *args, **kwargs):
             guides = super()._prepare_guides_for_frame(*args, **kwargs)
+            # Opacity is synthesized as a style channel, not a fourth warp-guide
+            # channel. Keep the existing RGB guide normalization unchanged.
+            if kwargs['style_img'].shape[2] == 4:
+                a, b, weight = guides[3]
+                guides[3] = (a[..., :3], b[..., :3], weight)
             if masks and mask_weight:
                 guides.append((masks[kwargs['keyframe_idx']], masks[kwargs['target_idx']], mask_weight))
             return guides
@@ -202,6 +227,8 @@ def extend_pipeline(config, data, masks, edges, mask_weight, mode, on_pass, *, c
             import cv2
             import torch
             from ezsynth.engines.flow_engine import RAFTFlowEngine, NeuFlowEngine
+            if force_flow:
+                print('[Cache] Optical flow: forced recomputation; shared cache unchanged.', flush=True)
             h, w = frames[0].shape[:2]
             neuflow = config.precomputation.flow_engine == 'NeuFlow'
             engine, hits = None, 0

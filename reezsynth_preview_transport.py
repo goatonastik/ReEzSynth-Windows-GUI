@@ -72,8 +72,12 @@ class PreviewPublisher:
             scale = min(1.0, MAX_EDGE / max(height, width))
             thumbnail = pixels
             if scale < 1:
-                thumbnail = cv2.resize(pixels, (max(1, round(width * scale)), max(1, round(height * scale))),
-                                       interpolation=cv2.INTER_AREA)
+                size = (max(1, round(width * scale)), max(1, round(height * scale)))
+                if pixels.shape[2] == 4 and pixels.dtype == np.uint8:
+                    from reezsynth_fuoum_alpha import associated_style, straight_output
+                    thumbnail = straight_output(associated_style(pixels, size))
+                else:
+                    thumbnail = cv2.resize(pixels, size, interpolation=cv2.INTER_AREA)
             if thumbnail.dtype != np.uint8:
                 thumbnail = np.clip(thumbnail, 0, 255).astype(np.uint8)
             ok, encoded = cv2.imencode('.png', thumbnail, [cv2.IMWRITE_PNG_COMPRESSION, 1])

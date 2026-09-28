@@ -35,7 +35,7 @@ def effective_settings(job):
     if copy:
         fields = ['do_mask']
         if options['do_mask']:
-            fields += ['feather'] + (['pre_mask'] if fuoum else [])
+            fields += ['feather'] + (['pre_mask', 'fuoum_alpha_mask_mode'] if fuoum else [])
         result['render_options'] = {name: options[name] for name in fields}
         return result
     if fuoum:
@@ -75,7 +75,13 @@ def effective_settings(job):
                     if not name.startswith('fuoum_') and name not in ('temporal_nnf', 'sparse_features')}
     if options['custom_edge_guides']:
         resolved.pop('edge_method')
+        resolved.pop('fuoum_force_recompute_edge', None)
+    from reezsynth_edges import EDGE_SPECS
+    for name, spec in EDGE_SPECS.items():
+        if options['custom_edge_guides'] or options['edge_method'] != spec[0]:
+            resolved.pop(name, None)
     if not options['do_mask']:
+        resolved.pop('fuoum_alpha_mask_mode', None)
         resolved.pop('pre_mask')
         resolved.pop('feather')
     result['render_options'] = resolved

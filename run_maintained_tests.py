@@ -6,6 +6,11 @@ import unittest
 
 
 MODULES = (
+    "test_reezsynth_fuoum_alpha",
+    "test_reezsynth_native_yaml",
+    "test_reezsynth_comparison",
+    "test_reezsynth_recompute",
+    "test_reezsynth_edges",
     "test_reezsynth_gui",
     "test_reezsynth_lifecycle",
     "test_reezsynth_worker",

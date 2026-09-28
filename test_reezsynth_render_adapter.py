@@ -80,9 +80,12 @@ class RenderAdapterTests(unittest.TestCase):
     def test_validated_precomputations_are_reused_across_jobs(self):
         captured = self.fake_engine()
         self.job['precompute_cache'] = str(self.root / '.reezsynth-cache')
+        self.job['render_options'] = dict(edge_method='PST', edge_pst_s=.3)
         counts = {'edges': 0, 'flow': 0}
-        def edges(frames, method):
+        settings_seen = []
+        def edges(frames, method, edge_settings=None):
             counts['edges'] += 1
+            settings_seen.append(edge_settings['edge_pst_s'])
             return [np.full(frame.shape[:2], 127, np.uint8) for frame in frames]
         engine = sys.modules['ezsynth.main_ez'].EzsynthBase
         original_init = engine.__init__
@@ -97,7 +100,11 @@ class RenderAdapterTests(unittest.TestCase):
              patch.dict(sys.modules, {'ezsynth.aux_computations': computations}):
             self.run_job()
             self.run_job()
-        self.assertEqual(counts, {'edges': 1, 'flow': 1})
+            self.assertEqual(counts, {'edges': 1, 'flow': 1})
+            self.job['render_options']['edge_pst_s'] = .7
+            self.run_job()
+        self.assertEqual(counts, {'edges': 2, 'flow': 1})
+        self.assertEqual(settings_seen, [.3, .7])
         self.assertEqual(len(captured['runner'].edge_guides), 2)
 
     def test_cuda_memory_failure_explains_resolution_and_preserves_failure(self):

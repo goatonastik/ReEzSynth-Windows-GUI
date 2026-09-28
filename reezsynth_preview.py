@@ -48,6 +48,12 @@ class PreviewTile(QWidget):
             target = self.pixmap.size().scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio)
             x = (self.width() - target.width()) // 2
             y = (self.height() - target.height()) // 2
+            if self.pixmap.hasAlphaChannel():
+                for top in range(y, y + target.height(), 16):
+                    for left in range(x, x + target.width(), 16):
+                        painter.fillRect(left, top, min(16, x + target.width() - left),
+                            min(16, y + target.height() - top), QColor('#c8c8c8') if
+                            ((left - x) // 16 + (top - y) // 16) % 2 else QColor('#eeeeee'))
             painter.drawPixmap(x, y, target.width(), target.height(), self.pixmap)
             label_x, label_y, label_width = x + 10, y + 25, target.width() - 20
         path = QPainterPath()

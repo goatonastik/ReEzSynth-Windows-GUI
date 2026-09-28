@@ -6,9 +6,10 @@ from reezsynth_widget_style import ConstrainedQueueSpinBox, QueueDoubleSpinBox, 
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QSettings, QSignalBlocker, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
+    QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from reezsynth_config import (APPLICATION, GROUPS, KEYFRAME_PRESERVATION_MODES, LIMITS, SPIN_RULES, PREVIEW, RENDER, STANDARD, HIGHEST, quality_profile,
     WEIGHTS, PresetStore, atomic_json, discover_pairs, install_optional_flow_files,
@@ -23,6 +24,7 @@ from reezsynth_engine_setup import (readiness_command, rebuild_command,
                                     version_summary)
 from reezsynth_iterations import SCHEDULE_FIELDS, parse_schedule
 from reezsynth_modulation import VIDEO_MODES
+from reezsynth_edges import EDGE_DEFAULTS, EDGE_SPECS
 
 
 PERSIST_GROUP_ORDER = tuple(group for group in GROUPS if group != 'render') + ('render',)
@@ -36,8 +38,10 @@ VIDEO_ONLY_RENDER_FIELDS = (
     'memory_efficient_raft', 'flow_arch', 'flow_model', 'temporal_nnf',
     'sparse_features', 'fuoum_sparse_anchor_weight', 'fuoum_flow_engine',
     'fuoum_neuflow_model', 'fuoum_raft_model', 'fuoum_bidirectional_flow',
+    'fuoum_force_recompute_flow', 'fuoum_force_recompute_edge',
+    'fuoum_alpha_mask_mode',
     'stream_frames', 'modulation_guide', 'modulation_dir',
-)
+) + tuple(EDGE_DEFAULTS)
 
 
 class IterationScheduleEdit(QLineEdit):
@@ -64,15 +68,19 @@ LABELS = dict(edg_wgt="Edge guide", img_wgt="Video weight", pos_wgt="Mapping (po
     sound_enabled="Enable completion sounds", sound_each="Play after each render",
     sound_queue="Play when the queue completes", sound_file="Custom WAV sound (blank = bundled sound)")
 LABELS["preview_limit"] = "Maximum live previews"
+LABELS.update({name: spec[2] for name, spec in EDGE_SPECS.items()})
 LABELS.update(searchvote_schedule='Search/vote schedule (coarse to fine)',
               patchmatch_schedule='Patch-match schedule (coarse to fine)',
               modulation_guide='Video modulation', modulation_dir='Modulation frame directory')
 LABELS.update(engine='Synthesis engine', temporal_nnf='Temporal NNF propagation [FuouM only]',
+              fuoum_alpha_mask_mode='Transparent mask output [FuouM only]',
               keyframe_preservation='Keyframe preservation [Trentonom0r3 only]',
               fuoum_backend='Synthesis backend [FuouM only]',
               stream_frames='Store clip frames on disk to limit RAM',
               fuoum_flow_engine='Optical flow engine (FuouM only)',
               fuoum_bidirectional_flow='Estimate both flow directions [FuouM only]',
+              fuoum_force_recompute_flow='Recompute optical flow — ignore shared cache [FuouM only]',
+              fuoum_force_recompute_edge='Recompute edges — ignore shared cache [FuouM only]',
               fuoum_raft_model='RAFT checkpoint (FuouM only)',
               fuoum_neuflow_model='NeuFlow checkpoint (FuouM only)',
               sparse_features='Sparse feature guides [FuouM only]',
@@ -123,6 +131,7 @@ class Options(QObject):
         self.preset_boxes = {}
         self.policy_boxes = {}
         self.sound = None
+        self.edge_preview = None
         self.errors = []
         self.saved_groups = {}
         self.persistence_error_status = None
@@ -252,8 +261,24 @@ class Options(QObject):
                     window.locked.append(self.modulation_browse)
                     fields.addRow(LABELS[name], row)
                     widget.setPlaceholderText('Numbered 8-bit grayscale maps matching source frames')
+                elif name in EDGE_SPECS:
+                    method = EDGE_SPECS[name][0]
+                    self.edge_forms[method].addRow(LABELS[name], widget)
                 else:
                     fields.addRow(LABELS[name], widget)
+                    if name == 'edge_method':
+                        self.add_edge_controls(fields)
+                    elif name == 'fuoum_force_recompute_edge':
+                        self.recompute_note = QLabel()
+                        self.recompute_note.setWordWrap(True)
+                        fields.addRow(self.recompute_note)
+                        self.comparison_button = QPushButton('Short comparison renders…')
+                        self.comparison_button.clicked.connect(self.open_comparison)
+                        fields.addRow(self.comparison_button)
+                        window.locked.append(self.comparison_button)
+                        self.comparison_open = QPushButton('Open comparison sheet')
+                        self.comparison_open.clicked.connect(self.open_comparison_sheet)
+                        fields.addRow(self.comparison_open)
                 if name == 'key_wgt':
                     widget.setMinimum(0.001)
                     widget.setToolTip('Style-to-guide ratio: guide weights are divided by this value. Default 1 preserves Ezsynth behavior.')
@@ -265,6 +290,8 @@ class Options(QObject):
                     widget.setToolTip('Choices follow the selected flow architecture. Optional architectures need their own model files. Image Synthesis does not use optical flow.')
                 elif name == 'fuoum_bidirectional_flow':
                     widget.setToolTip('Estimates both directions independently for image, coordinate and NNF warping. Roughly doubles flow computation on a cold cache. Off preserves existing flow behavior. Video only.')
+                elif name in ('fuoum_force_recompute_flow', 'fuoum_force_recompute_edge'):
+                    widget.setToolTip('FuouM video only. Computes fresh data for every selected render instead of reading or writing shared cache entries. Existing shared caches are preserved for other jobs. Saved with projects and rendering presets; uncheck to resume normal reuse. Custom edge guides bypass edge recomputation.')
                 elif name == 'stream_frames':
                     widget.setToolTip('Video only. Stores decoded source/intermediate/result arrays in a temporary folder beside the output, with a 64 MiB / 8-array read cache. Uses extra disk space and I/O; does not reduce per-frame GPU allocation.')
                 elif name == 'flow_arch':
@@ -288,6 +315,15 @@ class Options(QObject):
         self.widgets['render']['flow_arch'].currentTextChanged.connect(self.refresh_flow_model_choices)
         self.widgets['render']['flow_arch'].currentTextChanged.connect(self.optional_flow_arch_changed)
         advanced_layout.addLayout(columns)
+        native_row = QHBoxLayout()
+        self.native_import = QPushButton('Import native FuouM settings…')
+        self.native_export = QPushButton('Export native FuouM project…')
+        self.native_import.clicked.connect(self.import_native_yaml)
+        self.native_export.clicked.connect(self.export_native_yaml)
+        native_row.addWidget(self.native_import)
+        native_row.addWidget(self.native_export)
+        advanced_layout.addLayout(native_row)
+        window.locked.extend([self.native_import, self.native_export])
         advanced_layout.addWidget(QLabel("Preview, Standard, and Highest reset synthesis parameters only; guide weights are independent.\n"
             "Flow model and EbSynth backend are saved with rendering presets. Use Blend / Flow for grouped video."))
         scroll = QScrollArea()
@@ -448,6 +484,11 @@ class Options(QObject):
                             'fuoum_raft_model': ['sintel', 'kitti'],
                             'fuoum_neuflow_model': ['neuflow_sintel', 'neuflow_mixed', 'neuflow_things']}[name])
             widget.currentTextChanged.connect(self.changed)
+        elif name == 'fuoum_alpha_mask_mode':
+            widget = QComboBox()
+            widget.addItems(['Transparent artwork', 'Composite onto source'])
+            widget.setToolTip('Transparent FuouM video styles only. Transparent artwork clips opacity by the mask; Composite onto source creates opaque RGBA PNGs. RGB-only renders retain their existing mask behavior. MP4 does not retain alpha.')
+            widget.currentTextChanged.connect(self.changed)
         elif name == 'fuoum_cost_function':
             widget = QComboBox()
             widget.addItems(['ssd', 'ncc'])
@@ -456,7 +497,8 @@ class Options(QObject):
             widget = (PyramidLevelsSpinBox() if name == 'pyramidlevels' else
                       ConstrainedQueueSpinBox(SPIN_RULES[name]) if name in SPIN_RULES else
                       QueueSpinBox() if isinstance(default, int) else QueueDoubleSpinBox())
-            low, high = LIMITS.get(name, (0, 64 if name == "parallel_limit" else 10000))
+            low, high = (EDGE_SPECS[name][4:6] if name in EDGE_SPECS else
+                         LIMITS.get(name, (0, 64 if name == "parallel_limit" else 10000)))
             widget.setRange(low, high)
             if name == 'pyramidlevels':
                 widget.setSpecialValueText('Automatic')
@@ -478,6 +520,60 @@ class Options(QObject):
             widget.textChanged.connect(self.changed)
         self.w.locked.append(widget)
         return widget
+
+    def add_edge_controls(self, fields):
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.edge_toggle = QToolButton()
+        self.edge_toggle.setText('Advanced edge settings')
+        self.edge_toggle.setCheckable(True)
+        layout.addWidget(self.edge_toggle)
+        self.edge_panel = QWidget()
+        panel_layout = QVBoxLayout(self.edge_panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        self.edge_boxes, self.edge_forms = {}, {}
+        for method in ('PST', 'PAGE'):
+            box = QGroupBox(method + ' tuning')
+            self.edge_boxes[method] = box
+            self.edge_forms[method] = QFormLayout(box)
+            panel_layout.addWidget(box)
+        self.edge_classic_note = QLabel('Classic uses its existing fixed filter. PST and PAGE expose detector tuning.')
+        self.edge_classic_note.setWordWrap(True)
+        panel_layout.addWidget(self.edge_classic_note)
+        self.edge_bypass_note = QLabel('Custom edge-guide frames bypass automatic edge detection and tuning.')
+        self.edge_bypass_note.setWordWrap(True)
+        panel_layout.addWidget(self.edge_bypass_note)
+        actions = QHBoxLayout()
+        self.edge_reset = QPushButton('Reset edge settings to defaults')
+        self.edge_reset.clicked.connect(self.reset_edge_settings)
+        self.edge_preview_button = QPushButton('Edge Preview…')
+        self.edge_preview_button.clicked.connect(self.open_edge_preview)
+        actions.addWidget(self.edge_reset)
+        actions.addWidget(self.edge_preview_button)
+        panel_layout.addLayout(actions)
+        layout.addWidget(self.edge_panel)
+        self.edge_panel.hide()
+        self.edge_toggle.toggled.connect(self.edge_panel.setVisible)
+        self.w.locked.extend([self.edge_reset, self.edge_preview_button])
+        fields.addRow(container)
+
+    def reset_edge_settings(self):
+        for name, spec in EDGE_SPECS.items():
+            set_control(self.widgets['render'][name], spec[3])
+
+    def edge_preview_active(self):
+        return self.edge_preview is not None and self.edge_preview.running()
+
+    def open_edge_preview(self):
+        from reezsynth_edge_preview import EdgePreviewWindow
+        if self.edge_preview is None:
+            self.edge_preview = EdgePreviewWindow(self)
+        elif not self.edge_preview_active():
+            self.edge_preview.refresh_frames()
+        self.edge_preview.show()
+        self.edge_preview.raise_()
+        self.edge_preview.activateWindow()
 
     def refresh_flow_model_choices(self, *_):
         """Keep the model selection valid when its architecture changes."""
@@ -580,6 +676,8 @@ class Options(QObject):
             QMessageBox.warning(self.w, title, str(exc))
 
     def install_flowdiffuser_timm(self):
+        if self.edge_preview_active() or self.w.busy or self.installation_active():
+            return
         status = optional_flow_status()['FLOW_DIFF']
         if status.get('dependencies') and status.get('backbones'):
             QMessageBox.information(self.w, 'FlowDiffuser dependency', 'The pinned dependencies and offline backbones are already installed.')
@@ -653,7 +751,7 @@ class Options(QObject):
         self.start_engine_action('readiness check', program, arguments)
 
     def rebuild_engine_component(self, component):
-        if self.installation_active() or self.w.busy:
+        if self.installation_active() or self.edge_preview_active() or self.w.busy:
             QMessageBox.information(self.w, 'Engine maintenance busy',
                                     'Wait for the current render or component operation to finish.')
             return
@@ -672,7 +770,7 @@ class Options(QObject):
         self.start_engine_action(label + ' rebuild', program, arguments)
 
     def start_engine_action(self, label, program, arguments):
-        if self.installation_active() or self.w.busy:
+        if self.installation_active() or self.edge_preview_active() or self.w.busy:
             QMessageBox.information(self.w, 'Engine maintenance busy',
                                     'Wait for the current render or component operation to finish.')
             return
@@ -971,9 +1069,28 @@ class Options(QObject):
                 set_control(self.widgets["render"][name], value)
 
     def changed(self, *_):
+        if self.edge_preview is not None:
+            self.edge_preview.invalidate()
         if not self.loading and not self.w.loading_project:
             self.save_timer.start()
             self.refresh_engine_controls()
+
+    def open_comparison(self):
+        from reezsynth_comparison_controls import open_comparison
+        open_comparison(self.w)
+
+    def import_native_yaml(self):
+        from reezsynth_native_yaml_controls import import_native
+        import_native(self.w)
+
+    def export_native_yaml(self):
+        from reezsynth_native_yaml_controls import export_native
+        export_native(self.w)
+
+    def open_comparison_sheet(self):
+        path = getattr(self, 'last_comparison_sheet', None)
+        if path and Path(path).is_file() and (Path(path).parent / 'COMPLETE.txt').is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def refresh_engine_controls(self, *_):
         widgets = self.widgets.get('render', {})
@@ -984,10 +1101,31 @@ class Options(QObject):
         editable = not self.w.busy and not self.w.close_when_idle
         image_mode = self.w.tabs.currentWidget() is getattr(self.w, 'image_synthesis', None)
         video_editable = editable and not image_mode
+        if hasattr(self, 'native_import'):
+            native_editable = video_editable and not self.installation_active() and not self.edge_preview_active()
+            self.native_import.setEnabled(native_editable)
+            self.native_export.setEnabled(native_editable and fuoum)
+        if hasattr(self, 'comparison_button'):
+            self.comparison_button.setEnabled(video_editable and fuoum and
+                not self.installation_active() and not self.edge_preview_active())
+            sheet = getattr(self, 'last_comparison_sheet', None)
+            self.comparison_open.setEnabled(editable and bool(sheet) and
+                Path(sheet).is_file() and (Path(sheet).parent / 'COMPLETE.txt').is_file())
         engine_pending = getattr(self, 'engine_action_pending', False)
         widgets['engine'].setEnabled(editable and not engine_pending)
         for name in VIDEO_ONLY_RENDER_FIELDS:
             widgets[name].setEnabled(video_editable)
+        if hasattr(self, 'edge_boxes'):
+            method = widgets['edge_method'].currentText()
+            custom = widgets['custom_edge_guides'].isChecked()
+            for detector, box in self.edge_boxes.items():
+                box.setVisible(method == detector)
+            self.edge_classic_note.setVisible(method == 'Classic' and not custom)
+            self.edge_bypass_note.setVisible(custom)
+            for name, spec in EDGE_SPECS.items():
+                widgets[name].setEnabled(video_editable and not custom and method == spec[0])
+            self.edge_reset.setEnabled(video_editable and not custom)
+            self.edge_preview_button.setEnabled(video_editable and not custom and not self.installation_active())
         if 'modulation_guide' in widgets:
             widgets['modulation_guide'].setEnabled(video_editable)
             enabled = video_editable and widgets['modulation_guide'].currentText() != 'Off'
@@ -1005,8 +1143,24 @@ class Options(QObject):
                      'fuoum_stop_threshold', 'fuoum_search_pruning_threshold'):
             widgets[name].setEnabled(editable and fuoum)
         for name in ('fuoum_sparse_anchor_weight', 'fuoum_flow_engine', 'fuoum_neuflow_model',
-                     'fuoum_raft_model', 'fuoum_bidirectional_flow'):
+                     'fuoum_raft_model', 'fuoum_bidirectional_flow',
+                     'fuoum_force_recompute_flow', 'fuoum_force_recompute_edge'):
             widgets[name].setEnabled(video_editable and fuoum)
+        custom_edges = widgets['custom_edge_guides'].isChecked()
+        widgets['fuoum_alpha_mask_mode'].setEnabled(video_editable and fuoum and widgets['do_mask'].isChecked())
+        widgets['fuoum_force_recompute_edge'].setEnabled(video_editable and fuoum and not custom_edges)
+        if hasattr(self, 'recompute_note'):
+            self.recompute_note.setVisible(fuoum and not image_mode)
+            recompute = []
+            if widgets['fuoum_force_recompute_flow'].isChecked():
+                recompute.append('optical flow (both directions when enabled)')
+            if widgets['fuoum_force_recompute_edge'].isChecked() and not custom_edges:
+                recompute.append('automatic edges')
+            self.recompute_note.setText(
+                'When needed by a render, recompute ' + ' and '.join(recompute) +
+                '. Shared cache entries are not deleted or replaced. Other precomputations reuse valid caches.'
+                if recompute else 'Normal cache reuse is enabled. Custom edge guides bypass automatic edges.'
+                if custom_edges else 'Normal cache reuse is enabled for optical flow and automatic edges.')
         widgets['fuoum_neuflow_model'].setEnabled(video_editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'NeuFlow')
         widgets['fuoum_raft_model'].setEnabled(video_editable and fuoum and widgets['fuoum_flow_engine'].currentText() == 'RAFT')
         widgets['flow_model'].setEnabled(video_editable and not fuoum and widgets['flow_model'].count() > 1)
@@ -1031,9 +1185,9 @@ class Options(QObject):
                 self.widgets['application'][name].setPlaceholderText(path)
                 self.widgets['application'][name].setEnabled(editable and fuoum and not engine_pending)
         for button in getattr(self, 'optional_flow_buttons', ()):
-            button.setEnabled(editable and not fuoum and not self.installation_active())
+            button.setEnabled(editable and not fuoum and not self.installation_active() and not self.edge_preview_active())
         for button in getattr(self, 'engine_setup_buttons', ()):
-            button.setEnabled(editable and not self.installation_active())
+            button.setEnabled(editable and not self.installation_active() and not self.edge_preview_active())
         if hasattr(self.w, 'grouped'):
             self.w.grouped.refresh_engine_controls(fuoum)
 
@@ -1249,7 +1403,7 @@ class Options(QObject):
     def maybe_start(self):
         if self.loading or self.w.loading_project or self.w.busy or self.w.close_when_idle or not self.auto_armed:
             return
-        if self.installation_active():
+        if self.installation_active() or self.edge_preview_active():
             self.auto_timer.start()
             return
         if QApplication.activeModalWidget() is not None:

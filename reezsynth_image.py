@@ -88,11 +88,6 @@ def render_image_job(job, progress):
     def channels(image):
         return 1 if image.ndim == 2 else image.shape[2]
     style = read(settings['style'], style=True)
-    if style.shape[2] == 4:
-        from reezsynth_engines import FUOUM
-        if options['engine'] == FUOUM:
-            from reezsynth_alpha import reject_fuoum_alpha
-            reject_fuoum_alpha([settings['style']])
     pairs = [(read(settings['source']), read(settings['target']), settings['source_weight'])]
     pairs.extend((read(g['source']), read(g['target']), g['weight']) for g in settings['guides'])
     target_shape = pairs[0][1].shape[:2]
@@ -115,7 +110,16 @@ def render_image_job(job, progress):
             height = max(1, round(image.shape[0] * limit / image.shape[1]))
             return cv2.resize(image, (limit, height), interpolation=cv2.INTER_AREA)
         return image
-    style = resize(style)
+    from reezsynth_engines import FUOUM
+    transparent_fuoum = options['engine'] == FUOUM and style.shape[2] == 4
+    if transparent_fuoum:
+        from reezsynth_fuoum_alpha import associated_style
+        requested = processing['processing_size']
+        if requested is None and processing['max_width'] and style.shape[1] > processing['max_width']:
+            requested = (processing['max_width'], max(1, round(style.shape[0] * processing['max_width'] / style.shape[1])))
+        style = associated_style(style, requested)
+    else:
+        style = resize(style)
     pairs = [(resize(a), resize(b), weight / settings['key_weight']) for a, b, weight in pairs]
     from reezsynth_modulation import read_map, pack_maps, legacy_modulation, channel_layout, map_info, write_manifest
     paths = [settings['modulation'], *(g.get('modulation', '') for g in settings['guides'])]
@@ -129,8 +133,12 @@ def render_image_job(job, progress):
     if options['engine'] == FUOUM:
         backend = options['fuoum_backend']
         from reezsynth_fuoum import synthesize_image
+        from reezsynth_fuoum_alpha import associated_style, straight_output
+        transparent = style.shape[2] == 4
         result, error = synthesize_image(style, pairs, options, output=job['output'],
                                          modulation=pack_maps(pairs, maps))
+        if transparent:
+            result = straight_output(result)
     else:
         from ezsynth.aux_classes import RunConfig
         from ezsynth.main_ez import ImageSynthBase

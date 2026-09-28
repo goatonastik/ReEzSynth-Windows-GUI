@@ -50,6 +50,7 @@ class EzsynthBase:
         msk_frs_seq: list[np.ndarray] | None = None,
         flow_arch="RAFT",
         do_compute_edge=True,
+        edge_settings=None,
     ) -> None:
         st = time.time()
 
@@ -118,6 +119,7 @@ class EzsynthBase:
                 if (self.cfg.do_mask and self.cfg.pre_mask)
                 else self.img_frs_seq,
                 self.edge_method,
+                edge_settings,
             )
         self.rafter = RAFT_flow(model_name=self.flow_model, arch=self.flow_arch)
 

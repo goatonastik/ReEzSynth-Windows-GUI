@@ -53,7 +53,7 @@ class AlphaAdapterTests(unittest.TestCase):
             runner=types.SimpleNamespace(initialize_libebsynth=lambda: None))
         self.enterContext(patch.dict(sys.modules, {
             'ezsynth.utils._ebsynth': types.SimpleNamespace(ebsynth=factory),
-            'ezsynth.aux_computations': types.SimpleNamespace(precompute_edge_guides=lambda frames, method:
+            'ezsynth.aux_computations': types.SimpleNamespace(precompute_edge_guides=lambda frames, method, edge_settings=None:
                 [np.zeros(f.shape[:2], np.uint8) for f in frames])}))
 
     def test_exact_key_loader_resize_storage_and_png_matrix(self):
@@ -149,14 +149,14 @@ class AlphaAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '8-bit'):
             read_style(self.job['style'])
 
-    def test_fuoum_rejects_at_real_entry_before_runtime_or_flow(self):
+    def test_fuoum_transparent_entry_still_requires_explicit_runtime(self):
         from reezsynth_fuoum import render_fuoum_job
         from reezsynth_engines import FUOUM
         self.single()
         self.job['render_options']['engine'] = FUOUM
         self.job['render_options']['ebsynth_backend'] = 'cuda'
         save(self.job['style'], samples()['partial'])
-        with self.assertRaisesRegex(ValueError, 'FuouM transparent RGBA.*Legacy'):
+        with self.assertRaisesRegex(ValueError, 'engine_runtime'):
             render_fuoum_job(self.job, lambda *a, **kw: None)
         self.assertFalse((self.output / 'COMPLETE.txt').exists())
 

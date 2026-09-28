@@ -89,6 +89,18 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('Microsoft.VisualStudio.Workload.VCTools', bootstrap)
         self.assertIn("Join-Path $PSScriptRoot 'setup_reezsynth.ps1'", bootstrap)
         self.assertIn("Join-Path $PSScriptRoot '.reezsynth-setup-resume.json'", bootstrap)
+        self.assertIn("[ValidateSet('Auto', 'WinGet', 'Direct')]", bootstrap)
+        for name in ('Git', 'Conda', 'VisualStudio', 'Cuda'):
+            self.assertIn(f'Invoke-PrerequisiteInstall -Name {name}', bootstrap)
+        self.assertIn('Get-AuthenticodeSignature -LiteralPath $Path', bootstrap)
+        self.assertIn('Prerequisite metadata must pin a SHA-256 checksum or Authenticode publisher', bootstrap)
+        self.assertIn('Scripting.FileSystemObject', bootstrap)
+        self.assertIn('NSIS requires /D= to be the final, unquoted argument', bootstrap)
+        self.assertIn("Sha256 = 'd065a4e23c3d9a6b5073d609b5be0830227ec3ca053c083ba385061ddfaf94c6'", bootstrap)
+        self.assertIn("Sha256 = '71cf9519087be74fa53021219ff292beb2fc05fa49e0bb6eb0e0b6b14fccbaab'", bootstrap)
+        self.assertIn("Sha256 = '779bee8ff557255c1cf5f36e0230f081675b9bb41e44be38839920cd5209bdeb'", bootstrap)
+        self.assertIn("'visual_studio_integration_12.8'", bootstrap)
+        self.assertNotIn("'Display.Driver'", bootstrap)
         self.assertIn("$arguments += '-Resume'", bootstrap)
         self.assertIn('$env:CUDA_HOME = $cuda', bootstrap)
         self.assertIn('$env:CUDA_PATH = $cuda', bootstrap)
@@ -97,6 +109,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('Engine setup cannot start because required components are unavailable', bootstrap)
         for owned in (r'{app}\.engine_envs', r'{app}\engine_sources',
                       r'{app}\__pycache__', r'{app}\ezsynth',
+                      r'{app}\.prerequisite-cache',
                       r'{app}\.reezsynth-conda-path.txt',
                       r'{app}\.reezsynth-env-name.txt',
                       r'{app}\.reezsynth-setup-resume.json'):
@@ -159,6 +172,22 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('Plan only: no packages, environments or files were changed.', output)
         after = marker.read_bytes() if marker.exists() else None
         self.assertEqual(after, before)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell installer plan')
+    def test_direct_prerequisite_plan_is_no_write_and_lists_verified_sources(self):
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        cache = ROOT / '.prerequisite-cache'
+        before = cache.exists()
+        completed = subprocess.run([
+            str(powershell), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+            str(ROOT / 'install_reezsynth.ps1'), '-Plan', '-PrerequisiteSource', 'Direct',
+            '-SkipEngineSetup',
+        ], cwd=ROOT, text=True, encoding='utf-8', errors='replace',
+            capture_output=True, timeout=30)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        output = completed.stdout + completed.stderr
+        self.assertIn('Prerequisite installer source: Direct', output)
+        self.assertEqual(cache.exists(), before)
 
     def test_package_workflow_only_builds_manual_candidates(self):
         workflow = (ROOT / '.github' / 'workflows' / 'package.yml').read_text(encoding='utf-8')
