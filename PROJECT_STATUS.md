@@ -1,6 +1,6 @@
 # Project status
 
-Updated 2026-09-23. Live files are authoritative. Usage and settings are described
+Updated 2026-09-28. Live files are authoritative. Usage and settings are described
 in [README.md](README.md).
 
 ## Dependency and optional-flow notice closure (2026-09-23)
@@ -446,6 +446,45 @@ in [README.md](README.md).
   run encountered an intermittent Windows sharing violation in the pre-existing
   parallel cache-publisher test; that test passed three immediate repetitions and
   the subsequent complete suite passed.
+
+## Idle-host overnight stability completion (2026-09-28)
+
+- Repeated the deadline-based Standard campaign configured for eight hours on the
+  otherwise idle RTX 5090 host at 384×216, alternating Legacy and FuouM across
+  painting, poster and flat styles with a 2,048 MiB device-wide drift guardrail.
+- All **1,202/1,202** isolated child cases passed: Legacy 602/602 and FuouM
+  600/600. Every child exited normally, every report and output identity was
+  unique and present, and the campaign produced no stderr failure.
+- Sampled device memory began at 3,650 MiB, reached no more than +9 MiB drift,
+  and ended at 3,606 MiB (44 MiB below baseline). This replaces the earlier
+  active-desktop inconclusive run as the overnight result on this host.
+- Retained report: `diagnostic_outputs/stability_20260928_013430_514374/report.json`.
+  The campaign establishes repeated isolated Standard stability for this setup;
+  it does not establish multi-GPU behavior, comparative throughput, Highest
+  quality stability, or production-footage visual quality.
+
+## Native s9 feature-acceptance matrix (2026-09-28)
+
+- Rendered owner-supplied s9 frames 26–29 at the original 1536×1536 resolution
+  using transparent keys 26/29, `s9m-medium`, Standard quality, 9-pixel feathering,
+  mask-guide weight 2 and disk-backed storage. Seven FuouM jobs exercised
+  source-composite and transparent-artwork output, warm/reused/forced
+  precomputation, PST default/tuned settings, and RAFT/NeuFlow.
+- All jobs completed with valid RGBA PNGs and cleanup. Selected source/key/mask
+  hashes were unchanged. Forced recomputation preserved all shared-cache hashes;
+  endpoints were byte-identical, while generated RGB showed run-to-run CUDA
+  variation (MAE 0.152–0.171/255, localized maximum 107/255) with alpha unchanged.
+  The diagnostic initially required byte identity, stopped on frame 27, and was
+  resumed with a disclosed mean-difference criterion after inspecting the spread.
+- Source-composite output was byte-exact to source in the conservative area
+  outside the feathered mask on every frame. Compositing transparent output over
+  source closely matched the direct composite (mean frame MAE 0.116/255).
+- PST tuning and NeuFlow both changed generated moving-hand/arm detail visibly.
+  Mean hand-crop MAE was 0.856/255 for PST tuned versus default and 1.494/255 for
+  NeuFlow versus RAFT. This four-frame interval establishes functional effect,
+  not a general quality winner. Intermediate hand contours remain irregular.
+- Retained outputs, logs, quantitative metrics and six comparison sheets:
+  `diagnostic_outputs/s9_feature_acceptance_20260928_0001`.
 
 ## Maintained-suite CI added (2026-09-12)
 

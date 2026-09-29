@@ -93,3 +93,31 @@ key-to-key interval per set at width 512; `--native-keys` tests original-size
 single-key payloads. It never overwrites existing output folders.
 `--full-resolution` renders the same short intervals at original dimensions and
 checks exact endpoint pixels as well as output sizes.
+
+## Native masked feature matrix — 2026-09-28
+
+A focused production follow-up rendered s9 frames 26–29 at 1536×1536 using
+transparent keys 26 and 29, `s9m-medium`, Standard quality, 9-pixel feathering,
+mask-guide weight 2 and disk-backed storage. Seven jobs covered source-composite
+and transparent-artwork mask output, empty/warm/forced precomputation, PST
+defaults and changed tuning, and RAFT versus NeuFlow.
+
+Every job produced four valid RGBA PNGs and a completion marker. Selected source,
+key and mask hashes were unchanged; temporary storage was removed. Forced
+recomputation did not modify the shared cache. Endpoint keys matched across
+warm/reused/forced runs; generated-frame RGB had small CUDA launch variation
+(MAE 0.152–0.171/255; localized maximum 107/255) while alpha was unchanged. The
+initial byte-equality assertion stopped on frame 27; the resumed diagnostic used
+a documented mean-difference criterion after the variation was inspected.
+
+Source-composite pixels matched source exactly in the conservative region outside
+the feathered mask on every frame. Transparent artwork composited over source
+closely matched direct source-composite output (mean frame MAE 0.116/255; maximum
+frame MAE 0.231/255; localized maximum 104/255). PST tuning and NeuFlow both
+visibly changed generated hand/arm boundaries, but this interval does not identify
+a general quality winner.
+Moving-hand irregularity remains on frames 27–28 and is visible under multiple
+output/flow/detector choices; transparency is therefore not isolated as its cause.
+
+Retained jobs, logs, metrics, review notes and before/after sheets:
+`diagnostic_outputs/s9_feature_acceptance_20260928_0001`.

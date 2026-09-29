@@ -226,14 +226,16 @@ the existing RAFT/NeuFlow workflow can be used while they are developed.
     A bounded six-case alternating-engine run passed with post-exit GPU drift no
     higher than 292 MiB. Separate 11-frame Standard renders passed for both engines;
     the run exposed and fixed FuouM's final-3x3 missing-mode bug. An attempted
-    eight-hour 384x216 Standard campaign reached 94 passing isolated cases, but
-    its 95th was rejected by the device-wide guardrail at +2,448 MiB. Its child
-    render passed (all 95 child suites exited successfully); device-wide usage
-    rose from 4,130 to 7,102 MiB on an active WDDM desktop. The cause cannot be
-    attributed from these samples, so the result is inconclusive. Retained report:
-    `stability_20260912_193422_040460`. Repeat on an idle host (or add an
-    attributable metric); overnight, multi-GPU and broader visual review remain
-    open.
+    eight-hour 384x216 Standard campaign initially reached 94 passing isolated
+    cases before an active-desktop device-wide memory guardrail stopped the run.
+    A replacement idle-host eight-hour campaign then completed all 1,202 isolated
+    child cases across both engines and painting/poster/flat styles. Every child
+    exited normally; all 1,202 reports and outputs were unique and present. GPU
+    memory had a maximum sampled drift of +9 MiB and finished 44 MiB below the
+    3,650 MiB baseline. Retained report:
+    `stability_20260928_013430_514374`. The overnight component is complete on
+    this RTX 5090 host; isolated performance comparison, multi-GPU coverage and
+    broader visual review remain open.
 10. [x] **Automated regression checks:** a canonical maintained-suite runner and
     Windows GitHub Actions workflow now use CPU PyTorch with CUDA hidden for normal
     push/PR checks. Real Legacy/FuouM diagnostics require an explicit manual input
@@ -386,6 +388,18 @@ and `edge_preview_20260926_010454_151191` (Legacy), under diagnostic_outputs.
 No full synthesis job, installer execution, commit, or push was performed for
 this edge-feature pass; existing unrelated installer edits were preserved.
 
+Native production follow-up on 2026-09-28 exercised frames 26–29 of the supplied
+s9 footage at 1536×1536 with transparent keys, `s9m-medium`, Standard quality,
+9-pixel feathering and disk-backed storage. Seven jobs covered both alpha-output
+policies, warm/reused/forced precomputation, PST default/tuned settings, and
+RAFT/NeuFlow. All completed; source-composite output was byte-exact to source in
+the conservative region outside the feathered mask, input/cache hashes were
+preserved, and temporary storage was cleaned. Comparison sheets show real
+generated-frame changes from edge tuning and flow selection, but the edge result
+is close to measured same-setting CUDA variation; see EDGE_TUNING.md. No general
+quality winner is claimed. Moving-hand irregularity remains visible. Retained
+evidence: `diagnostic_outputs/s9_feature_acceptance_20260928_0001`.
+
 ## Additional user-selected FuouM TODOs (priority order)
 
 These follow the advanced edge-tuning/preview feature above. The recompute controls
@@ -496,9 +510,9 @@ execution, report collection and documentation. Keep PyTorch synthesis explicitl
 experimental; return to high reasoning if new numerical/render failures need
 diagnosis or fixes.
 
-Next evidence work: repeat overnight stability on an idle host, review supplied
-production frame/keyframe folders, and validate setup on another Windows/GPU
-system. The previous overnight guardrail result was inconclusive, not a confirmed
-renderer leak. Remote CPU and security CI now passes on the pushed reviewed
-checkpoint. Publishing a release and the unresolved runtime-asset distribution
-choices remain separate owner decisions.
+Next evidence work: complete clean-machine preview.9 validation, broaden
+production-footage review beyond the completed s9 feature interval, and validate
+rendering on another Windows/GPU system. The idle-host eight-hour campaign passed
+all 1,202 isolated cases; multi-GPU coverage and isolated performance comparison
+remain open. Remote CPU and security CI passes on the pushed reviewed checkpoint.
+Publishing another release remains a separate owner decision.

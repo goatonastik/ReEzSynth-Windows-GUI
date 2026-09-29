@@ -66,3 +66,14 @@ including 10 recompute-specific tests. The real explicit Preview diagnostic
 `diagnostic_outputs/recompute_20260926_020605_860142` passed all three render
 stages with both flow directions, successful outputs/completion, recorded flags,
 and unchanged shared-cache file hashes.
+
+Native s9 follow-up on 2026-09-28 repeated a masked 1536×1536 Standard job with
+an empty cache, normal reuse and both recompute controls enabled. All jobs passed,
+endpoint keys were byte-identical, alpha was unchanged, and shared-cache hashes
+remained unchanged. Generated-frame RGB differed across CUDA launches (MAE
+0.152–0.171/255; localized maximum 107/255); reused and forced results varied by
+the same scale, so byte-identical generated pixels are not asserted. The first
+diagnostic attempt stopped when its byte-equality assumption failed on frame 27;
+after the spread was inspected, the resumed run used and recorded a bounded
+mean-difference criterion. Retained comparison sheet, metrics and both logs:
+`diagnostic_outputs/s9_feature_acceptance_20260928_0001`.

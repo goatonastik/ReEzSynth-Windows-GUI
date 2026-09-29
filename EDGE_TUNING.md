@@ -14,8 +14,8 @@ existing fixed filter and can also be previewed.
 4. Inspect Source, Edges, a 50% Overlay, Detector defaults, or Current / defaults
    side by side. Left is current tuning; right is the detector default.
 5. Save a rendering preset or project when satisfied. Rendering uses those same
-   detector parameters. **Reset edge settings to defaults** resets the selected
-   detector, not guide weights or the other detector's remembered settings.
+   detector parameters. **Reset edge settings to defaults** resets both PST and
+   PAGE settings. It does not reset guide weights.
 
 The edge preview is a guide inspection tool, not a synthesized-output preview or
 a guarantee that a detector/settings combination will produce the best render.
@@ -121,3 +121,13 @@ one-frame worker checks at 256x128 and real asynchronous GUI preview,
 cancel/restart, cleanup, stale-setting indication and comparison-layout checks.
 Retained final GUI screenshots are in `edge_preview_20260926_010349_757191`
 (FuouM) and `edge_preview_20260926_010454_151191` (Legacy).
+
+Native s9 production follow-up on 2026-09-28 compared PST defaults with changed
+tuning over frames 26–29 at 1536×1536. The generated hand/arm boundary changed
+visibly (mean hand-crop MAE 0.856/255; maximum frame crop MAE 1.813/255). The
+full-frame difference, 0.207/255, is close to the same run's 0.152–0.171/255
+same-setting CUDA variation, and no crop-scale noise control was measured.
+Separate dispatch and cache-identity regressions establish the mechanism; this
+sample only illustrates its output. Neither setting is declared generally
+superior from four frames. Retained sheet and metrics:
+`diagnostic_outputs/s9_feature_acceptance_20260928_0001`.

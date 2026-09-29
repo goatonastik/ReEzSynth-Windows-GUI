@@ -129,3 +129,13 @@ visible in review sheets. This does not constitute owner quality acceptance.
 Review the owner's actual line-art footage, subtle low-alpha/color behavior,
 long-running stability and normal interactive Windows use before treating the
 feature as fully production-accepted. Torch remains experimental.
+
+Native masked follow-up on 2026-09-28 rendered s9 frames 26–29 at 1536×1536 with
+transparent keys and `s9m-medium`. Both transparent-artwork and source-composite
+policies completed. Alpha spanned 0–255; source-composite output matched source
+exactly in the conservative region outside the feathered mask. Transparent output
+composited over source closely matched direct source-composite output (mean frame
+MAE 0.116/255; maximum frame MAE 0.231/255; localized maximum 104/255).
+Intermediate moving-hand irregularity remained under both policies and multiple
+flow/edge choices, so the test did not identify alpha handling as its cause.
+Retained evidence: `diagnostic_outputs/s9_feature_acceptance_20260928_0001`.

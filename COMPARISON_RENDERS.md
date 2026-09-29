@@ -45,3 +45,10 @@ snapshots, templates, validation, sampling, sheet output, dependency snapshots,
 dependency remapping, incomplete-output rejection, UI guards and queue isolation.
 `diagnose_reezsynth_comparison.py` is an opt-in three-frame 128x128 real FuouM
 comparison, not a production-resolution quality certification.
+
+Native s9 follow-up on 2026-09-28 compared RAFT and NeuFlow over frames 26–29 at
+1536×1536 with transparent keys, medium masks and source-composite output. Both
+completed; generated-frame differences were visible around the moving hand and
+arm (mean hand-crop MAE 1.494/255). This short interval does not establish a
+general quality winner. Retained sheet and metrics:
+`diagnostic_outputs/s9_feature_acceptance_20260928_0001`.
