@@ -33,6 +33,8 @@ env/
 backups/
 engine_sources/
 .engine_envs/
+# User-supplied proprietary EbSynth Beta application, retained only for local testing.
+/EbSynth Beta/
 # Historical developer snapshots, retained locally but not in new commits/clones.
 /ReEzSynth-source-bundle.txt
 /examples/
