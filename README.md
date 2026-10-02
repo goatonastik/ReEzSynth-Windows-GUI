@@ -286,6 +286,21 @@ These are related controls, not a promise of identical EbSynth Beta behavior or
 matching numerical scales. The native weighting model is described in the
 [EbSynth source documentation](https://github.com/jamriska/ebsynth#examples).
 
+### External EbSynth Beta projects
+
+The **EbSynth Beta** tab works with a copy of Beta that you select yourself;
+the application and installer do not include its executable. Choose `EbSynth.exe`,
+open an existing `.ebs` project, edit its input patterns, weights, frame ranges,
+output patterns or advanced values, then use **Save copy as**. The original
+project stays unchanged. If the copy is saved in another folder, relative input
+and output patterns are adjusted to keep pointing at the same locations.
+
+Use **Open in Beta** after saving the copy, then start synthesis in Beta. This
+tab currently supports the verified EBS05/V02 project format with ASCII paths.
+Automatic Run All, progress, cancellation and unattended queues are not yet
+controlled from ReEzSynth. Beta may finish its rows in a different order from
+their display order, so inspect each output before treating a run as complete.
+
 The flow controls offer RAFT with bundled Sintel (default) and Kitti weights, plus
 the upstream EF-RAFT and FlowDiffuser architecture/model pairs for video. EF-RAFT
 and FlowDiffuser are optional: a queue checks their exact files (including

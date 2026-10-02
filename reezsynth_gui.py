@@ -92,6 +92,7 @@ from reezsynth_widget_style import COMBO_STYLE, QueueSpinBox, StepButton, QueueS
 from reezsynth_artifacts import validate_exports
 from reezsynth_video_plan import (plan_grouped_video, check_blend_dependencies,
                                   validate_grouped_selection, validate_blend_options)
+from reezsynth_beta_controls import BetaProjectTab
 
 
 APP_NAME = "ReEzSynth-Windows-GUI"
@@ -443,6 +444,10 @@ class MainWindow(QMainWindow):
         for name in ("Image Synthesis (planned)", "Blend / Flow (planned)"):
             index = self.tabs.addTab(QWidget(), name)
             self.tabs.setTabEnabled(index, False)
+
+        self.beta_tab = BetaProjectTab(self)
+        self.tabs.addTab(self.beta_tab, "EbSynth Beta")
+        self.locked.append(self.beta_tab)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
