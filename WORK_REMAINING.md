@@ -506,6 +506,11 @@ there is no inference submission, protected-band processing, approval or
 numbered-key assignment yet. See COMFYUI_KEYFRAMES.md. The generator does not
 reintroduce direct video import or synchronized video comparison playback.
 
+The standalone generator protection module now supplies explicit masks,
+square protection bands, exact protected RGBA preservation, two alpha policies,
+static pixel QC and native-grid padding/crop-back. Synthetic tests cover these
+contracts; tab integration and live inference remain unimplemented.
+
 ## Next model handoff
 
 The high-reasoning implementation sequence is complete, including the approved

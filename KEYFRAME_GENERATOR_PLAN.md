@@ -3,6 +3,8 @@
 Status: user-requested feature. The first UI/connection/candidate-intake slice
 is implemented locally on 2026-10-08; inference, approval, key assignment,
 protected-contour processing, backend installation and model downloads are not.
+The standalone deterministic protection/compositing and native-padding module
+was added on 2026-10-09; UI mask controls and inference integration are pending.
 The specification was recorded 2026-09-26 from the user's supplied cross-chat
 discussion. See COMFYUI_KEYFRAMES.md for the current implementation boundary.
 

@@ -39,3 +39,34 @@ with protected regions. These remain planned until inference is implemented.
 
 Images exceeding Pillow's default pixel limit (89,478,485 pixels) are rejected
 with an explanation, without resizing or changing existing project images.
+
+## Deterministic protection engine (not yet connected to the tab)
+
+The reusable protection module accepts native-size RGBA drawings/candidates and
+explicit grayscale edit/protection masks. Any nonzero protection sample wins
+over editing. Zero edit coverage is unchanged; soft edit coverage blends.
+Protected RGBA samples remain exact, including hidden RGB under transparency.
+An empty edit mask is a no-op. Masks with different dimensions are rejected.
+
+Two explicit alpha policies are available to the engine: preserve the drawing's
+alpha, or allow alpha changes within the selected edit region. Preservation also
+keeps fully transparent drawing pixels unchanged and uses candidate opacity to
+weight color changes. Editable alpha uses premultiplied-alpha interpolation in
+encoded RGB; full edit coverage adopts candidate RGBA exactly. No inference
+adapter may infer useful transparency from an opaque model output automatically.
+Preserve-alpha cannot add visible strokes to transparent areas; that requires
+explicit editable alpha. Soft EDIT coverage can change hidden RGB even where
+the blended alpha rounds to zero; protected pixels remain exact in all cases.
+
+Dark-stroke extraction is only a proposed mask for inspection, not automatic
+semantic protection. It ignores fully transparent pixels and may omit white or
+colored details; users must include those in their protection masks. The optional
+square protection band expands by an explicit radius in original pixels.
+The proposed dark-stroke threshold is 48 or less in each RGB channel and can
+be supplied explicitly by a caller; it is not a universal contour detector.
+
+Static QC reports changed pixels, alpha changes and protected mismatches. It
+does not certify unprotected geometry, facial identity or artistic quality.
+A native-canvas helper pads only right/bottom edges to a caller-verified VAE stride and
+crops back to the original rectangle without resizing. This has synthetic tests;
+it does not establish compatibility or quality for an actual inference workflow.
