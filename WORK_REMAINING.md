@@ -509,7 +509,12 @@ reintroduce direct video import or synchronized video comparison playback.
 The standalone generator protection module now supplies explicit masks,
 square protection bands, exact protected RGBA preservation, two alpha policies,
 static pixel QC and native-grid padding/crop-back. Synthetic tests cover these
-contracts; tab integration and live inference remain unimplemented.
+contracts. The Modify tab now provides the three requested edit choices, mask
+selection, background/alpha preview, CPU-only protected compositing and saving an
+unreviewed version with input provenance. Live inference, interactive mask painting,
+approval and assignment remain unimplemented.
+The three edit intentions are currently provenance labels; they do not alter
+compositing until a corresponding inference workflow is added.
 
 ## Next model handoff
 

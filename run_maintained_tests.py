@@ -8,6 +8,7 @@ import unittest
 MODULES = (
     "test_reezsynth_beta",
     "test_reezsynth_comfy",
+    "test_reezsynth_comfy_processing",
     "test_reezsynth_keyframe_protection",
     "test_reezsynth_fuoum_alpha",
     "test_reezsynth_native_yaml",

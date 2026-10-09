@@ -18,6 +18,16 @@ from PIL import Image
 CANDIDATE_DIR = ".reezsynth-candidates"
 
 
+def _candidate_root(root: Path) -> Path:
+    candidate_root = root / CANDIDATE_DIR
+    if candidate_root.exists() and (
+        candidate_root.is_symlink() or candidate_root.resolve() != candidate_root.absolute()
+    ):
+        raise ValueError("Candidate folder redirects outside its project location.")
+    candidate_root.mkdir(exist_ok=True)
+    return candidate_root
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -100,8 +110,7 @@ def import_candidate(
     root = Path(project_directory).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f"Project directory does not exist: {root}")
-    candidate_root = root / CANDIDATE_DIR
-    candidate_root.mkdir(exist_ok=True)
+    candidate_root = _candidate_root(root)
     identifier = uuid.uuid4().hex
     destination = candidate_root / f"frame_{frame_number:06d}_{identifier}.png"
     metadata_path = destination.with_suffix(".json")

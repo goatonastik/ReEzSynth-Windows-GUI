@@ -116,35 +116,44 @@ def compose_modified(drawing, candidate, edit_mask, protection_mask, *, alpha_po
         policy = AlphaPolicy(alpha_policy)
     except (ValueError, TypeError) as exc:
         raise ValueError("Choose a supported alpha policy explicitly.") from exc
-    protected = (protection_mask > 0) | (edit_mask == 0)
-    active = ~protected
     result = drawing.copy()
-    # Float intermediates cover selected pixels (the whole canvas if selected).
-    before = drawing[active].astype(np.float64)
-    after = candidate[active].astype(np.float64)
-    weight = edit_mask[active, None].astype(np.float64) / 255.0
-    if policy == AlphaPolicy.PRESERVE:
-        amount = weight * after[:, 3:4] / 255.0
-        colors = before[:, :3] * (1 - amount) + after[:, :3] * amount
-        colors[before[:, 3] == 0] = before[before[:, 3] == 0, :3]
-        composed = before.copy()
-        composed[:, :3] = colors
-    else:
-        alpha = before[:, 3:4] * (1 - weight) + after[:, 3:4] * weight
-        premult = (before[:, :3] * before[:, 3:4] * (1 - weight)
-                   + after[:, :3] * after[:, 3:4] * weight)
-        colors = np.divide(premult, alpha, out=before[:, :3].copy(), where=alpha > 0)
-        composed = np.concatenate((colors, alpha), axis=1)
-        full = weight[:, 0] == 1
-        composed[full] = after[full]
-    result[active] = np.clip(np.floor(composed + 0.5), 0, 255).astype(np.uint8)
-    changed = np.any(result != drawing, axis=2)
+    editable_pixels = changed_pixels = alpha_changed_pixels = protected_mismatches = 0
+    # Limit float64 intermediates to rows of a native frame at a time.
+    for top in range(0, shape[0], 128):
+        bottom = min(top + 128, shape[0])
+        source_rows = drawing[top:bottom]
+        result_rows = result[top:bottom]
+        active = (protection_mask[top:bottom] == 0) & (edit_mask[top:bottom] > 0)
+        editable_pixels += int(active.sum())
+        before = source_rows[active].astype(np.float64)
+        after = candidate[top:bottom][active].astype(np.float64)
+        weight = edit_mask[top:bottom][active, None].astype(np.float64) / 255.0
+        if policy == AlphaPolicy.PRESERVE:
+            amount = weight * after[:, 3:4] / 255.0
+            colors = before[:, :3] * (1 - amount) + after[:, :3] * amount
+            colors[before[:, 3] == 0] = before[before[:, 3] == 0, :3]
+            composed = before.copy()
+            composed[:, :3] = colors
+        else:
+            alpha = before[:, 3:4] * (1 - weight) + after[:, 3:4] * weight
+            premult = (before[:, :3] * before[:, 3:4] * (1 - weight)
+                       + after[:, :3] * after[:, 3:4] * weight)
+            colors = np.divide(premult, alpha, out=before[:, :3].copy(), where=alpha > 0)
+            composed = np.concatenate((colors, alpha), axis=1)
+            full = weight[:, 0] == 1
+            composed[full] = after[full]
+        result_rows[active] = np.clip(np.floor(composed + 0.5), 0, 255).astype(np.uint8)
+        changed = np.any(result_rows != source_rows, axis=2)
+        changed_pixels += int(changed.sum())
+        alpha_changed_pixels += int((result_rows[..., 3] != source_rows[..., 3]).sum())
+        protected_mismatches += int((changed & ~active).sum())
     report = ProtectionReport(
         width=shape[1], height=shape[0],
-        editable_pixels=int(active.sum()), protected_pixels=int(protected.sum()),
-        changed_pixels=int(changed.sum()),
-        alpha_changed_pixels=int((result[..., 3] != drawing[..., 3]).sum()),
-        protected_mismatches=int((changed & protected).sum()),
+        editable_pixels=editable_pixels,
+        protected_pixels=shape[0] * shape[1] - editable_pixels,
+        changed_pixels=changed_pixels,
+        alpha_changed_pixels=alpha_changed_pixels,
+        protected_mismatches=protected_mismatches,
     )
     return result, report
 

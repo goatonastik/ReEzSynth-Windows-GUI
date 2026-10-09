@@ -1,0 +1,301 @@
+"""Native-size protected preview and unreviewed-candidate integration tests."""
+
+import hashlib
+import json
+import os
+import tempfile
+import time
+import unittest
+from dataclasses import replace
+from io import BytesIO
+from pathlib import Path
+from unittest.mock import patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import numpy as np
+from PIL import Image
+from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+
+from reezsynth_comfy_controls import ComfyKeyframeTab
+from reezsynth_comfy_processing import (
+    PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
+)
+from reezsynth_keyframe_protection import AlphaPolicy, EditIntent
+
+
+class ProcessingFixture:
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.project = self.root / "project"
+        self.project.mkdir()
+        self.keys = self.project / "keys"
+        self.keys.mkdir()
+        self.key = self.keys / "frame_000007.png"
+        self.key.write_bytes(b"numbered original must survive")
+        self.key_hash = hashlib.sha256(self.key.read_bytes()).hexdigest()
+        self.files = {}
+        drawing = np.zeros((8, 12, 4), dtype=np.uint8)
+        drawing[..., :3] = [7, 11, 13]
+        drawing[3, 3] = [0, 0, 0, 128]
+        drawing[3, 4] = [255, 255, 255, 255]
+        drawing[3, 5] = [120, 0, 0, 255]
+        raw = np.full_like(drawing, 220)
+        raw[..., 3] = 255
+        edit = np.full((8, 12), 255, dtype=np.uint8)
+        protect = np.zeros((8, 12), dtype=np.uint8)
+        protect[3, 3:6] = 255
+        for name, pixels in (
+            ("source", np.full_like(drawing, 40)), ("drawing", drawing),
+            ("raw", raw), ("edit_mask", edit), ("protection_mask", protect),
+        ):
+            path = self.root / f"{name}.png"
+            Image.fromarray(pixels).save(path)
+            self.files[name] = path
+        self.request = PreviewRequest(
+            7, *(str(self.files[name]) for name in
+                 ("source", "drawing", "raw", "edit_mask", "protection_mask")),
+            EditIntent.REGION_DETAIL.value, AlphaPolicy.PRESERVE.value, 0,
+        )
+
+class ProcessingTests(ProcessingFixture, unittest.TestCase):
+    def test_preview_and_save_preserve_native_pixels_and_metadata(self):
+        result = prepare_preview(self.request)
+        self.assertEqual((result.width, result.height), (12, 8))
+        self.assertEqual(result.report.protected_mismatches, 0)
+        with Image.open(BytesIO(result.image_png)) as image:
+            final = np.array(image)
+        with Image.open(self.files["drawing"]) as image:
+            drawing = np.array(image)
+        np.testing.assert_array_equal(final[3, 3:6], drawing[3, 3:6])
+        np.testing.assert_array_equal(final[..., 3], drawing[..., 3])
+        self.assertEqual(set(result.views), {
+            "Source", "Drawing", "Raw candidate", "Enforced preview",
+            "Edit mask", "Protected band", "Alpha",
+        })
+        with Image.open(BytesIO(result.views["Enforced preview"])) as thumbnail:
+            self.assertLessEqual(max(thumbnail.size), 500)
+        record = save_enforced_candidate(str(self.project), result)
+        self.assertEqual(record.image_path.read_bytes(), result.image_png)
+        metadata = json.loads(record.metadata_path.read_text(encoding="utf-8"))
+        self.assertEqual(metadata["status"], "unreviewed")
+        self.assertEqual(metadata["edit_intent"], EditIntent.REGION_DETAIL.value)
+        self.assertEqual(metadata["inputs"]["protection_mask"]["sha256"],
+                         result.input_hashes["protection_mask"])
+        self.assertEqual(metadata["protection_radius"], 0)
+        self.assertEqual(hashlib.sha256(self.key.read_bytes()).hexdigest(), self.key_hash)
+        self.assertEqual(list(self.keys.iterdir()), [self.key])
+
+    def test_invalid_masks_and_changed_inputs_cannot_publish(self):
+        Image.new("RGB", (12, 8), "white").save(self.files["edit_mask"])
+        with self.assertRaisesRegex(ValueError, "8-bit grayscale"):
+            prepare_preview(self.request)
+        Image.new("L", (6, 8), 255).save(self.files["edit_mask"])
+        with self.assertRaisesRegex(ValueError, "native dimensions"):
+            prepare_preview(self.request)
+        Image.new("L", (12, 8), 255).save(self.files["edit_mask"])
+        result = prepare_preview(self.request)
+        Image.new("L", (12, 8), 0).save(self.files["edit_mask"])
+        with self.assertRaisesRegex(ValueError, "changed since preview"):
+            save_enforced_candidate(str(self.project), result)
+        self.assertFalse((self.project / ".reezsynth-candidates").exists())
+
+    def test_raw_candidate_requires_png(self):
+        Image.new("RGB", (12, 8), "white").save(self.files["raw"], format="JPEG")
+        with self.assertRaisesRegex(ValueError, "Unsupported image format"):
+            prepare_preview(self.request)
+        self.assertFalse((self.project / ".reezsynth-candidates").exists())
+
+    def test_stroke_proposal_is_not_applied_or_published(self):
+        suggested = preview_dark_strokes(str(self.files["drawing"]))
+        with Image.open(BytesIO(suggested)) as image:
+            mask = np.array(image)
+        self.assertEqual(mask[3, 3], 255)
+        self.assertEqual(mask[3, 4], 0)
+        self.assertEqual(mask[3, 5], 0)
+        self.assertFalse((self.project / ".reezsynth-candidates").exists())
+
+    def test_mask_overlap_and_alpha_edit_only_within_selected_region(self):
+        Image.new("L", (12, 8), 255).save(self.files["edit_mask"])
+        editable = np.zeros((8, 12), dtype=np.uint8)
+        editable[0, 0] = 255
+        Image.fromarray(editable).save(self.files["edit_mask"])
+        request = PreviewRequest(
+            7, *(str(self.files[name]) for name in
+                 ("source", "drawing", "raw", "edit_mask", "protection_mask")),
+            EditIntent.CUSTOM.value, AlphaPolicy.EDIT.value, 0,
+        )
+        result = prepare_preview(request)
+        self.assertEqual(result.report.editable_pixels, 1)
+        self.assertEqual(result.report.alpha_changed_pixels, 1)
+
+    def test_protection_radius_is_applied_to_result_and_metadata(self):
+        result = prepare_preview(replace(self.request, protection_radius=1))
+        with Image.open(BytesIO(result.image_png)) as image:
+            final = np.array(image)
+        with Image.open(self.files["drawing"]) as image:
+            drawing = np.array(image)
+        np.testing.assert_array_equal(final[2, 2:7], drawing[2, 2:7])
+        self.assertEqual(result.report.protected_pixels, 15)
+        with Image.open(BytesIO(result.views["Protected band"])) as image:
+            mask = np.array(image)
+        self.assertEqual(mask[2, 2], 255)
+        record = save_enforced_candidate(str(self.project), result)
+        metadata = json.loads(record.metadata_path.read_text(encoding="utf-8"))
+        self.assertEqual(metadata["protection_radius"], 1)
+
+    def test_changed_file_during_processing_is_rejected(self):
+        import reezsynth_comfy_processing as processing
+        actual_compose = processing.compose_modified
+
+        def mutate_raw(*args, **kwargs):
+            value = actual_compose(*args, **kwargs)
+            Image.new("RGBA", (12, 8), (1, 2, 3, 4)).save(self.files["raw"])
+            return value
+
+        with patch.object(processing, "compose_modified", side_effect=mutate_raw):
+            with self.assertRaisesRegex(ValueError, "Raw changed during preview"):
+                prepare_preview(self.request)
+        self.assertFalse((self.project / ".reezsynth-candidates").exists())
+
+    def test_existing_candidate_folder_with_different_case_is_accepted(self):
+        (self.project / ".ReEzSynth-Candidates").mkdir()
+        result = prepare_preview(self.request)
+        record = save_enforced_candidate(str(self.project), result)
+        self.assertTrue(record.image_path.is_file())
+
+
+class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_three_choices_background_preview_and_save(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        self.assertTrue(tab.edit_mask_row.isHidden())
+        self.assertTrue(tab.enforce_button.isHidden())
+        tab.mode.setCurrentIndex(1)
+        self.assertEqual(tab.intent.count(), 3)
+        self.assertFalse(tab.edit_mask_row.isHidden())
+        tab.frame_number.setValue(7)
+        for name, field in (("source", tab.source), ("drawing", tab.drawing),
+                            ("raw", tab.generated), ("edit_mask", tab.edit_mask),
+                            ("protection_mask", tab.protection_mask)):
+            field.setText(str(self.files[name]))
+        tab.preview_enforced()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertIsNone(tab._worker)
+        self.assertIsNotNone(tab.current_result)
+        self.assertIn("protected", tab.candidate_status.text())
+        self.assertTrue(tab.save_button.isEnabled())
+        tab.view.setCurrentText("Raw candidate")
+        tab.background.setCurrentText("Dark")
+        self.assertFalse(tab.preview.pixmap().isNull())
+        tab.save_enforced()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertIn("Unreviewed enforced candidate saved", tab.candidate_status.text())
+        self.assertFalse(tab.save_button.isEnabled())
+        tab.frame_number.setValue(8)
+        self.assertFalse(tab.save_button.isEnabled())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_input_change_while_worker_runs_discards_stale_result(self):
+        import threading
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        tab.mode.setCurrentIndex(1)
+        tab.frame_number.setValue(7)
+        for name, field in (("source", tab.source), ("drawing", tab.drawing),
+                            ("raw", tab.generated), ("edit_mask", tab.edit_mask),
+                            ("protection_mask", tab.protection_mask)):
+            field.setText(str(self.files[name]))
+        release = threading.Event()
+        actual_prepare = prepare_preview
+
+        def delayed(request):
+            release.wait(2)
+            return actual_prepare(request)
+
+        with patch("reezsynth_comfy_controls.prepare_preview", side_effect=delayed):
+            tab.preview_enforced()
+        tab.frame_number.setValue(8)
+        release.set()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertIsNone(tab.current_result)
+        self.assertFalse(tab.save_button.isEnabled())
+        self.assertIn("Inputs changed", tab.candidate_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_preview_does_not_require_a_project_until_save(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit("")
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        tab.mode.setCurrentIndex(1)
+        for name, field in (("source", tab.source), ("drawing", tab.drawing),
+                            ("raw", tab.generated), ("edit_mask", tab.edit_mask),
+                            ("protection_mask", tab.protection_mask)):
+            field.setText(str(self.files[name]))
+        tab.preview_enforced()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertIsNotNone(tab.current_result)
+        parent.project_dir.setText(str(self.project))
+        tab.save_enforced()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertIn("Unreviewed enforced candidate saved", tab.candidate_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_raw_import_invalidates_earlier_enforced_save(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        tab.mode.setCurrentIndex(1)
+        tab.frame_number.setValue(7)
+        for name, field in (("source", tab.source), ("drawing", tab.drawing),
+                            ("raw", tab.generated), ("edit_mask", tab.edit_mask),
+                            ("protection_mask", tab.protection_mask)):
+            field.setText(str(self.files[name]))
+        tab.preview_enforced()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertTrue(tab.save_button.isEnabled())
+        tab.import_for_review()
+        self.assertIsNone(tab.current_result)
+        self.assertFalse(tab.save_button.isEnabled())
+        self.assertEqual(tab.view.currentText(), "Raw candidate")
+        self.assertIn("Unreviewed candidate", tab.candidate_status.text())
+        tab.deleteLater()
+        parent.deleteLater()

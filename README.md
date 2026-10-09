@@ -315,6 +315,12 @@ This initial tab does not yet run a ComfyUI workflow, approve a candidate or
 assign it as a synthesis keyframe. See [ComfyUI keyframes](COMFYUI_KEYFRAMES.md)
 for the current boundary and next steps.
 
+For Modify Existing Keyframe, record a stroke refinement, selected-region detail,
+or custom edit intention. It does not change this preview's behavior yet. Supply
+native-size grayscale edit and protection masks, then
+preview the protected result and its alpha before saving an unreviewed version.
+The original numbered keyframe stays unchanged.
+
 The flow controls offer RAFT with bundled Sintel (default) and Kitti weights, plus
 the upstream EF-RAFT and FlowDiffuser architecture/model pairs for video. EF-RAFT
 and FlowDiffuser are optional: a queue checks their exact files (including

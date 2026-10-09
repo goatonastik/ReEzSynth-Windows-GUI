@@ -113,6 +113,23 @@ class ProtectionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 protection_band(mask, radius)
 
+    def test_full_height_tiling_preserves_exact_endpoints(self):
+        drawing = np.zeros((260, 11, 4), dtype=np.uint8)
+        drawing[..., :3] = [17, 23, 61]
+        drawing[..., 3] = 128
+        candidate = np.full_like(drawing, 240)
+        edit = np.full((260, 11), 255, dtype=np.uint8)
+        protect = np.zeros_like(edit)
+        protect[127:130] = 255
+        result, report = compose_modified(
+            drawing, candidate, edit, protect, alpha_policy=AlphaPolicy.EDIT,
+        )
+        np.testing.assert_array_equal(result[127:130], drawing[127:130])
+        np.testing.assert_array_equal(result[126], candidate[126])
+        np.testing.assert_array_equal(result[130], candidate[130])
+        self.assertEqual(report.protected_mismatches, 0)
+        self.assertEqual(report.editable_pixels, 257 * 11)
+
 
 class CanvasTests(unittest.TestCase):
     def test_native_grid_and_rgba_round_trip_without_resize(self):

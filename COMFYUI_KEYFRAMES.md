@@ -22,25 +22,24 @@ The local address accepts only an HTTP loopback origin and makes an asynchronous
 five-second, read-only `/system_stats` request with redirects disabled. No
 network request occurs when the application opens.
 
-Next milestones are deterministic protection/edit masks and geometry QC;
-selection and verification of one actual ComfyUI model/workflow adapter;
+Next milestones are selection and verification of an actual ComfyUI model/workflow adapter;
 asynchronous submission, progress, cancellation and output retrieval; then
 explicit approval, versioning and safe numbered-key assignment. Managed backend
 installation and additional model families follow separate validation gates.
 Existing render projects and presets retain their behavior.
 
 The first inference adapter must be chosen against installed ComfyUI nodes and
-models. The owner's transparent line-art refinement needs an agreed editable
-region/default effect before a workflow can claim to preserve its alpha and
-color accents. Generate New remains a first-class mode, even if refinement is
-the first inference workflow exercised. The requested Modify choices are stroke
-refinement, detail/shading within selected regions, and a custom edit prompt
-with protected regions. These remain planned until inference is implemented.
+models. Generate New remains a first-class mode, even if refinement is the first
+inference workflow exercised. The requested Modify choices are stroke refinement,
+detail/shading within selected regions, and a custom edit prompt with protected
+regions. These intentions are stored with a candidate; they do not change
+compositing until a matching inference workflow is implemented. In the current
+preview, only the supplied masks and transparency policy change pixels.
 
 Images exceeding Pillow's default pixel limit (89,478,485 pixels) are rejected
 with an explanation, without resizing or changing existing project images.
 
-## Deterministic protection engine (not yet connected to the tab)
+## Protected candidate previews
 
 The reusable protection module accepts native-size RGBA drawings/candidates and
 explicit grayscale edit/protection masks. Any nonzero protection sample wins
@@ -70,3 +69,25 @@ does not certify unprotected geometry, facial identity or artistic quality.
 A native-canvas helper pads only right/bottom edges to a caller-verified VAE stride and
 crops back to the original rectangle without resizing. This has synthetic tests;
 it does not establish compatibility or quality for an actual inference workflow.
+
+The Modify Existing Keyframe tab now offers the three requested edit intentions,
+explicit grayscale PNG masks for editable and protected areas, a native-pixel
+protection radius, and the two transparency policies. The dark-stroke proposal
+is a preview only. Inspect or correct both masks in an image editor and select
+them explicitly; colored and white details are not inferred as protected.
+
+**Preview protected result** runs on a CPU worker from a snapshot of the five
+selected files. It rejects wrong-size or non-grayscale masks. The View menu
+offers source, drawing, raw candidate, enforced result, both masks, and alpha;
+transparent images can be checked over checkerboard, light, or dark backgrounds.
+Changing an input invalidates the previous preview and its Save action. Full
+resolution pixels are kept for processing and storage. Views are bounded
+thumbnails for inspection, so fine contour accuracy is checked by the exact
+protected-pixel counter as well as by visual review; approval needs further QC.
+
+**Save enforced candidate** creates a new unreviewed RGBA PNG and JSON record
+in its own subdirectory under the project's `.reezsynth-candidates` folder,
+with source/drawing/raw/mask
+hashes, edit intention, alpha policy, radius and static QC. It checks the input
+hashes again before saving. A saved candidate is not approved or assigned as a
+numbered synthesis key. The tab still does not run ComfyUI inference.
