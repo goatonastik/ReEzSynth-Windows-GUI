@@ -93,6 +93,7 @@ from reezsynth_artifacts import validate_exports
 from reezsynth_video_plan import (plan_grouped_video, check_blend_dependencies,
                                   validate_grouped_selection, validate_blend_options)
 from reezsynth_beta_controls import BetaProjectTab
+from reezsynth_comfy_controls import ComfyKeyframeTab
 
 
 APP_NAME = "ReEzSynth-Windows-GUI"
@@ -448,6 +449,10 @@ class MainWindow(QMainWindow):
         self.beta_tab = BetaProjectTab(self)
         self.tabs.addTab(self.beta_tab, "EbSynth Beta")
         self.locked.append(self.beta_tab)
+
+        self.comfy_tab = ComfyKeyframeTab(self, self.preferences)
+        self.tabs.addTab(self.comfy_tab, "ComfyUI / Keyframes")
+        self.locked.append(self.comfy_tab)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -2358,6 +2363,7 @@ class MainWindow(QMainWindow):
 
         self.scan_timer.stop()
         self.shutdown_timer.stop()
+        self.comfy_tab.cancel_pending_check()
         self.options.close()
         save_ui_state(self)
         self.preferences.sync()

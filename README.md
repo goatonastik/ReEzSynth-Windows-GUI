@@ -301,6 +301,20 @@ Automatic Run All, progress, cancellation and unattended queues are not yet
 controlled from ReEzSynth. Beta may finish its rows in a different order from
 their display order, so inspect each output before treating a run as complete.
 
+### ComfyUI keyframe generator (early foundation)
+
+The **ComfyUI / Keyframes** tab provides Generate New and Modify Existing
+Keyframe context. Enter a local ComfyUI address and select **Check connection**
+to read its status; opening ReEzSynth never starts ComfyUI or loads models.
+Choose a numbered source frame from the current project or browse to its image.
+You can import a candidate PNG for review only if it matches the source's native
+pixel dimensions. Imports are versioned in the project's
+`.reezsynth-candidates` folder and never replace active synthesis keyframes.
+
+This initial tab does not yet run a ComfyUI workflow, approve a candidate or
+assign it as a synthesis keyframe. See [ComfyUI keyframes](COMFYUI_KEYFRAMES.md)
+for the current boundary and next steps.
+
 The flow controls offer RAFT with bundled Sintel (default) and Kitti weights, plus
 the upstream EF-RAFT and FlowDiffuser architecture/model pairs for video. EF-RAFT
 and FlowDiffuser are optional: a queue checks their exact files (including

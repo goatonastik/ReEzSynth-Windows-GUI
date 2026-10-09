@@ -1,9 +1,10 @@
 # AI-assisted Keyframe Generator
 
-Status: user-requested feature; specification and proposed implementation stages
-only. No generator, ComfyUI integration, backend installation, or model download
-is implemented by this document. Recorded 2026-09-26 from the user's supplied
-cross-chat specification.
+Status: user-requested feature. The first UI/connection/candidate-intake slice
+is implemented locally on 2026-10-08; inference, approval, key assignment,
+protected-contour processing, backend installation and model downloads are not.
+The specification was recorded 2026-09-26 from the user's supplied cross-chat
+discussion. See COMFYUI_KEYFRAMES.md for the current implementation boundary.
 
 ## Purpose and governing requirements
 
@@ -42,6 +43,12 @@ immediate needs, but architecture, naming, and shared UI must support both modes
 from the outset. Delivery order does not imply product importance.
 
 ### Specialized refinement profile: transparent line art
+
+On 2026-10-08 the owner requested all three Modify edit choices: refine existing
+strokes while preserving sparse color accents; add detail or shading only inside
+selected regions; and a custom edit prompt with explicitly protected regions.
+These are planned choices, not implemented inference controls. They share native
+canvas preservation, explicit protection/edit masks, and candidate review.
 
 The owner clarified their personal input on 2026-09-26: simple black line drawings
 on a transparent background, sometimes with small intentional color accents,

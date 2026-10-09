@@ -71,7 +71,8 @@ try {
     $forbiddenParts = @('/examples/', '/diagnostic_outputs/', '/engine_sources/',
                         '/.engine_envs/', '/backups/', '/reezsynth_outputs/',
                         '/reezsynth_projects/', '/renders/', '/outputs/',
-                        '/output_synth/', '/.reezsynth-cache/')
+                        '/output_synth/', '/.reezsynth-cache/',
+                        '/.reezsynth-candidates/')
     $forbiddenExtensions = @('.bmp', '.gif', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp')
     $violations = @()
     foreach ($entry in $archive.Entries) {

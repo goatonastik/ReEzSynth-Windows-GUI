@@ -58,7 +58,7 @@ class PackagingTests(unittest.TestCase):
                 'status --porcelain --untracked-files=normal',
                 'git -C $root archive',
                 "'/examples/'", "'/diagnostic_outputs/'", "'/.engine_envs/'",
-                "'/output_synth/'", "'/.reezsynth-cache/'",
+                "'/output_synth/'", "'/.reezsynth-cache/'", "'/.reezsynth-candidates/'",
                 '$forbiddenExtensions', 'SHA256SUMS.txt', 'RELEASE_MANIFEST.json'):
             self.assertIn(required, script)
         self.assertNotIn('gh release', script.lower())

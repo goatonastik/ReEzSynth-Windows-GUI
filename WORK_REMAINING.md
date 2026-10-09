@@ -499,7 +499,11 @@ is not yet selected; the advanced edge-tuning panel is now implemented locally.
 
 The generator specification did not authorize transparent FuouM work; the user
 separately granted that permission on 2026-09-26 (implementation described above).
-The generator itself remains planned. It does not
+The initial ComfyUI / Keyframes tab now supports explicit read-only loopback
+readiness checks, source-frame context, Generate/Modify selection and
+non-destructive native-size PNG candidate intake. This is a foundation only:
+there is no inference submission, protected-band processing, approval or
+numbered-key assignment yet. See COMFYUI_KEYFRAMES.md. The generator does not
 reintroduce direct video import or synchronized video comparison playback.
 
 ## Next model handoff

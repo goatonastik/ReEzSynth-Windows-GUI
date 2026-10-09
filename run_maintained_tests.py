@@ -7,6 +7,7 @@ import unittest
 
 MODULES = (
     "test_reezsynth_beta",
+    "test_reezsynth_comfy",
     "test_reezsynth_fuoum_alpha",
     "test_reezsynth_native_yaml",
     "test_reezsynth_comparison",

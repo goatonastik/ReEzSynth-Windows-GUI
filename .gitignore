@@ -27,6 +27,7 @@ env/
 /dist/
 /CLAUDE_HANDOFF.md
 .reezsynth-cache/
+.reezsynth-candidates/
 /diagnostic_*.png
 
 # Local backups
