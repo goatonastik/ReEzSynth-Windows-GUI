@@ -91,3 +91,20 @@ with source/drawing/raw/mask
 hashes, edit intention, alpha policy, radius and static QC. It checks the input
 hashes again before saving. A saved candidate is not approved or assigned as a
 numbered synthesis key. The tab still does not run ComfyUI inference.
+
+## Durable inference job foundation
+
+The standalone job-record module can freeze an intended ComfyUI prompt and input
+snapshots in a project-local candidate subfolder. It creates a unique prompt ID,
+client ID and ownership marker. The caller must exclusively claim its one
+submission attempt before sending the stored request bytes. If the connection
+fails or the response is lost, recovery reports an uncertain attempt and never
+submits the same job again automatically. A receipt is accepted only when its
+prompt ID matches the frozen request. Changed inputs or request bytes prevent a
+claim. These rules have CPU-only race and failure tests.
+The two symlink redirect tests skip on Windows accounts that cannot create
+symlinks; other record and integrity tests still run.
+
+This module is not connected to the tab or to any network transport yet. It does
+not start generation, monitor progress, cancel jobs, or reserve a GPU. Those
+pieces require their own validation before the UI can offer live inference.
