@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Mapping
 
 from reezsynth_comfy_client import normalize_local_endpoint
-from reezsynth_keyframe_candidates import _candidate_root
+from reezsynth_keyframe_candidates import CANDIDATE_DIR, _candidate_root
 
 
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
@@ -82,7 +82,7 @@ def _valid_name(name: object) -> bool:
 def _job_dir(directory: str | Path) -> Path:
     path = Path(directory).absolute()
     if (path.name.startswith("comfy-job-") and path.is_dir()
-            and path.parent.name == ".reezsynth-candidates"
+            and path.parent.name == CANDIDATE_DIR
             and not path.is_symlink() and not path.parent.is_symlink()
             and path.resolve() == path
             and path.parent.resolve() == path.parent):
@@ -98,7 +98,12 @@ def prepare_job(project: str | Path, *, endpoint: str, request: dict,
     IDs and ownership marker are generated here; external code must use the
     stored POST body, never reconstruct it from mutable UI controls.
     """
-    root = Path(project).expanduser().resolve(strict=True)
+    if not str(project).strip():
+        raise ValueError("Select an existing project directory.")
+    try:
+        root = Path(project).expanduser().resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ValueError("Select an existing project directory.") from exc
     if not root.is_dir():
         raise ValueError("Select an existing project directory.")
     origin = normalize_local_endpoint(endpoint)
@@ -118,6 +123,7 @@ def prepare_job(project: str | Path, *, endpoint: str, request: dict,
     body = {"prompt": request["prompt"], "prompt_id": prompt_id,
             "client_id": client_id,
             "extra_data": {"reezsynth_job_id": prompt_id,
+                           "client_id": client_id,
                            "reezsynth_endpoint": origin}}
     content = _json_bytes(body)
     if len(content) > MAX_REQUEST_BYTES:
@@ -153,7 +159,10 @@ def prepare_job(project: str | Path, *, endpoint: str, request: dict,
 def load_job(directory: str | Path) -> JobRecord:
     """Read an existing record without any side effect or implicit resubmission."""
     path = _job_dir(directory)
-    manifest = json.loads(_read_bounded(path / "manifest.json", MAX_REQUEST_BYTES))
+    try:
+        manifest = json.loads(_read_bounded(path / "manifest.json", MAX_REQUEST_BYTES))
+    except FileNotFoundError as exc:
+        raise ValueError("Job preparation was interrupted before its record was complete.") from exc
     if not isinstance(manifest, dict) or manifest.get("schema") != 1:
         raise ValueError("Unsupported job record.")
     prompt_id = manifest.get("prompt_id")

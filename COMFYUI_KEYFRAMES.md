@@ -108,3 +108,19 @@ symlinks; other record and integrity tests still run.
 This module is not connected to the tab or to any network transport yet. It does
 not start generation, monitor progress, cancel jobs, or reserve a GPU. Those
 pieces require their own validation before the UI can offer live inference.
+
+A separate read-only status helper can query a single job by its ID on the
+configured loopback server. It rejects redirects and oversized responses. A
+missing job remains unresolved, because the backend may have restarted or
+discarded history. Pending and running statuses identify the requested ID;
+terminal status also has to match the recorded client and ownership details.
+Its fake-server tests do not contact the user's ComfyUI. This helper is not yet
+wired into the tab, and it does not submit work or release a GPU reservation.
+The route shape was checked in the installed ComfyUI source; a completed response
+from the user's running server still needs validation before live use.
+
+The project-local record assumes other software cannot rewrite its manifest or
+delete the submission marker. A local writer with that access can undermine the
+record's hashes and one-attempt rule; this is the trust boundary for recovery.
+The contention test covers two threads, while separate-process contention
+remains to be tested before live submission is enabled.

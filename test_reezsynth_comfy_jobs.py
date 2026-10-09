@@ -38,6 +38,7 @@ class ComfyJobTests(unittest.TestCase):
         wire = claim_submission(job.directory)
         self.assertEqual(json.loads(wire)["prompt_id"], job.prompt_id)
         self.assertEqual(json.loads(wire)["extra_data"]["reezsynth_job_id"], job.prompt_id)
+        self.assertEqual(json.loads(wire)["extra_data"]["client_id"], job.client_id)
         self.assertTrue(load_job(job.directory).attempted)
         with self.assertRaises((ValueError, FileExistsError)):
             claim_submission(job.directory)
@@ -82,6 +83,18 @@ class ComfyJobTests(unittest.TestCase):
                         request={"prompt": {"1": {"class_type": "SaveImage", "inputs": {}}}},
                         snapshots={"nul.png": b"bytes"})
         self.assertFalse((self.project / ".reezsynth-candidates").exists())
+
+    def test_empty_project_does_not_use_current_directory(self):
+        with self.assertRaisesRegex(ValueError, "Select an existing project"):
+            prepare_job("", endpoint="http://localhost:8188",
+                        request={"prompt": {"1": {"class_type": "SaveImage", "inputs": {}}}},
+                        snapshots={"drawing.png": b"bytes"})
+
+    def test_interrupted_preparation_has_clear_recovery_error(self):
+        job = self.prepare()
+        (job.directory / "manifest.json").unlink()
+        with self.assertRaisesRegex(ValueError, "preparation was interrupted"):
+            load_job(job.directory)
 
     def test_manifest_size_checked_before_job_directory_creation(self):
         with self.assertRaisesRegex(ValueError, "manifest exceeds"):
