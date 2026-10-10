@@ -132,3 +132,63 @@ task's slot. The tab has no generation action yet, and this gate does not reserv
 the user's external ComfyUI process or persist an uncertain job across restart.
 When live generation is added, its admission check must also respect component
 maintenance in progress; those setup workers use a separate existing guard.
+
+## Experimental native-reference workflow planner
+
+The offline Qwen Edit 2511 planner builds a frozen graph and PNG input snapshots
+for Generate and the three Modify intentions. It does not submit, load a model,
+upload, download, or offer a generation button. Its recipe uses the installed
+Qwen Edit 2511 FP8-mixed model, Qwen 2.5 VL 7B encoder, and Qwen image VAE;
+filenames and node compatibility do not prove model contents or output quality.
+Full model identities and actual backend behavior still need checking before use.
+
+Images and masks retain their native pixels. The planner explicitly pads only
+right/bottom edges to a 16-pixel grid (8-pixel VAE stride times 2-pixel transformer
+patches), and records crop-back dimensions. Inputs exceeding the experimental
+16-megapixel limit, including padding, are rejected without resizing.
+The text/vision node receives no VAE, so it cannot silently resize the spatial
+reference; a separate native VAE latent is attached to both conditioning branches.
+Vision encoding still preprocesses an internal reference to approximately
+147,456 pixels total (384 squared), keeping its aspect ratio, and planning
+requires an explicit acknowledgement of that behavior. Owner acceptance of that
+preprocessing remains pending. This is not a claim that every representation
+inside an AI model has the dimensions of the source image.
+
+Modify requires an explicit opaque background for the model intermediate,
+an edit mask, protection mask/radius, and Preserve drawing alpha. Original RGBA
+and masks remain separate snapshots. Protected and fully transparent pixels are
+excluded from the sampler mask; soft edit coverage is retained. The sampler
+internally maps this mask to its latent grid, so it cannot guarantee exact
+protected pixels. Empty effective edit regions are rejected as unnecessary work.
+Exact pixel enforcement belongs to the final compositing stage. This RGB model
+cannot provide editable alpha or grow strokes outside existing alpha coverage.
+The uploaded mask is an RGB PNG with identical channels, read through the red
+channel, to avoid a grayscale decoder colorspace conversion. In Modify, the
+source frame is recorded for provenance; only the drawing on its explicit
+background is supplied to the model. Source-photo conditioning is not yet added.
+A CPU check through the installed LoadImageMask node recovered all 256 coverage
+values exactly from a 48x32 RGB PNG, including its non-32-aligned width.
+
+**Do not treat its RGB output as a finished transparent candidate.** Simply
+reattaching original alpha to an image generated against a background can create
+matte-colored halos. Alpha-aware reconstruction/compositing and its visual tests
+must be completed before connecting this recipe to candidate storage. Generate
+uses an opaque source and full denoise; it does not restore photo pixels or
+inherit Modify masks. Style references and ControlNet are not implemented here.
+
+CPU checks against the installed nodes verified both graphs' inputs, link types,
+and selected model-menu entries. An actual CPU-only Qwen VAE encode/decode took a
+129x81 fixture padded to 144x96 through a 1x16x1x12x18 latent and back to 144x96;
+the standard decode node flattens the singleton video dimension. Crop-back gives
+129x81. The reference node retained the same latent tensor. This verifies shape
+handling, not lossless VAE pixels, diffusion behavior, or artistic quality. No
+diffusion/text model or live inference was run; no backend was launched.
+
+Recipe references: [ComfyUI's Qwen Edit 2511 guide](https://docs.comfy.org/tutorials/image/qwen/qwen-image-edit-2511)
+and [official workflow template](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_edit_2511.json).
+Native-reference attachment, masking, and omission of the official workflow's
+resolution bucketing are experimental departures requiring
+controlled quality comparison; the reference template alone does not validate them.
+Before live submission, bind each plan to one job record so separate jobs cannot
+reuse its upload names, verify upload receipts, and complete backend identity and
+output/alpha validation. Reusing an offline plan is not a supported retry mechanism.
