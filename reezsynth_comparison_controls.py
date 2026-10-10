@@ -21,6 +21,8 @@ def submit_comparison(window, video, keys, padding, start, end, kind):
     if (window.busy or window.process is not None or window.close_when_idle or
             options.installation_active() or options.edge_preview_active()):
         raise ValueError('Finish or cancel the current render, preview, or component operation first.')
+    if window.gpu_gate.owner is not None:
+        raise ValueError(f'Wait for {window.gpu_gate.owner} to finish before comparison rendering.')
     plans = comparison_plans(video, keys, start, end, kind,
         options.render(effective=True), window.grouped.blend_options(effective=True))
     application = validate_application(dict(options.application(), parallel=False))

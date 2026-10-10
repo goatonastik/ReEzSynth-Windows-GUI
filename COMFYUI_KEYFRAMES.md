@@ -124,3 +124,11 @@ delete the submission marker. A local writer with that access can undermine the
 record's hashes and one-attempt rule; this is the trust boundary for recovery.
 The contention test covers two threads, while separate-process contention
 remains to be tested before live submission is enabled.
+
+ReEzSynth now has an in-process GPU work gate. A render batch owns one token
+until its workers finish; Edge Preview uses the same gate until its worker exits.
+Only the matching token can release it, so an old callback cannot free another
+task's slot. The tab has no generation action yet, and this gate does not reserve
+the user's external ComfyUI process or persist an uncertain job across restart.
+When live generation is added, its admission check must also respect component
+maintenance in progress; those setup workers use a separate existing guard.

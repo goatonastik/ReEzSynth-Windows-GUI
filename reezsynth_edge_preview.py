@@ -42,6 +42,7 @@ class EdgePreviewWindow(QDialog):
         self.setWindowTitle('Edge Preview')
         self.resize(1000, 700)
         self.process = None
+        self.gpu_token = None
         self.temporary = None
         self.request_signature = None
         self.output = ''
@@ -170,29 +171,54 @@ class EdgePreviewWindow(QDialog):
                       if request['options']['engine'] == FUOUM else sys.executable)
             if not Path(python).is_file():
                 raise ValueError('The selected engine Python executable is missing. Check Settings.')
+            self.gpu_token = w.gpu_gate.acquire('Edge Preview')
             self.temporary = tempfile.TemporaryDirectory(prefix='reezsynth-edge-preview-')
             path = Path(self.temporary.name) / 'request.json'
             path.write_text(json.dumps(request, allow_nan=False), encoding='utf-8')
         except (OSError, ValueError, StopIteration) as exc:
             self.cleanup()
+            if self.gpu_token is not None:
+                w.gpu_gate.release(self.gpu_token)
+                self.gpu_token = None
             self.status.setText(f'Cannot preview: {exc}')
             return
         self.cancelled = False
         self.output = ''
-        process = QProcess(self)
-        self.process = process
-        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        process.setWorkingDirectory(str(Path(__file__).resolve().parent))
-        process.readyReadStandardOutput.connect(lambda p=process: self.read_output(p))
-        process.finished.connect(lambda code, status, p=process: self.finished(p, code))
-        process.errorOccurred.connect(lambda error, p=process: self.process_error(p, error))
-        self.status.setText('Computing one frame in a separate process…')
-        self.update_button.setEnabled(False)
-        self.refresh_button.setEnabled(False)
-        self.frames.setEnabled(False)
-        self.cancel_button.setEnabled(True)
-        self.options.refresh_engine_controls()
-        process.start(str(python), ['-B', str(Path(__file__).with_name('reezsynth_edge_worker.py')), str(path)])
+        process = None
+        try:
+            process = QProcess(self)
+            self.process = process
+            process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+            process.setWorkingDirectory(str(Path(__file__).resolve().parent))
+            process.readyReadStandardOutput.connect(lambda p=process: self.read_output(p))
+            process.finished.connect(lambda code, status, p=process: self.finished(p, code))
+            process.errorOccurred.connect(lambda error, p=process: self.process_error(p, error))
+            self.status.setText('Computing one frame in a separate process…')
+            self.update_button.setEnabled(False)
+            self.refresh_button.setEnabled(False)
+            self.frames.setEnabled(False)
+            self.cancel_button.setEnabled(True)
+            self.options.refresh_engine_controls()
+            process.start(str(python), ['-B', str(Path(__file__).with_name('reezsynth_edge_worker.py')), str(path)])
+        except Exception as exc:
+            if process is not None and process.state() != QProcess.ProcessState.NotRunning:
+                # A worker may have started before the exception. Keep ownership
+                # until its finished signal proves the process has exited.
+                process.kill()
+                self.status.setText(f'Preview launch failed; waiting for worker exit: {exc}')
+                return
+            self.process = None
+            if process is not None:
+                process.deleteLater()
+            self.cleanup()
+            if self.gpu_token is not None:
+                w.gpu_gate.release(self.gpu_token)
+                self.gpu_token = None
+            self.update_button.setEnabled(True)
+            self.refresh_button.setEnabled(True)
+            self.frames.setEnabled(True)
+            self.cancel_button.setEnabled(False)
+            self.status.setText(f'Cannot start preview: {exc}')
 
     def read_output(self, process):
         if process is self.process:
@@ -237,6 +263,9 @@ class EdgePreviewWindow(QDialog):
             self.process = None
             process.deleteLater()
             self.cleanup()
+            if self.gpu_token is not None:
+                self.options.w.gpu_gate.release(self.gpu_token)
+                self.gpu_token = None
             self.update_button.setEnabled(True)
             self.refresh_button.setEnabled(True)
             self.frames.setEnabled(True)

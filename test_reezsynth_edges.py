@@ -191,6 +191,16 @@ class EdgeGuiTests(GuiFixture):
         self.assertTrue(preview.update_button.isEnabled())
         self.assertIn('failed', preview.status.text())
 
+    def test_process_construction_failure_releases_gpu_lease(self):
+        window, preview = self.preview()
+        with patch('reezsynth_edge_preview.QProcess', side_effect=OSError('fixture launch failure')):
+            preview.update_preview()
+        self.assertIsNone(window.gpu_gate.owner)
+        self.assertIsNone(preview.gpu_token)
+        self.assertIsNone(preview.process)
+        self.assertIsNone(preview.temporary)
+        self.assertIn('Cannot start preview', preview.status.text())
+
     def test_preview_excludes_render_start_and_cancel_retains_ownership_until_exit(self):
         window, preview = self.preview()
         process = MagicMock()

@@ -11,6 +11,7 @@ MODULES = (
     "test_reezsynth_comfy_processing",
     "test_reezsynth_comfy_jobs",
     "test_reezsynth_comfy_status",
+    "test_reezsynth_gpu_gate",
     "test_reezsynth_keyframe_protection",
     "test_reezsynth_fuoum_alpha",
     "test_reezsynth_native_yaml",

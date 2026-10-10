@@ -94,6 +94,7 @@ from reezsynth_video_plan import (plan_grouped_video, check_blend_dependencies,
                                   validate_grouped_selection, validate_blend_options)
 from reezsynth_beta_controls import BetaProjectTab
 from reezsynth_comfy_controls import ComfyKeyframeTab
+from reezsynth_gpu_gate import GpuAdmission, GpuBusy
 
 
 APP_NAME = "ReEzSynth-Windows-GUI"
@@ -397,6 +398,8 @@ class MainWindow(QMainWindow):
         self.queue_generation = 0
         self.queue_count = 0
         self.queue_journal = None
+        self.gpu_gate = GpuAdmission()
+        self.queue_gpu_token = None
         self.close_when_idle = False
 
         self.preferences = QSettings("ReEzSynth", APP_NAME)
@@ -1134,6 +1137,9 @@ class MainWindow(QMainWindow):
             return
         if self.busy or self.process is not None or self.close_when_idle:
             return
+        if self.gpu_gate.owner is not None:
+            self.status.setText(f'Wait for {self.gpu_gate.owner} to finish before rendering.')
+            return
 
         self.options.auto_timer.stop()
         self.options.auto_armed = False
@@ -1309,6 +1315,9 @@ class MainWindow(QMainWindow):
             return
         if self.busy or self.process is not None or self.close_when_idle:
             return
+        if self.gpu_gate.owner is not None:
+            self.status.setText(f'Wait for {self.gpu_gate.owner} to finish before rendering.')
+            return
         self.options.auto_timer.stop()
         self.options.auto_armed = False
         try:
@@ -1384,6 +1393,9 @@ class MainWindow(QMainWindow):
 
     def recover_queue(self):
         if self.busy or self.process is not None or self.parallel_queue is not None:
+            return
+        if self.gpu_gate.owner is not None:
+            self.status.setText(f'Wait for {self.gpu_gate.owner} to finish before recovering a queue.')
             return
         if self.options.installation_active():
             QMessageBox.information(
@@ -1484,6 +1496,11 @@ class MainWindow(QMainWindow):
                 self, 'Component maintenance',
                 'Wait for the current component operation to finish before starting a render.')
             return
+        try:
+            self.queue_gpu_token = self.gpu_gate.acquire('ReEzSynth rendering')
+        except GpuBusy as exc:
+            self.status.setText(str(exc))
+            return
         self.gpu_memory_error_reported = False
         self.scan_timer.stop()
         self.shutdown_timer.stop()
@@ -1502,6 +1519,8 @@ class MainWindow(QMainWindow):
             self.preferences.setValue('last_queue_journal', str(self.queue_journal))
         except Exception as exc:
             self.queue_journal = None
+            self.gpu_gate.release(self.queue_gpu_token)
+            self.queue_gpu_token = None
             QMessageBox.warning(self, 'Cannot start queue',
                                 'Could not create the recovery journal: ' + str(exc))
             return
@@ -2186,6 +2205,9 @@ class MainWindow(QMainWindow):
 
         self.status.setText(message)
         self.preview_window.end()
+        if self.queue_gpu_token is not None:
+            self.gpu_gate.release(self.queue_gpu_token)
+            self.queue_gpu_token = None
         self.set_busy(False)
         self.log.appendPlainText(
             f"\n{LOG_SEPARATOR}\n"
