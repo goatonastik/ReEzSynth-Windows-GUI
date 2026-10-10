@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import multiprocessing
 import tempfile
 import threading
 import unittest
@@ -11,6 +12,18 @@ from pathlib import Path
 from reezsynth_comfy_jobs import (
     claim_submission, load_job, prepare_job, record_receipt,
 )
+
+
+def _claim_from_process(directory, ready, start, results):
+    ready.put(True)
+    if not start.wait(timeout=10):
+        results.put("timeout")
+        return
+    try:
+        claim_submission(directory)
+        results.put("claimed")
+    except (ValueError, FileExistsError):
+        results.put("rejected")
 
 
 class ComfyJobTests(unittest.TestCase):
@@ -66,6 +79,49 @@ class ComfyJobTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             outcomes = list(pool.map(attempt, range(2)))
         self.assertCountEqual(outcomes, ["claimed", "rejected"])
+
+    def test_separate_processes_can_claim_only_one_attempt(self):
+        job = self.prepare()
+        context = multiprocessing.get_context("spawn")
+        ready = context.Queue()
+        start = context.Event()
+        results = context.Queue()
+        workers = [context.Process(target=_claim_from_process,
+                                   args=(str(job.directory), ready, start, results))
+                   for _ in range(2)]
+        try:
+            for worker in workers:
+                worker.start()
+            for _ in workers:
+                self.assertTrue(ready.get(timeout=10))
+            start.set()
+            outcomes = [results.get(timeout=10) for _ in workers]
+            self.assertCountEqual(outcomes, ["claimed", "rejected"])
+            self.assertTrue(load_job(job.directory).attempted)
+        finally:
+            start.set()
+            for worker in workers:
+                worker.join(timeout=5)
+                if worker.is_alive():
+                    worker.terminate()
+                    worker.join(timeout=5)
+            ready.close()
+            results.close()
+
+    def test_mismatched_client_id_in_wire_body_blocks_claim(self):
+        job = self.prepare()
+        wire_path = job.directory / "submit.json"
+        body = json.loads(wire_path.read_bytes())
+        body["extra_data"]["client_id"] = "other-client"
+        content = (json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        wire_path.write_bytes(content)
+        manifest_path = job.directory / "manifest.json"
+        manifest = json.loads(manifest_path.read_bytes())
+        manifest["request_sha256"] = hashlib.sha256(content).hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "ownership"):
+            claim_submission(job.directory)
+        self.assertFalse((job.directory / "attempted").exists())
 
     def test_changed_endpoint_in_manifest_blocks_claim(self):
         job = self.prepare()

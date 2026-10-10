@@ -180,6 +180,7 @@ def load_job(directory: str | Path) -> JobRecord:
             or body.get("client_id") != client_id
             or not isinstance(body.get("extra_data"), dict)
             or body["extra_data"].get("reezsynth_job_id") != prompt_id
+            or body["extra_data"].get("client_id") != client_id
             or body["extra_data"].get("reezsynth_endpoint") != manifest.get("endpoint")):
         raise ValueError("Frozen submission ownership is invalid.")
     hashes = manifest.get("input_sha256")

@@ -101,7 +101,8 @@ submission attempt before sending the stored request bytes. If the connection
 fails or the response is lost, recovery reports an uncertain attempt and never
 submits the same job again automatically. A receipt is accepted only when its
 prompt ID matches the frozen request. Changed inputs or request bytes prevent a
-claim. These rules have CPU-only race and failure tests.
+claim. These rules have CPU-only thread and separate-process race tests, plus
+failure and ownership-field checks.
 The two symlink redirect tests skip on Windows accounts that cannot create
 symlinks; other record and integrity tests still run.
 
@@ -122,8 +123,7 @@ from the user's running server still needs validation before live use.
 The project-local record assumes other software cannot rewrite its manifest or
 delete the submission marker. A local writer with that access can undermine the
 record's hashes and one-attempt rule; this is the trust boundary for recovery.
-The contention test covers two threads, while separate-process contention
-remains to be tested before live submission is enabled.
+The exclusive attempt marker has been tested with two separate processes.
 
 ReEzSynth now has an in-process GPU work gate. A render batch owns one token
 until its workers finish; Edge Preview uses the same gate until its worker exits.
