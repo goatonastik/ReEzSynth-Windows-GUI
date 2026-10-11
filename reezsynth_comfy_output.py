@@ -29,6 +29,7 @@ class OwnedOutput:
     filename: str
     source_sha256: str
     native_rgb: np.ndarray
+    raw_png: bytes
 
 
 def fetch_owned_output(directory: str | Path, *, timeout: float = 15.0) -> OwnedOutput:
@@ -113,4 +114,4 @@ def fetch_owned_output(directory: str | Path, *, timeout: float = 15.0) -> Owned
     except (OSError, SyntaxError) as exc:
         raise ValueError("Owned output PNG is damaged or incomplete.") from exc
     return OwnedOutput(job.prompt_id, filename, hashlib.sha256(image_bytes).hexdigest(),
-                       pixels[:native[1], :native[0]].copy())
+                       pixels[:native[1], :native[0]].copy(), image_bytes)

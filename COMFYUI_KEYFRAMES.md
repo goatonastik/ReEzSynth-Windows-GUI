@@ -224,6 +224,14 @@ right and bottom padding to return native pixels. A mismatched owner, file name,
 image count, format, or size is rejected. The output remains an RGB intermediate;
 it is not saved as an approved keyframe or inserted into candidate storage.
 
+The owned candidate worker can now reconstruct an unreviewed RGBA preview from
+the completed job and its frozen inputs. Saving that preview creates a new
+candidate folder with the exact downloaded RGB PNG, native enforced RGBA PNG,
+provenance, and QC record. The completion record is written last. Older job
+records do not include an intended frame number, so these candidates remain
+unassigned until a separate explicit frame choice and approval. This does not
+change any numbered synthesis keyframe.
+
 ## Fixed-alpha reconstruction of model intermediates
 
 The standalone matte helper uses the exact quantized opaque input as its baseline.

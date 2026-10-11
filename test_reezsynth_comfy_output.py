@@ -18,7 +18,7 @@ from reezsynth_comfy_binding import bind_qwen_plan
 from reezsynth_comfy_jobs import claim_submission, record_receipt
 from reezsynth_comfy_output import fetch_owned_output
 from reezsynth_comfy_qwen import QwenSettings, plan_qwen
-from reezsynth_comfy_candidate import prepare_job_candidate
+from reezsynth_comfy_candidate import prepare_job_candidate, save_job_candidate
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent, protection_band
 
 
@@ -189,6 +189,46 @@ class OutputTests(unittest.TestCase):
             (self.job.directory / "manifest.json").read_bytes()).hexdigest())
         self.assertEqual(before, sorted(str(p) for p in self.job.directory.rglob("*")))
 
+    def test_save_owned_candidate_preserves_raw_and_stays_unassigned(self):
+        preview = prepare_job_candidate(self.job.directory)
+        saved = save_job_candidate(self.job.directory, preview)
+        self.assertEqual(saved.image_path.read_bytes(), preview.image_png)
+        self.assertEqual((saved.image_path.parent / "raw-output.png").read_bytes(),
+                         self.server.image)
+        self.assertEqual((saved.image_path.parent / "provenance.json").read_bytes(),
+                         preview.provenance_json)
+        record = json.loads(saved.metadata_path.read_bytes())
+        self.assertEqual(record["status"], "unreviewed")
+        self.assertIsNone(record["frame_number"])
+        self.assertEqual(record["candidate_sha256"], hashlib.sha256(preview.image_png).hexdigest())
+        self.assertEqual(record["raw_output_sha256"], hashlib.sha256(self.server.image).hexdigest())
+        self.assertIsNone(record["qc"])
+
+    def test_save_rejects_mutated_preview_or_changed_job(self):
+        from dataclasses import replace
+        preview = prepare_job_candidate(self.job.directory)
+        with self.assertRaisesRegex(ValueError, "image bytes"):
+            save_job_candidate(self.job.directory, replace(preview, image_png=b"changed"))
+        with self.assertRaisesRegex(ValueError, "image bytes"):
+            save_job_candidate(self.job.directory, replace(preview, raw_output_png=b"changed"))
+        manifest = self.job.directory / "manifest.json"
+        manifest.write_bytes(manifest.read_bytes() + b" ")
+        with self.assertRaisesRegex(ValueError, "frozen job"):
+            save_job_candidate(self.job.directory, preview)
+        self.assertEqual(list(self.job.directory.parent.glob("comfy-preview-*")), [])
+
+    def test_interrupted_save_removes_only_new_incomplete_candidate(self):
+        preview = prepare_job_candidate(self.job.directory)
+        from reezsynth_comfy_candidate import _write_exclusive
+        def fail_raw(path, content):
+            if path.name == "raw-output.png":
+                raise OSError("disk full")
+            return _write_exclusive(path, content)
+        with patch("reezsynth_comfy_candidate._write_exclusive", side_effect=fail_raw):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                save_job_candidate(self.job.directory, preview)
+        self.assertEqual(list(self.job.directory.parent.glob("comfy-preview-*")), [])
+
     def modify_job(self):
         drawing = np.full((33, 19, 4), 100, dtype=np.uint8)
         drawing[..., 3] = np.arange(33, dtype=np.uint8)[:, None] * 7
@@ -221,6 +261,10 @@ class OutputTests(unittest.TestCase):
         with Image.open(io.BytesIO(result.image_png)) as image:
             np.testing.assert_array_equal(np.array(image), drawing)
         self.assertEqual(result.matte_report.clipped_reconstruction_pixels, 0)
+        saved = save_job_candidate(self.job.directory, result)
+        record = json.loads(saved.metadata_path.read_bytes())
+        self.assertIsNone(record["frame_number"])
+        self.assertEqual(record["qc"]["protection"]["protected_mismatches"], 0)
 
     def test_modify_enforces_band_alpha_hidden_rgb_and_reports_clipping(self):
         drawing, _, protected = self.modify_job()
