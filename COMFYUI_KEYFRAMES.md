@@ -150,8 +150,9 @@ The text/vision node receives no VAE, so it cannot silently resize the spatial
 reference; a separate native VAE latent is attached to both conditioning branches.
 Vision encoding still preprocesses an internal reference to approximately
 147,456 pixels total (384 squared), keeping its aspect ratio, and planning
-requires an explicit acknowledgement of that behavior. Owner acceptance of that
-preprocessing remains pending. This is not a claim that every representation
+requires an explicit acknowledgement of that behavior. On 2026-10-10 the owner
+accepted this preprocessing for the experiment, while keeping spatial references,
+masks, working images, and output native. This is not a claim that every representation
 inside an AI model has the dimensions of the source image.
 
 Modify requires an explicit opaque background for the model intermediate,
@@ -171,8 +172,9 @@ values exactly from a 48x32 RGB PNG, including its non-32-aligned width.
 
 **Do not treat its RGB output as a finished transparent candidate.** Simply
 reattaching original alpha to an image generated against a background can create
-matte-colored halos. Alpha-aware reconstruction/compositing and its visual tests
-must be completed before connecting this recipe to candidate storage. Generate
+matte-colored halos. A CPU-only reconstruction helper is now implemented below;
+its real-model visual tests and integration must be completed before connecting
+this recipe to candidate storage. Generate
 uses an opaque source and full denoise; it does not restore photo pixels or
 inherit Modify masks. Style references and ControlNet are not implemented here.
 
@@ -192,3 +194,27 @@ controlled quality comparison; the reference template alone does not validate th
 Before live submission, bind each plan to one job record so separate jobs cannot
 reuse its upload names, verify upload receipts, and complete backend identity and
 output/alpha validation. Reusing an offline plan is not a supported retry mechanism.
+
+## Fixed-alpha reconstruction of model intermediates
+
+The standalone matte helper uses the exact quantized opaque input as its baseline.
+It converts the generated RGB difference into a foreground-color change using
+the original alpha, clips colors to byte range, then applies edit coverage and
+exact protection through the existing compositor. An unchanged model output
+therefore returns the original RGBA exactly, including faint antialiased samples
+and hidden RGB. Planner input preparation uses the same matte arithmetic.
+
+Alpha remains fixed. Protected pixels and pixels outside edit coverage remain
+byte-exact. Clipped-reconstruction pixels and eligible translucent pixels are
+reported: faint samples amplify RGB changes, and some model edits cannot be
+represented using the original alpha. Clipping is counted before the final soft
+blend, not as a count of saturated final pixels. This assumes the model result
+uses the recorded background; it cannot infer a new foreground mask, remove all
+model-induced edge artifacts, or certify quality on other backgrounds.
+
+CPU tests cover identity across all 256 alpha values and three backgrounds,
+partial edits, clipping, protected/hidden colors, PNG round trips, and the actual
+planner's saved input. This helper has no UI, network, output publication, or
+approval action. The caller must supply the original snapshots, the effective
+protection band, and a validated native crop of the owned job's output. Connecting
+those boundaries and evaluating real generated artwork remain required.

@@ -19,6 +19,7 @@ from PIL import Image
 from reezsynth_keyframe_protection import (
     AlphaPolicy, EditIntent, NativeCanvas, protection_band,
 )
+from reezsynth_keyframe_matte import opaque_model_input
 
 
 PROFILE = "qwen-edit-2511-native-reference-experimental-v1"
@@ -139,13 +140,7 @@ def plan_qwen(settings, source, *, drawing=None, edit_mask=None, protection_mask
         if not np.any(effective):
             raise ValueError("No visible editable pixels remain; generation is unnecessary.")
         # Explicit opaque intermediate, never a replacement for original RGBA.
-        background = np.array(settings.background, dtype=np.uint32)
-        rgb = np.empty((*drawing.shape[:2],3),dtype=np.uint8)
-        for top in range(0,drawing.shape[0],128):
-            rows = drawing[top:top+128]
-            alpha = rows[...,3:4].astype(np.uint32)
-            colors = rows[...,:3].astype(np.uint32)
-            rgb[top:top+128] = ((colors * alpha + background * (255-alpha) + 127) // 255).astype(np.uint8)
+        rgb = opaque_model_input(drawing,background=settings.background)
         snapshots.update({"drawing.png": _png(drawing), "edit.png": _png(edit_mask),
                           "protection.png": _png(protection_mask)})
         padded_mask = np.pad(effective, ((0,height-canvas.height),(0,width-canvas.width)))

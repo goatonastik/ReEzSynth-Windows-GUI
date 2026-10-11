@@ -14,6 +14,7 @@ MODULES = (
     "test_reezsynth_comfy_qwen",
     "test_reezsynth_gpu_gate",
     "test_reezsynth_keyframe_protection",
+    "test_reezsynth_keyframe_matte",
     "test_reezsynth_fuoum_alpha",
     "test_reezsynth_native_yaml",
     "test_reezsynth_comparison",
