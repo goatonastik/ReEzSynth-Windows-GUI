@@ -7,6 +7,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 import numpy as np
@@ -104,6 +105,11 @@ class TransportTests(unittest.TestCase):
         self.job = bind_qwen_plan(self.project,
                                   endpoint=f"http://127.0.0.1:{self.server.server_port}",
                                   plan=self.plan)
+        # These transport tests isolate upload/one-attempt behavior. The
+        # read-only schema request has dedicated fake-server tests below.
+        self.preflight = patch("reezsynth_comfy_preflight.preflight_graph", return_value=19)
+        self.preflight_mock = self.preflight.start()
+        self.addCleanup(self.preflight.stop)
 
     def test_upload_verify_submit_once_and_recover(self):
         upload_job_inputs(self.job.directory)
@@ -111,6 +117,8 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(self.server.upload_posts, 1)
         loaded = submit_uploaded_job(self.job.directory)
         self.assertTrue(loaded.receipt_confirmed)
+        self.preflight_mock.assert_called_once_with(
+            self.job.endpoint, self.plan.request()["prompt"], timeout=15.0)
         self.assertEqual(len(self.server.prompts), 1)
         self.assertEqual(self.server.prompts[0]["prompt_id"], self.job.prompt_id)
         with self.assertRaises(ValueError):
@@ -158,6 +166,14 @@ class TransportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "differ"):
             submit_uploaded_job(self.job.directory)
         self.assertFalse(load_job(self.job.directory).attempted)
+
+    def test_failed_preflight_never_claims_or_posts(self):
+        upload_job_inputs(self.job.directory)
+        self.preflight_mock.side_effect = ValueError("ComfyUI model selection changed.")
+        with self.assertRaisesRegex(ValueError, "model selection changed"):
+            submit_uploaded_job(self.job.directory)
+        self.assertFalse(load_job(self.job.directory).attempted)
+        self.assertEqual(self.server.prompts, [])
 
     def test_redirect_is_rejected_without_leaving_loopback(self):
         self.server.redirect = True

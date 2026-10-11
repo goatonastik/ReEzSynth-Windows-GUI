@@ -202,7 +202,14 @@ offline plan is not a supported retry mechanism.
 The worker-side transport now uploads only frozen input PNGs over loopback,
 refuses redirects, verifies that ComfyUI kept the expected input filename, and
 reads the stored bytes back to compare against the frozen SHA-256. It checks
-all inputs again immediately before claiming the single prompt submission.
+all inputs again before claiming the single prompt submission.
+Immediately before that claim, it also reads only the referenced nodes' live
+`/object_info/<node>` schemas. Missing nodes, changed input/link types, and
+unavailable selected model filenames stop the attempt before `/prompt`. This
+read-only check does not load models or prove the model files' contents, memory
+availability, actual `/prompt` acceptance, or image quality. An accepted
+submission still has one attempt; a later error never authorizes an automatic
+retry.
 If the prompt response is lost, the job remains attempted with no receipt and
 must be reconciled; it is not submitted again. A cross-project filename clash
 with different bytes produces a renamed upload and stops before submission.

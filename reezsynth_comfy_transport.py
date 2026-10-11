@@ -156,6 +156,11 @@ def submit_uploaded_job(directory: str | Path, *, timeout: float = 15.0):
         if hashlib.sha256(_server_bytes(job, name, opener, timeout,
                                         len(payload))).hexdigest() != hashes[key]:
             raise ValueError("ComfyUI input bytes differ from the frozen snapshot.")
+    # A read-only schema/model-menu check must pass before the durable single
+    # attempt marker. This cannot guarantee /prompt acceptance or model quality.
+    from reezsynth_comfy_preflight import preflight_graph
+    body = json.loads(_read_bounded(job.directory / "submit.json", MAX_REQUEST_BYTES))
+    preflight_graph(job.endpoint, body["prompt"], timeout=timeout)
     try:
         content = claim_submission(job.directory)
     except FileExistsError as exc:
