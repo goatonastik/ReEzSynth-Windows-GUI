@@ -191,9 +191,13 @@ and [official workflow template](https://github.com/Comfy-Org/workflow_templates
 Native-reference attachment, masking, and omission of the official workflow's
 resolution bucketing are experimental departures requiring
 controlled quality comparison; the reference template alone does not validate them.
-Before live submission, bind each plan to one job record so separate jobs cannot
-reuse its upload names, verify upload receipts, and complete backend identity and
-output/alpha validation. Reusing an offline plan is not a supported retry mechanism.
+The offline plan can now be bound once per project to a durable job record. A
+claim file is created exclusively before preparing the job, so two controllers
+cannot freeze the same plan simultaneously or reuse its upload names after an
+interrupted preparation. A new intentional attempt requires a newly planned
+workflow with fresh upload names. Upload receipts, backend identity, and
+output/alpha validation must be completed before live submission. Reusing an
+offline plan is not a supported retry mechanism.
 
 ## Fixed-alpha reconstruction of model intermediates
 
