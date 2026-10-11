@@ -16,12 +16,14 @@ from reezsynth_comfy_jobs import load_job
 from reezsynth_comfy_qwen import QwenSettings, plan_qwen
 from reezsynth_comfy_qwen import QwenPlan
 from reezsynth_comfy_transport import submit_uploaded_job, upload_job_inputs
+from reezsynth_keyframe_protection import AlphaPolicy, EditIntent
 
 
 class _FakeServer(ThreadingHTTPServer):
     def __init__(self):
         super().__init__(("127.0.0.1", 0), _Handler)
         self.images = {}
+        self.upload_posts = 0
         self.prompts = []
         self.rename = False
         self.corrupt = False
@@ -48,6 +50,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         content = self.rfile.read(int(self.headers["Content-Length"]))
         if self.path == "/upload/image":
+            self.server.upload_posts += 1
             match = re.search(rb'filename="([a-z0-9_.]+\.png)"\r\n', content)
             if match is None:
                 self.respond(400, b"{}")
@@ -80,7 +83,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         payload = self.server.images[name]
         if self.server.corrupt:
-            payload += b"changed"
+            payload = payload[:-1] + bytes([payload[-1] ^ 1])
         self.respond(200, payload, "image/png")
 
 
@@ -104,12 +107,42 @@ class TransportTests(unittest.TestCase):
 
     def test_upload_verify_submit_once_and_recover(self):
         upload_job_inputs(self.job.directory)
+        upload_job_inputs(self.job.directory)
+        self.assertEqual(self.server.upload_posts, 1)
         loaded = submit_uploaded_job(self.job.directory)
         self.assertTrue(loaded.receipt_confirmed)
         self.assertEqual(len(self.server.prompts), 1)
         self.assertEqual(self.server.prompts[0]["prompt_id"], self.job.prompt_id)
         with self.assertRaises(ValueError):
             submit_uploaded_job(self.job.directory)
+        self.assertEqual(len(self.server.prompts), 1)
+
+    def test_modify_requires_both_verified_uploads(self):
+        drawing = np.full((17, 19, 4), 255, dtype=np.uint8)
+        edit = np.full((17, 19), 255, dtype=np.uint8)
+        protect = np.zeros_like(edit)
+        plan = plan_qwen(QwenSettings("modify", "Refine lines", 2, 12, 4, 0.5,
+                                      intent=EditIntent.REFINE_STROKES,
+                                      alpha_policy=AlphaPolicy.PRESERVE,
+                                      background=(255, 255, 255),
+                                      allow_vision_preprocessing=True),
+                         drawing, drawing=drawing, edit_mask=edit,
+                         protection_mask=protect)
+        job = bind_qwen_plan(self.project,
+                            endpoint=f"http://127.0.0.1:{self.server.server_port}",
+                            plan=plan)
+        with self.assertRaisesRegex(ValueError, "Upload every input"):
+            submit_uploaded_job(job.directory)
+        upload_job_inputs(job.directory)
+        self.assertEqual(self.server.upload_posts, 2)
+        self.assertEqual(set(self.server.images), set(dict(plan.uploads).values()))
+        (job.directory / "upload-noise_mask.json").unlink()
+        with self.assertRaisesRegex(ValueError, "Upload every input"):
+            submit_uploaded_job(job.directory)
+        self.assertFalse(load_job(job.directory).attempted)
+        upload_job_inputs(job.directory)
+        self.assertEqual(self.server.upload_posts, 3)
+        self.assertTrue(submit_uploaded_job(job.directory).receipt_confirmed)
         self.assertEqual(len(self.server.prompts), 1)
 
     def test_renamed_upload_is_rejected_before_submission(self):

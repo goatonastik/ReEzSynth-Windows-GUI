@@ -206,7 +206,10 @@ all inputs again immediately before claiming the single prompt submission.
 If the prompt response is lost, the job remains attempted with no receipt and
 must be reconciled; it is not submitted again. A cross-project filename clash
 with different bytes produces a renamed upload and stops before submission.
-These safeguards were tested against a local fake server. They do not constitute
+The fake-server tests include both the one-image Generate and two-image Modify
+paths, including recovery after an upload receipt is missing. A compatible
+existing upload can be checked without re-uploading; if a receipt remains but
+the server-side input has disappeared, create a new plan/job. These safeguards do not constitute
 live model or visual-quality validation, and the transport is not yet wired to
 the tab.
 

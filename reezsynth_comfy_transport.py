@@ -10,6 +10,7 @@ import hashlib
 import json
 import uuid
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
@@ -24,6 +25,7 @@ MAX_RECEIPT_BYTES = 64 * 1024
 
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, response, code, message, headers, newurl):
+        response.close()
         raise ValueError("ComfyUI redirected the job request.")
 
 
@@ -37,8 +39,12 @@ def _opener():
 
 
 def _read_response(opener, request, *, timeout, limit):
-    with opener.open(request, timeout=timeout) as response:
-        content = response.read(limit + 1)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            content = response.read(limit + 1)
+    except HTTPError as exc:
+        exc.close()
+        raise
     if len(content) > limit:
         raise ValueError("ComfyUI response exceeds its size limit.")
     return content
@@ -74,10 +80,10 @@ def _snapshot(job, key, hashes):
     return payload
 
 
-def _server_bytes(job, name, opener, timeout):
+def _server_bytes(job, name, opener, timeout, expected_size):
     query = urlencode({"filename": name, "type": "input"})
     request = Request(f"{job.endpoint}/view?{query}", method="GET")
-    return _read_response(opener, request, timeout=timeout, limit=MAX_SNAPSHOT_BYTES)
+    return _read_response(opener, request, timeout=timeout, limit=expected_size)
 
 
 def _multipart(name, payload):
@@ -121,10 +127,14 @@ def upload_job_inputs(directory: str | Path, *, timeout: float = 15.0) -> None:
                     or receipt.get("subfolder") != "" or receipt.get("type") != "input"):
                 raise ValueError("ComfyUI renamed or redirected an uploaded input.")
             # Do not persist success until GET confirms the bytes at that name.
-            if hashlib.sha256(_server_bytes(job, name, opener, timeout)).hexdigest() != hashes[key]:
+            if hashlib.sha256(_server_bytes(job, name, opener, timeout,
+                                            len(payload))).hexdigest() != hashes[key]:
                 raise ValueError("ComfyUI input bytes differ from the frozen snapshot.")
-            _write_exclusive(receipt_path, _json_bytes({
-                "name": name, "subfolder": "", "type": "input"}))
+            try:
+                _write_exclusive(receipt_path, _json_bytes({
+                    "name": name, "subfolder": "", "type": "input"}))
+            except FileExistsError as exc:
+                raise ValueError("Another worker recorded this upload; reload the job.") from exc
 
 
 def submit_uploaded_job(directory: str | Path, *, timeout: float = 15.0):
@@ -142,10 +152,14 @@ def submit_uploaded_job(directory: str | Path, *, timeout: float = 15.0):
         receipt = json.loads(_read_bounded(receipt_path, MAX_RECEIPT_BYTES))
         if receipt != {"name": name, "subfolder": "", "type": "input"}:
             raise ValueError("Stored upload receipt does not match this job.")
-        _snapshot(job, key, hashes)
-        if hashlib.sha256(_server_bytes(job, name, opener, timeout)).hexdigest() != hashes[key]:
+        payload = _snapshot(job, key, hashes)
+        if hashlib.sha256(_server_bytes(job, name, opener, timeout,
+                                        len(payload))).hexdigest() != hashes[key]:
             raise ValueError("ComfyUI input bytes differ from the frozen snapshot.")
-    content = claim_submission(job.directory)
+    try:
+        content = claim_submission(job.directory)
+    except FileExistsError as exc:
+        raise ValueError("Another worker already claimed this submission.") from exc
     request = Request(f"{job.endpoint}/prompt", data=content, method="POST",
                       headers={"Content-Type": "application/json", "Accept": "application/json"})
     response = _read_response(opener, request, timeout=timeout, limit=MAX_RECEIPT_BYTES)
