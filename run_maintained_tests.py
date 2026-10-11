@@ -12,6 +12,7 @@ MODULES = (
     "test_reezsynth_comfy_jobs",
     "test_reezsynth_comfy_binding",
     "test_reezsynth_comfy_transport",
+    "test_reezsynth_comfy_output",
     "test_reezsynth_comfy_status",
     "test_reezsynth_comfy_qwen",
     "test_reezsynth_gpu_gate",

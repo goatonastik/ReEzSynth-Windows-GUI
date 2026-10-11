@@ -213,6 +213,13 @@ the server-side input has disappeared, create a new plan/job. These safeguards d
 live model or visual-quality validation, and the transport is not yet wired to
 the tab.
 
+A read-only owned-output helper now requests only the frozen job's ID, verifies
+terminal ownership, and accepts exactly one PNG from the frozen SaveImage node.
+It requires the planned padded RGB dimensions, then removes only the recorded
+right and bottom padding to return native pixels. A mismatched owner, file name,
+image count, format, or size is rejected. The output remains an RGB intermediate;
+it is not saved as an approved keyframe or inserted into candidate storage.
+
 ## Fixed-alpha reconstruction of model intermediates
 
 The standalone matte helper uses the exact quantized opaque input as its baseline.
