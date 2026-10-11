@@ -215,6 +215,10 @@ the tab.
 
 A read-only owned-output helper now requests only the frozen job's ID, verifies
 terminal ownership, and accepts exactly one PNG from the frozen SaveImage node.
+If the submission response was lost, an attempted job can still be read once
+the backend reports completed status with the exact frozen ownership markers.
+This does not create a receipt or allow a second submission. A missing or pending
+server record remains uncertain and cannot be used as a result.
 It requires the planned padded RGB dimensions, then removes only the recorded
 right and bottom padding to return native pixels. A mismatched owner, file name,
 image count, format, or size is rejected. The output remains an RGB intermediate;

@@ -27,6 +27,7 @@ class _Server(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", 0), _Handler)
         self.status = {}
         self.image = b""
+        self.missing_job = False
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -36,6 +37,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         if path.startswith("/api/jobs/"):
+            if self.server.missing_job:
+                self.send_error(404)
+                return
             payload = json.dumps(self.server.status).encode()
             content_type = "application/json"
         elif path == "/view":
@@ -98,6 +102,49 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(output.filename, self.filename)
         np.testing.assert_array_equal(output.native_rgb, self.pixels[:33, :19])
         self.assertEqual(output.native_rgb.shape, (33, 19, 3))
+
+    def test_lost_receipt_recovers_only_verified_completed_job(self):
+        receipt = self.job.directory / "receipt.json"
+        receipt.unlink()
+        attempt = self.job.directory / "attempted"
+        original_attempt = attempt.read_bytes()
+        output = fetch_owned_output(self.job.directory)
+        self.assertEqual(output.prompt_id, self.job.prompt_id)
+        self.assertFalse(receipt.exists())
+        self.assertEqual(attempt.read_bytes(), original_attempt)
+        with self.assertRaisesRegex(ValueError, "already have been submitted"):
+            claim_submission(self.job.directory)
+        result = prepare_job_candidate(self.job.directory)
+        self.assertEqual(result.prompt_id, self.job.prompt_id)
+
+    def test_lost_receipt_rejects_unverified_or_unfinished_job(self):
+        (self.job.directory / "receipt.json").unlink()
+        self.server.status["status"] = "pending"
+        with self.assertRaisesRegex(ValueError, "completed job"):
+            fetch_owned_output(self.job.directory)
+        self.server.status["status"] = "failed"
+        with self.assertRaisesRegex(ValueError, "completed job"):
+            fetch_owned_output(self.job.directory)
+        self.server.status["status"] = "completed"
+        self.server.status["workflow"]["extra_data"]["client_id"] = "other"
+        with self.assertRaisesRegex(ValueError, "ownership"):
+            fetch_owned_output(self.job.directory)
+        self.assertFalse((self.job.directory / "receipt.json").exists())
+
+    def test_unattempted_job_does_not_fetch_result(self):
+        (self.job.directory / "receipt.json").unlink()
+        (self.job.directory / "attempted").unlink()
+        with self.assertRaisesRegex(ValueError, "no submission attempt"):
+            fetch_owned_output(self.job.directory)
+
+    def test_lost_receipt_unknown_server_record_stays_uncertain(self):
+        (self.job.directory / "receipt.json").unlink()
+        self.server.missing_job = True
+        with self.assertRaisesRegex(ValueError, "remains uncertain"):
+            fetch_owned_output(self.job.directory)
+        self.assertTrue((self.job.directory / "attempted").exists())
+        with self.assertRaisesRegex(ValueError, "already have been submitted"):
+            claim_submission(self.job.directory)
 
     def test_wrong_owner_or_filename_rejected(self):
         self.server.status["workflow"]["extra_data"]["client_id"] = "another-client"

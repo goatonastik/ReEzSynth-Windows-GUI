@@ -8,6 +8,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request
 
@@ -34,13 +35,21 @@ def fetch_owned_output(directory: str | Path, *, timeout: float = 15.0) -> Owned
     """Fetch a completed owned result without publishing a candidate."""
     _timeout(timeout)
     job = load_job(directory)
-    if not job.attempted or not job.receipt_confirmed:
-        raise ValueError("The job has no confirmed submission receipt.")
+    # A lost POST response leaves no receipt even when ComfyUI accepted the
+    # single attempt. Terminal status with the frozen ownership marker is the
+    # read-only recovery proof; this path must never submit the prompt again.
+    if not job.attempted:
+        raise ValueError("The job has no submission attempt.")
     opener = _opener()
     status_request = Request(f"{job.endpoint}/api/jobs/{job.prompt_id}", method="GET",
                              headers={"Accept": "application/json"})
-    status_bytes = _read_response(opener, status_request, timeout=timeout,
-                                  limit=MAX_STATUS_BYTES)
+    try:
+        status_bytes = _read_response(opener, status_request, timeout=timeout,
+                                      limit=MAX_STATUS_BYTES)
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise ValueError("ComfyUI has no record of this attempt; it remains uncertain.") from exc
+        raise
     observation = parse_job_status(job, status_bytes)
     if observation.status != "completed" or not observation.ownership_verified:
         raise ValueError("Wait for a completed job with verified ownership.")
