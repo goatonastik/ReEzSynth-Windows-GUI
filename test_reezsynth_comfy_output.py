@@ -70,7 +70,7 @@ class OutputTests(unittest.TestCase):
         self.plan = plan_qwen(QwenSettings("generate", "Draw", 1, 12, 4, 1,
                                            allow_vision_preprocessing=True), source)
         self.job = bind_qwen_plan(Path(temporary.name), endpoint=self.endpoint,
-                                  plan=self.plan)
+                                  plan=self.plan, intended_frame_number=97)
         claim_submission(self.job.directory)
         record_receipt(self.job.directory,
                        json.dumps({"prompt_id": self.job.prompt_id}).encode())
@@ -200,6 +200,8 @@ class OutputTests(unittest.TestCase):
         record = json.loads(saved.metadata_path.read_bytes())
         self.assertEqual(record["status"], "unreviewed")
         self.assertIsNone(record["frame_number"])
+        self.assertEqual(record["intended_frame_number"], 97)
+        self.assertEqual(json.loads(preview.provenance_json)["intended_frame_number"], 97)
         self.assertEqual(record["candidate_sha256"], hashlib.sha256(preview.image_png).hexdigest())
         self.assertEqual(record["raw_output_sha256"], hashlib.sha256(self.server.image).hexdigest())
         self.assertIsNone(record["qc"])
@@ -207,6 +209,11 @@ class OutputTests(unittest.TestCase):
     def test_save_rejects_mutated_preview_or_changed_job(self):
         from dataclasses import replace
         preview = prepare_job_candidate(self.job.directory)
+        forged = json.loads(preview.provenance_json)
+        forged["intended_frame_number"] = 98
+        with self.assertRaisesRegex(ValueError, "frozen job"):
+            save_job_candidate(self.job.directory, replace(
+                preview, provenance_json=json.dumps(forged).encode()))
         with self.assertRaisesRegex(ValueError, "image bytes"):
             save_job_candidate(self.job.directory, replace(preview, image_png=b"changed"))
         with self.assertRaisesRegex(ValueError, "image bytes"):
@@ -264,6 +271,7 @@ class OutputTests(unittest.TestCase):
         saved = save_job_candidate(self.job.directory, result)
         record = json.loads(saved.metadata_path.read_bytes())
         self.assertIsNone(record["frame_number"])
+        self.assertIsNone(record["intended_frame_number"])
         self.assertEqual(record["qc"]["protection"]["protected_mismatches"], 0)
 
     def test_modify_enforces_band_alpha_hidden_rgb_and_reports_clipping(self):

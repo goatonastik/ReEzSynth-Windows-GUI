@@ -39,6 +39,27 @@ class BindingTests(unittest.TestCase):
             bind_qwen_plan(self.project, endpoint="http://localhost:8188", plan=plan)
         self.assertNotEqual(dict(plan.uploads), dict(self.plan().uploads))
 
+    def test_intended_frame_is_frozen_as_context_without_changing_prompt(self):
+        plan = self.plan()
+        job = bind_qwen_plan(self.project, endpoint="http://localhost:8188",
+                             plan=plan, intended_frame_number=97)
+        manifest = json.loads((job.directory / "manifest.json").read_bytes())
+        body = json.loads((job.directory / "submit.json").read_bytes())
+        self.assertEqual(manifest["metadata"]["intended_frame_number"], 97)
+        self.assertEqual(body["prompt"], plan.request()["prompt"])
+        self.assertNotIn("intended_frame_number", body)
+        self.assertFalse(load_job(job.directory).attempted)
+
+    def test_invalid_intended_frame_does_not_claim_plan(self):
+        plan = self.plan()
+        for invalid in (True, -1, 2147483648, "97"):
+            with self.assertRaisesRegex(ValueError, "intended frame"):
+                bind_qwen_plan(self.project, endpoint="http://localhost:8188",
+                               plan=plan, intended_frame_number=invalid)
+        self.assertEqual(list(self.project.glob(".reezsynth-candidates/*")), [])
+        bind_qwen_plan(self.project, endpoint="http://localhost:8188",
+                       plan=plan, intended_frame_number=0)
+
     def test_concurrent_binding_claims_one_plan(self):
         plan = self.plan()
         def bind(_):

@@ -18,7 +18,8 @@ from reezsynth_keyframe_candidates import _candidate_root
 _UPLOAD = re.compile(r"reezsynth_[0-9a-f]{32}_(?:inference|noise_mask)\.png")
 
 
-def bind_qwen_plan(project: str | Path, *, endpoint: str, plan: QwenPlan) -> JobRecord:
+def bind_qwen_plan(project: str | Path, *, endpoint: str, plan: QwenPlan,
+                   intended_frame_number: int | None = None) -> JobRecord:
     """Freeze a validated plan once per project; a failed freeze consumes its ID.
 
     This claim also blocks another process from binding the same plan while the
@@ -37,6 +38,12 @@ def bind_qwen_plan(project: str | Path, *, endpoint: str, plan: QwenPlan) -> Job
         raise ValueError("Qwen plan request is invalid.") from exc
     if not isinstance(request, dict) or not isinstance(request.get("prompt"), dict):
         raise ValueError("Qwen plan graph is missing.")
+    if "intended_frame_number" in request:
+        raise ValueError("The Qwen plan must not supply its own target frame.")
+    if intended_frame_number is not None:
+        if (type(intended_frame_number) is not int
+                or not 0 <= intended_frame_number <= 2147483647):
+            raise ValueError("Choose a valid intended frame number.")
     try:
         snapshots = dict(plan.snapshots)
         uploads = dict(plan.uploads)
@@ -99,4 +106,6 @@ def bind_qwen_plan(project: str | Path, *, endpoint: str, plan: QwenPlan) -> Job
             os.fsync(stream.fileno())
     except FileExistsError as exc:
         raise ValueError("This Qwen plan was already bound; make a fresh plan for another run.") from exc
+    if intended_frame_number is not None:
+        request["intended_frame_number"] = intended_frame_number
     return prepare_job(root, endpoint=endpoint, request=request, snapshots=snapshots)

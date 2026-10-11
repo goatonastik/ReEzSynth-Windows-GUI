@@ -73,6 +73,10 @@ def prepare_job_candidate(directory: str | Path, *, timeout=15.0) -> JobCandidat
     mode = metadata.get("mode")
     if metadata.get("profile") != PROFILE or mode not in {"modify", "generate"}:
         raise ValueError("Unsupported frozen candidate profile or mode.")
+    intended_frame = metadata.get("intended_frame_number")
+    if (intended_frame is not None
+            and (type(intended_frame) is not int or not 0 <= intended_frame <= 2147483647)):
+        raise ValueError("Frozen intended frame number is invalid.")
     names = {"source.png", "inference.png"}
     if mode == "modify":
         names |= {"drawing.png", "edit.png", "protection.png", "noise_mask.png"}
@@ -135,6 +139,7 @@ def prepare_job_candidate(directory: str | Path, *, timeout=15.0) -> JobCandidat
         raise ValueError("Frozen candidate plan changed during preparation.")
     provenance = {
         "status": "unreviewed", "prompt_id": job.prompt_id, "mode": mode,
+        "intended_frame_number": intended_frame,
         "profile": metadata["profile"], "padded_size": padded,
         "job_directory": str(job.directory),
         "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
@@ -178,6 +183,10 @@ def save_job_candidate(directory: str | Path,
     metadata = manifest.get("metadata") if isinstance(manifest, dict) else None
     if not isinstance(metadata, dict):
         raise ValueError("Frozen job metadata is invalid.")
+    intended_frame = metadata.get("intended_frame_number")
+    if (intended_frame is not None
+            and (type(intended_frame) is not int or not 0 <= intended_frame <= 2147483647)):
+        raise ValueError("Frozen intended frame number is invalid.")
     try:
         provenance = json.loads(preview.provenance_json)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -188,6 +197,7 @@ def save_job_candidate(directory: str | Path,
             or provenance.get("job_directory") != str(job.directory)
             or provenance.get("mode") != preview.mode
             or provenance.get("mode") != metadata.get("mode")
+            or provenance.get("intended_frame_number") != metadata.get("intended_frame_number")
             or provenance.get("manifest_sha256") != hashlib.sha256(manifest_bytes).hexdigest()
             or provenance.get("input_sha256") != manifest.get("input_sha256")
             or provenance.get("candidate_sha256") != hashlib.sha256(preview.image_png).hexdigest()
@@ -214,6 +224,7 @@ def save_job_candidate(directory: str | Path,
         "schema": 3, "status": "unreviewed", "identifier": identifier,
         "prompt_id": job.prompt_id, "mode": preview.mode,
         "frame_number": None, "width": native[0], "height": native[1],
+        "intended_frame_number": intended_frame,
         "candidate_sha256": provenance["candidate_sha256"],
         "raw_output_sha256": provenance["downloaded_output_sha256"],
         "provenance_sha256": hashlib.sha256(preview.provenance_json).hexdigest(),

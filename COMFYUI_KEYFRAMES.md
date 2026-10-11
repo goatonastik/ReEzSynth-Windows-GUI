@@ -103,6 +103,11 @@ submits the same job again automatically. A receipt is accepted only when its
 prompt ID matches the frozen request. Changed inputs or request bytes prevent a
 claim. These rules have CPU-only thread and separate-process race tests, plus
 failure and ownership-field checks.
+New Qwen jobs may also freeze an intended frame number in their local metadata.
+It is carried into result provenance and the unreviewed candidate record, but
+`frame_number` remains unassigned until a separate explicit approval. Older
+jobs without this context remain unassigned; the currently selected UI frame
+is never inferred during recovery.
 The two symlink redirect tests skip on Windows accounts that cannot create
 symlinks; other record and integrity tests still run.
 
