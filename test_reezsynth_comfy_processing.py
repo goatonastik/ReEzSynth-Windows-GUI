@@ -9,6 +9,7 @@ import unittest
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -18,11 +19,15 @@ from PIL import Image
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
-from reezsynth_comfy_controls import ComfyKeyframeTab
+from reezsynth_comfy_controls import (
+    ComfyKeyframeTab, _prepare_owned_for_project, _save_owned_for_project,
+)
+from reezsynth_comfy_jobs import prepare_job
 from reezsynth_comfy_processing import (
     PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
 )
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent
+from test_reezsynth_gui import GuiFixture
 
 
 class ProcessingFixture:
@@ -62,6 +67,21 @@ class ProcessingFixture:
         )
 
 class ProcessingTests(ProcessingFixture, unittest.TestCase):
+    def test_owned_job_from_another_project_is_rejected_before_preview_or_save(self):
+        other = self.root / "other-project"
+        other.mkdir()
+        job = prepare_job(self.project, endpoint="http://127.0.0.1:8188",
+                          request={"prompt": {"1": {"class_type": "SaveImage", "inputs": {}}}},
+                          snapshots={"source.png": b"frozen-fixture"})
+        with patch("reezsynth_comfy_controls.prepare_job_candidate") as prepare:
+            with self.assertRaisesRegex(ValueError, "different project"):
+                _prepare_owned_for_project(job.directory, str(other))
+            prepare.assert_not_called()
+        with patch("reezsynth_comfy_controls.save_job_candidate") as save:
+            with self.assertRaisesRegex(ValueError, "different project"):
+                _save_owned_for_project(job.directory, str(other), object())
+            save.assert_not_called()
+
     def test_preview_and_save_preserve_native_pixels_and_metadata(self):
         result = prepare_preview(self.request)
         self.assertEqual((result.width, result.height), (12, 8))
@@ -172,6 +192,94 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_owned_job_preview_and_save_are_background_and_unassigned(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        preview = SimpleNamespace(image_png=self.files["drawing"].read_bytes(),
+                                  raw_output_png=self.files["raw"].read_bytes())
+        views = {"Enforced native candidate": preview.image_png,
+                 "Raw model output (includes padding)": preview.raw_output_png}
+        job_path = self.project / ".reezsynth-candidates" / "comfy-job-example"
+        tab.owned_job.setText(str(job_path))
+        with patch("reezsynth_comfy_controls._prepare_owned_for_project",
+                   return_value=(preview, views)) as prepare:
+            tab.preview_owned_job()
+            self.assertFalse(tab.owned_preview_button.isEnabled())
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        self.assertIsNone(tab._worker)
+        prepare.assert_called_once_with(str(job_path), str(self.project.resolve()))
+        self.assertIs(tab.owned_result, preview)
+        self.assertTrue(tab.owned_save_button.isEnabled())
+        self.assertEqual(tab.view.currentText(), "Enforced native candidate")
+        self.assertFalse(tab.preview.pixmap().isNull())
+        saved = SimpleNamespace(image_path=self.project / "unreviewed" / "candidate.png")
+        with patch("reezsynth_comfy_controls._save_owned_for_project",
+                   return_value=saved) as save:
+            tab.save_owned_job()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        save.assert_called_once_with(str(job_path), str(self.project.resolve()), preview)
+        self.assertIn("Unreviewed result saved", tab.owned_status.text())
+        self.assertFalse(tab.owned_save_button.isEnabled())
+        self.assertEqual(hashlib.sha256(self.key.read_bytes()).hexdigest(), self.key_hash)
+        tab.owned_job.setText(str(job_path) + "-other")
+        self.assertIsNone(tab.owned_result)
+        self.assertFalse(tab.owned_save_button.isEnabled())
+        tab.deleteLater()
+        parent.deleteLater()
+
+
+    def test_owned_job_change_during_worker_discards_stale_preview(self):
+        import threading
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        tab.owned_job.setText("old-job")
+        release = threading.Event()
+        def delayed(*_):
+            release.wait(2)
+            return SimpleNamespace(image_png=b"", raw_output_png=b""), {}
+        with patch("reezsynth_comfy_controls._prepare_owned_for_project", side_effect=delayed):
+            tab.preview_owned_job()
+        tab.owned_job.setText("new-job")
+        release.set()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertIsNone(tab.owned_result)
+        self.assertFalse(tab.owned_save_button.isEnabled())
+        self.assertIn("changed during preview", tab.owned_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_owned_preview_is_invalidated_when_project_changes(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        tab.owned_result = object()
+        tab.owned_save_button.setEnabled(True)
+        parent.project_dir.setText(str(self.root))
+        self.assertIsNone(tab.owned_result)
+        self.assertFalse(tab.owned_save_button.isEnabled())
+        with patch("reezsynth_comfy_controls._save_owned_for_project") as save:
+            tab.save_owned_job()
+            save.assert_not_called()
+        tab.deleteLater()
+        parent.deleteLater()
 
     def test_three_choices_background_preview_and_save(self):
         parent = QWidget()
@@ -299,3 +407,15 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
         self.assertIn("Unreviewed candidate", tab.candidate_status.text())
         tab.deleteLater()
         parent.deleteLater()
+
+
+class RealWindowOwnedBindingTests(GuiFixture):
+    def test_project_field_created_after_tab_still_invalidates_owned_preview(self):
+        window = self.window()
+        tab = window.comfy_tab
+        self.assertIs(tab._bound_project_field, window.project_dir)
+        tab.owned_result = object()
+        tab.owned_save_button.setEnabled(True)
+        window.project_dir.setText(str(self.root / "another-project"))
+        self.assertIsNone(tab.owned_result)
+        self.assertFalse(tab.owned_save_button.isEnabled())

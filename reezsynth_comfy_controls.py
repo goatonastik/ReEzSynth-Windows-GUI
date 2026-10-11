@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+from pathlib import Path
+
+from PIL import Image
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkProxy, QNetworkReply, QNetworkRequest
@@ -11,11 +15,46 @@ from PySide6.QtWidgets import (
 )
 
 from reezsynth_comfy_client import normalize_local_endpoint, parse_system_stats
+from reezsynth_comfy_candidate import prepare_job_candidate, save_job_candidate
+from reezsynth_comfy_jobs import load_job
 from reezsynth_comfy_processing import (
     PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
 )
 from reezsynth_keyframe_candidates import import_candidate
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent
+
+
+def _owned_project_job(directory, project):
+    job = load_job(directory)
+    try:
+        selected = Path(project).expanduser().resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        raise ValueError("Choose an existing project before loading its ComfyUI job.") from exc
+    if job.directory.parent.parent.resolve(strict=True) != selected:
+        raise ValueError("This ComfyUI job belongs to a different project.")
+    return job
+
+
+def _small_view(content):
+    with Image.open(BytesIO(content)) as image:
+        image.thumbnail((500, 500), Image.Resampling.LANCZOS)
+        with BytesIO() as stream:
+            image.save(stream, format="PNG")
+            return stream.getvalue()
+
+
+def _prepare_owned_for_project(directory, project):
+    job = _owned_project_job(directory, project)
+    result = prepare_job_candidate(job.directory)
+    return result, {
+        "Enforced native candidate": _small_view(result.image_png),
+        "Raw model output (includes padding)": _small_view(result.raw_output_png),
+    }
+
+
+def _save_owned_for_project(directory, project, preview):
+    job = _owned_project_job(directory, project)
+    return save_job_candidate(job.directory, preview)
 
 
 class _WorkSignals(QObject):
@@ -57,6 +96,9 @@ class ComfyKeyframeTab(QWidget):
         self._work_token = 0
         self._input_revision = 0
         self.current_result = None
+        self.owned_result = None
+        self._owned_revision = 0
+        self._owned_preview_project = None
         self._preview_project = None
         self._display_images = {}
 
@@ -84,6 +126,34 @@ class ComfyKeyframeTab(QWidget):
         self.connection_status.setTextFormat(Qt.TextFormat.PlainText)
         self.connection_status.setWordWrap(True)
         layout.addWidget(self.connection_status)
+
+        owned_row = QHBoxLayout()
+        self.owned_job = QLineEdit()
+        self.owned_job.setAccessibleName("Completed ReEzSynth ComfyUI job folder")
+        self.owned_job.setPlaceholderText("Project/.reezsynth-candidates/comfy-job-...")
+        self.owned_job.textChanged.connect(self._owned_inputs_changed)
+        self._bound_project_field = None
+        self.bind_project_field(getattr(main_window, "project_dir", None))
+        browse_owned = QPushButton("Browse job...")
+        browse_owned.clicked.connect(self._browse_owned_job)
+        owned_row.addWidget(QLabel("Completed job"))
+        owned_row.addWidget(self.owned_job, 1)
+        owned_row.addWidget(browse_owned)
+        layout.addLayout(owned_row)
+        owned_actions = QHBoxLayout()
+        self.owned_preview_button = QPushButton("Preview completed job")
+        self.owned_preview_button.clicked.connect(self.preview_owned_job)
+        self.owned_save_button = QPushButton("Save unreviewed result")
+        self.owned_save_button.setEnabled(False)
+        self.owned_save_button.clicked.connect(self.save_owned_job)
+        owned_actions.addWidget(self.owned_preview_button)
+        owned_actions.addWidget(self.owned_save_button)
+        owned_actions.addStretch()
+        layout.addLayout(owned_actions)
+        self.owned_status = QLabel("Choose a completed job created by this project.")
+        self.owned_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.owned_status.setWordWrap(True)
+        layout.addWidget(self.owned_status)
 
         form = QFormLayout()
         self.form = form
@@ -214,6 +284,67 @@ class ComfyKeyframeTab(QWidget):
         if selected:
             field.setText(selected)
 
+    def _browse_owned_job(self):
+        chosen = QFileDialog.getExistingDirectory(self, "Select completed job folder",
+                                                  self.owned_job.text())
+        if chosen:
+            self.owned_job.setText(chosen)
+
+    def bind_project_field(self, field):
+        """Connect after MainWindow creates its project field."""
+        if (not isinstance(field, (QLineEdit, QComboBox))
+                or not hasattr(field, "textChanged")
+                or field is self._bound_project_field):
+            return
+        if self._bound_project_field is not None:
+            self._bound_project_field.textChanged.disconnect(self._owned_inputs_changed)
+        field.textChanged.connect(self._owned_inputs_changed)
+        self._bound_project_field = field
+
+    def _owned_inputs_changed(self, *_):
+        was_displayed = self.owned_result is not None
+        self._owned_revision += 1
+        self.owned_result = None
+        self._owned_preview_project = None
+        self.owned_save_button.setEnabled(False)
+        if was_displayed:
+            self._display_images = {}
+            self.view.clear()
+            self.preview.clear()
+            self.preview.setText("Preview needs rebuilding for this job.")
+        self.owned_status.setText("Job changed. Preview it again before saving.")
+
+    def preview_owned_job(self):
+        if self._worker is not None:
+            return
+        try:
+            project = self.main_window.path_value(self.main_window.project_dir)
+        except ValueError as exc:
+            self.owned_status.setText(str(exc))
+            return
+        directory = self.owned_job.text().strip()
+        if not directory:
+            self.owned_status.setText("Choose a completed job folder first.")
+            return
+        self.owned_result = None
+        self._owned_preview_project = project
+        self._start_work("owned_preview", _prepare_owned_for_project, directory, project)
+
+    def save_owned_job(self):
+        if self.owned_result is None or self._worker is not None:
+            return
+        try:
+            project = self.main_window.path_value(self.main_window.project_dir)
+        except ValueError as exc:
+            self.owned_status.setText(str(exc))
+            return
+        if project != self._owned_preview_project:
+            self.owned_status.setText("Project changed since preview; preview the job again.")
+            self.owned_save_button.setEnabled(False)
+            return
+        self._start_work("owned_save", _save_owned_for_project,
+                         self.owned_job.text().strip(), project, self.owned_result)
+
     def _mode_changed(self):
         modifying = self.mode.currentData() == "modify"
         self.form.setRowVisible(self.drawing_row, modifying)
@@ -227,8 +358,11 @@ class ComfyKeyframeTab(QWidget):
     def _inputs_changed(self, *_):
         self._input_revision += 1
         self.current_result = None
+        self.owned_result = None
         self._preview_project = None
         self.save_button.setEnabled(False)
+        self.owned_save_button.setEnabled(False)
+        self.owned_status.setText("Inputs changed. Preview the completed job again if needed.")
         self._display_images = {}
         self.view.clear()
         self.preview.clear()
@@ -238,13 +372,18 @@ class ComfyKeyframeTab(QWidget):
     def _start_work(self, kind, function, *args):
         if self._worker is not None:
             return
-        if kind in {"preview", "proposal"}:
+        if kind in {"preview", "proposal", "owned_preview"}:
+            if kind == "owned_preview":
+                self.current_result = None
+            else:
+                self.owned_result = None
             self._display_images = {}
             self.view.clear()
             self.preview.clear()
             self.preview.setText("Preparing preview...")
         self._work_token += 1
         self._work_revision = self._input_revision
+        self._work_owned_revision = self._owned_revision
         worker = _ImageWork(self._work_token, kind, function, *args)
         worker.signals.finished.connect(self._work_finished)
         self._worker = worker
@@ -252,7 +391,13 @@ class ComfyKeyframeTab(QWidget):
         self.propose_button.setEnabled(False)
         self.import_button.setEnabled(False)
         self.save_button.setEnabled(False)
-        self.candidate_status.setText(f"{kind.capitalize()} in progress...")
+        self.owned_preview_button.setEnabled(False)
+        self.owned_save_button.setEnabled(False)
+        if kind.startswith("owned_"):
+            self.owned_status.setText("Checking the local ComfyUI server and reading its completed job..." if kind == "owned_preview"
+                                      else "Saving unreviewed result...")
+        else:
+            self.candidate_status.setText(f"{kind.capitalize()} in progress...")
         self.image_pool.start(worker)
 
     def preview_strokes(self):
@@ -303,11 +448,19 @@ class ComfyKeyframeTab(QWidget):
         self.enforce_button.setEnabled(True)
         self.propose_button.setEnabled(True)
         self.import_button.setEnabled(True)
+        self.owned_preview_button.setEnabled(True)
+        self.save_button.setEnabled(self.current_result is not None)
+        self.owned_save_button.setEnabled(self.owned_result is not None)
         if error:
-            self.candidate_status.setText(error)
+            (self.owned_status if kind.startswith("owned_")
+             else self.candidate_status).setText(error)
             self.save_button.setEnabled(self.current_result is not None)
+            self.owned_save_button.setEnabled(self.owned_result is not None)
             return
-        if kind != "save" and self._work_revision != self._input_revision:
+        if kind == "owned_preview" and self._work_owned_revision != self._owned_revision:
+            self.owned_status.setText("Job changed during preview; preview it again.")
+            return
+        if kind not in {"save", "owned_save", "owned_preview"} and self._work_revision != self._input_revision:
             self.candidate_status.setText("Inputs changed during processing; rebuild preview.")
             return
         if kind == "proposal":
@@ -318,6 +471,8 @@ class ComfyKeyframeTab(QWidget):
                 "may need protection too. Supply and inspect both masks explicitly."
             )
         elif kind == "preview":
+            self.owned_result = None
+            self.owned_save_button.setEnabled(False)
             self.current_result = value
             self._display_images = value.views
             self._set_views("Enforced preview")
@@ -334,6 +489,23 @@ class ComfyKeyframeTab(QWidget):
             self.candidate_status.setText(
                 f"Unreviewed enforced candidate saved: {value.image_path}. "
                 "Numbered synthesis keyframes were not changed."
+            )
+        elif kind == "owned_preview":
+            self.current_result = None
+            self.save_button.setEnabled(False)
+            self.owned_result, self._display_images = value
+            self._set_views("Enforced native candidate")
+            self.owned_save_button.setEnabled(True)
+            self.owned_status.setText(
+                "Native completed-job result ready for review. The saved result "
+                "will remain unreviewed and unassigned to a frame."
+            )
+        elif kind == "owned_save":
+            self.owned_result = None
+            self.owned_save_button.setEnabled(False)
+            self.owned_status.setText(
+                f"Unreviewed result saved: {value.image_path}. "
+                "Choose and approve its target frame separately."
             )
 
     def _set_views(self, selected=None):
@@ -450,8 +622,10 @@ class ComfyKeyframeTab(QWidget):
         if self._worker is not None:
             return
         self.current_result = None
+        self.owned_result = None
         self._preview_project = None
         self.save_button.setEnabled(False)
+        self.owned_save_button.setEnabled(False)
         self._display_images = {}
         self.view.clear()
         self.preview.clear()

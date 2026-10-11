@@ -487,6 +487,7 @@ class MainWindow(QMainWindow):
         self.keyframe_dir = self.path_row(form, "Keyframes")
         self.video_dir = self.path_row(form, "Video frames")
         self.project_dir.setText(str(ROOT / "reezsynth_projects"))
+        self.comfy_tab.bind_project_field(self.project_dir)
 
         self.keyframe_dir.textChanged.connect(self.schedule_scan)
         self.video_dir.textChanged.connect(self.schedule_scan)

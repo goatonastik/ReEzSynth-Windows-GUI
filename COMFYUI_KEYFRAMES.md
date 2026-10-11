@@ -231,6 +231,11 @@ provenance, and QC record. The completion record is written last. Older job
 records do not include an intended frame number, so these candidates remain
 unassigned until a separate explicit frame choice and approval. This does not
 change any numbered synthesis keyframe.
+The tab can load an existing completed job folder from the selected project in
+a background worker, show its raw and enforced previews, and save that unreviewed
+candidate. Preview requires the same local ComfyUI server to remain reachable
+for read-only job status and output requests. It does not start generation or
+select a target frame for older jobs.
 
 ## Fixed-alpha reconstruction of model intermediates
 
