@@ -199,6 +199,17 @@ workflow with fresh upload names. Upload receipts, backend identity, and
 output/alpha validation must be completed before live submission. Reusing an
 offline plan is not a supported retry mechanism.
 
+The worker-side transport now uploads only frozen input PNGs over loopback,
+refuses redirects, verifies that ComfyUI kept the expected input filename, and
+reads the stored bytes back to compare against the frozen SHA-256. It checks
+all inputs again immediately before claiming the single prompt submission.
+If the prompt response is lost, the job remains attempted with no receipt and
+must be reconciled; it is not submitted again. A cross-project filename clash
+with different bytes produces a renamed upload and stops before submission.
+These safeguards were tested against a local fake server. They do not constitute
+live model or visual-quality validation, and the transport is not yet wired to
+the tab.
+
 ## Fixed-alpha reconstruction of model intermediates
 
 The standalone matte helper uses the exact quantized opaque input as its baseline.
