@@ -193,6 +193,65 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_prepare_job_uses_background_worker_and_frozen_frame(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        tab.source.setText(str(self.files["source"]))
+        tab.frame_number.setValue(97)
+        tab.qwen_prompt.setText("Pencil drawing")
+        tab.vision_ack.setChecked(True)
+        prepared = SimpleNamespace(directory=self.project / ".reezsynth-candidates" / "comfy-job-example")
+        with patch("reezsynth_comfy_controls.prepare_qwen_job", return_value=prepared) as worker:
+            tab.prepare_new_job()
+            self.assertFalse(tab.prepare_button.isEnabled())
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        self.assertIsNone(tab._worker)
+        request = worker.call_args.args[0]
+        self.assertEqual(request.intended_frame_number, 97)
+        self.assertEqual(request.source_path, str(self.files["source"]))
+        self.assertEqual(request.mode, "generate")
+        self.assertEqual(tab.owned_job.text(), str(prepared.directory))
+        self.assertIn("No upload or submission occurred", tab.prepare_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_prepare_job_changed_inputs_still_reports_record_without_binding_it(self):
+        import threading
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        tab.source.setText(str(self.files["source"]))
+        tab.frame_number.setValue(97)
+        tab.qwen_prompt.setText("Pencil drawing")
+        tab.vision_ack.setChecked(True)
+        release = threading.Event()
+        prepared = SimpleNamespace(directory=self.project / ".reezsynth-candidates" / "comfy-job-old")
+        def delayed(_):
+            release.wait(2)
+            return prepared
+        with patch("reezsynth_comfy_controls.prepare_qwen_job", side_effect=delayed):
+            tab.prepare_new_job()
+        tab.frame_number.setValue(98)
+        release.set()
+        deadline = time.monotonic() + 5
+        while tab._worker is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.01)
+        self.assertIsNone(tab._worker)
+        self.assertEqual(tab.owned_job.text(), "")
+        self.assertIn("frame 97", tab.prepare_status.text())
+        self.assertIn(str(prepared.directory), tab.prepare_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
     def test_owned_job_preview_and_save_are_background_and_unassigned(self):
         parent = QWidget()
         parent.project_dir = QLineEdit(str(self.project))

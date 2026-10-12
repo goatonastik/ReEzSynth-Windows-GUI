@@ -4,8 +4,10 @@ The first tab is a non-destructive foundation for the planned Keyframe
 Generator. It has two modes: Generate New Keyframe and Modify Existing
 Keyframe. It can read the current project's numbered source frame and any
 matching drawing. A connection check reads the status of an explicitly entered
-ComfyUI server on this PC. It does not start a server, load models, submit jobs
-or touch a customized ComfyUI installation.
+ComfyUI server on this PC. The separate Prepare Qwen Job action freezes native
+inputs and settings under the selected project without contacting the server.
+It does not start a server, upload inputs, load models, submit jobs or change
+numbered keyframes.
 
 Candidates can be imported from PNG files for review. The source, drawing (in
 Modify mode) and candidate must have the same original pixel dimensions. A
@@ -111,17 +113,20 @@ is never inferred during recovery.
 The two symlink redirect tests skip on Windows accounts that cannot create
 symlinks; other record and integrity tests still run.
 
-This module is not connected to the tab or to any network transport yet. It does
-not start generation, monitor progress, cancel jobs, or reserve a GPU. Those
-pieces require their own validation before the UI can offer live inference.
+The tab now uses this module to prepare frozen jobs and to inspect owned
+completed results. Worker-side upload and submission functions exist, but the
+tab does not call them. It does not start generation, monitor progress, cancel
+jobs, or reserve a GPU; those pieces require separate validation before live
+inference is offered.
 
 A separate read-only status helper can query a single job by its ID on the
 configured loopback server. It rejects redirects and oversized responses. A
 missing job remains unresolved, because the backend may have restarted or
 discarded history. Pending and running statuses identify the requested ID;
 terminal status also has to match the recorded client and ownership details.
-Its fake-server tests do not contact the user's ComfyUI. This helper is not yet
-wired into the tab, and it does not submit work or release a GPU reservation.
+Its fake-server tests do not contact the user's ComfyUI. The completed-job
+preview in the tab uses this read-only status check, but it does not submit
+work or release a GPU reservation.
 The route shape was checked in the installed ComfyUI source; a completed response
 from the user's running server still needs validation before live use.
 
@@ -248,6 +253,14 @@ a background worker, show its raw and enforced previews, and save that unreviewe
 candidate. Preview requires the same local ComfyUI server to remain reachable
 for read-only job status and output requests. It does not start generation or
 select a target frame for older jobs.
+For a new experimental Qwen job, enter a prompt, seed, sampling settings and
+source frame; Modify also requires an existing drawing, both 8-bit grayscale
+masks, Preserve drawing transparency, and an explicit model background. The
+vision-reference preprocessing acknowledgement starts unchecked. Preparation
+runs in a CPU worker, freezes all selected files and the intended frame, and
+shows the resulting job folder. Changing controls while it runs does not alter
+that frozen job. Upload, submission, progress and model inference are separate
+future actions; a prepared folder is not a queued ComfyUI task.
 
 ## Fixed-alpha reconstruction of model intermediates
 

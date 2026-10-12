@@ -13,6 +13,7 @@ MODULES = (
     "test_reezsynth_comfy_binding",
     "test_reezsynth_comfy_transport",
     "test_reezsynth_comfy_preflight",
+    "test_reezsynth_comfy_prepare",
     "test_reezsynth_comfy_output",
     "test_reezsynth_comfy_status",
     "test_reezsynth_comfy_qwen",

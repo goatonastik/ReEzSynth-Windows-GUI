@@ -10,8 +10,9 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, QTimer, QUrl, Si
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkProxy, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox,
+    QVBoxLayout, QWidget,
 )
 
 from reezsynth_comfy_client import normalize_local_endpoint, parse_system_stats
@@ -20,6 +21,7 @@ from reezsynth_comfy_jobs import load_job
 from reezsynth_comfy_processing import (
     PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
 )
+from reezsynth_comfy_prepare import PrepareJobRequest, prepare_qwen_job
 from reezsynth_keyframe_candidates import import_candidate
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent
 
@@ -98,15 +100,22 @@ class ComfyKeyframeTab(QWidget):
         self.current_result = None
         self.owned_result = None
         self._owned_revision = 0
+        self._qwen_revision = 0
         self._owned_preview_project = None
         self._preview_project = None
         self._display_images = {}
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
         introduction = QLabel(
             "Prepare a keyframe from a source frame or refine an existing drawing. "
-            "This first stage checks a ComfyUI server and stores candidate images "
-            "for review without changing synthesis keyframes."
+            "Check a local ComfyUI server, prepare a frozen job without submitting "
+            "it, and store candidate images for review without changing synthesis keyframes."
         )
         introduction.setWordWrap(True)
         layout.addWidget(introduction)
@@ -226,6 +235,64 @@ class ComfyKeyframeTab(QWidget):
         )
         native_note.setWordWrap(True)
         layout.addWidget(native_note)
+
+        qwen_form = QFormLayout()
+        self.qwen_form = qwen_form
+        self.qwen_prompt = QLineEdit()
+        self.qwen_prompt.setPlaceholderText("Describe the style or edit you want")
+        qwen_form.addRow("Qwen instruction", self.qwen_prompt)
+        self.qwen_seed = QLineEdit("42")
+        qwen_form.addRow("Seed (0 to 2^64-1)", self.qwen_seed)
+        self.qwen_steps = QSpinBox()
+        self.qwen_steps.setRange(1, 100)
+        self.qwen_steps.setValue(20)
+        qwen_form.addRow("Sampling steps", self.qwen_steps)
+        self.qwen_guidance = QDoubleSpinBox()
+        self.qwen_guidance.setRange(1, 10)
+        self.qwen_guidance.setValue(4)
+        qwen_form.addRow("Guidance", self.qwen_guidance)
+        self.qwen_denoise = QDoubleSpinBox()
+        self.qwen_denoise.setRange(.01, 1)
+        self.qwen_denoise.setSingleStep(.05)
+        self.qwen_denoise.setValue(1)
+        qwen_form.addRow("Denoise", self.qwen_denoise)
+        self.qwen_background = QComboBox()
+        self.qwen_background.addItem("White", (255, 255, 255))
+        self.qwen_background.addItem("Neutral gray", (128, 128, 128))
+        self.qwen_background.addItem("Black", (0, 0, 0))
+        self.qwen_background_row = qwen_form.rowCount()
+        qwen_form.addRow("Model background (Modify)", self.qwen_background)
+        layout.addLayout(qwen_form)
+        vision_note = QLabel(
+            "The model resizes an internal vision reference. Spatial inputs and "
+            "the output stay at native resolution, with right/bottom padding only."
+        )
+        vision_note.setWordWrap(True)
+        layout.addWidget(vision_note)
+        qwen_limit = QLabel(
+            "Experimental Qwen Modify supports Keep drawing transparency only. "
+            "Choose your drawing and both grayscale masks before preparation."
+        )
+        qwen_limit.setWordWrap(True)
+        layout.addWidget(qwen_limit)
+        self.vision_ack = QCheckBox("I understand the internal vision-reference resize")
+        layout.addWidget(self.vision_ack)
+        self.prepare_button = QPushButton("Prepare Qwen job (no submission)")
+        self.prepare_button.clicked.connect(self.prepare_new_job)
+        layout.addWidget(self.prepare_button)
+        self.prepare_status = QLabel("No new job prepared. This action uses CPU only.")
+        self.prepare_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.prepare_status.setWordWrap(True)
+        layout.addWidget(self.prepare_status)
+        self.mode.currentIndexChanged.connect(self._qwen_mode_changed)
+        self._qwen_mode_changed()
+        for field in (self.qwen_prompt, self.qwen_seed):
+            field.textChanged.connect(self._qwen_settings_changed)
+        for field in (self.qwen_steps, self.qwen_guidance, self.qwen_denoise):
+            field.valueChanged.connect(self._qwen_settings_changed)
+        self.qwen_background.currentIndexChanged.connect(self._qwen_settings_changed)
+        self.vision_ack.stateChanged.connect(self._qwen_settings_changed)
+        self.address.textChanged.connect(self._qwen_settings_changed)
 
         action_row = QHBoxLayout()
         self.import_button = QPushButton("Import candidate for review")
@@ -355,6 +422,50 @@ class ComfyKeyframeTab(QWidget):
             for button in (self.propose_button, self.enforce_button, self.save_button):
                 button.setVisible(modifying)
 
+    def _qwen_mode_changed(self):
+        modifying = self.mode.currentData() == "modify"
+        self.qwen_form.setRowVisible(self.qwen_background_row, modifying)
+        self.qwen_denoise.setValue(.5 if modifying else 1)
+
+    def _qwen_settings_changed(self, *_):
+        self._qwen_revision += 1
+
+    def prepare_new_job(self):
+        if self._worker is not None:
+            return
+        try:
+            project = self.main_window.path_value(self.main_window.project_dir)
+            seed = int(self.qwen_seed.text().strip())
+        except ValueError as exc:
+            self.prepare_status.setText(f"Choose a project and an integer seed: {exc}")
+            return
+        try:
+            endpoint = normalize_local_endpoint(self.address.text())
+        except ValueError as exc:
+            self.prepare_status.setText(str(exc))
+            return
+        modifying = self.mode.currentData() == "modify"
+        request = PrepareJobRequest(
+            project=project, endpoint=endpoint,
+            intended_frame_number=self.frame_number.value(),
+            mode=self.mode.currentData(), source_path=self.source.text().strip(),
+            drawing_path=self.drawing.text().strip() if modifying else "",
+            edit_mask_path=self.edit_mask.text().strip() if modifying else "",
+            protection_mask_path=self.protection_mask.text().strip() if modifying else "",
+            prompt=self.qwen_prompt.text().strip(), seed=seed,
+            steps=self.qwen_steps.value(), guidance=self.qwen_guidance.value(),
+            denoise=self.qwen_denoise.value(),
+            intent=self.intent.currentData() if modifying else None,
+            alpha_policy=self.alpha_policy.currentData() if modifying else None,
+            background=self.qwen_background.currentData() if modifying else None,
+            protection_radius=self.radius.value() if modifying else 0,
+            allow_vision_preprocessing=self.vision_ack.isChecked(),
+        )
+        self._prepare_project = project
+        self._prepare_frame = request.intended_frame_number
+        self._prepare_qwen_revision = self._qwen_revision
+        self._start_work("job_prepare", prepare_qwen_job, request)
+
     def _inputs_changed(self, *_):
         self._input_revision += 1
         self.current_result = None
@@ -393,11 +504,14 @@ class ComfyKeyframeTab(QWidget):
         self.save_button.setEnabled(False)
         self.owned_preview_button.setEnabled(False)
         self.owned_save_button.setEnabled(False)
+        self.prepare_button.setEnabled(False)
         if kind.startswith("owned_"):
             self.owned_status.setText("Checking the local ComfyUI server and reading its completed job..." if kind == "owned_preview"
                                       else "Saving unreviewed result...")
-        else:
+        elif kind != "job_prepare":
             self.candidate_status.setText(f"{kind.capitalize()} in progress...")
+        if kind == "job_prepare":
+            self.prepare_status.setText("Freezing native inputs and preparing a local job. No submission or model load...")
         self.image_pool.start(worker)
 
     def preview_strokes(self):
@@ -449,13 +563,36 @@ class ComfyKeyframeTab(QWidget):
         self.propose_button.setEnabled(True)
         self.import_button.setEnabled(True)
         self.owned_preview_button.setEnabled(True)
+        self.prepare_button.setEnabled(True)
         self.save_button.setEnabled(self.current_result is not None)
         self.owned_save_button.setEnabled(self.owned_result is not None)
         if error:
-            (self.owned_status if kind.startswith("owned_")
-             else self.candidate_status).setText(error)
+            (self.prepare_status if kind == "job_prepare" else
+             self.owned_status if kind.startswith("owned_") else
+             self.candidate_status).setText(error)
             self.save_button.setEnabled(self.current_result is not None)
             self.owned_save_button.setEnabled(self.owned_result is not None)
+            return
+        if kind == "job_prepare":
+            directory = str(value.directory)
+            try:
+                current_project = self.main_window.path_value(self.main_window.project_dir)
+            except ValueError:
+                current_project = None
+            unchanged = (current_project == self._prepare_project
+                         and self._work_revision == self._input_revision
+                         and self._prepare_qwen_revision == self._qwen_revision)
+            if unchanged:
+                self.owned_job.setText(directory)
+                self.prepare_status.setText(
+                    f"Prepared frame {self._prepare_frame} job: {directory}. "
+                    "No upload or submission occurred."
+                )
+            else:
+                self.prepare_status.setText(
+                    f"Job prepared from earlier inputs for frame {self._prepare_frame}: {directory}. "
+                    "Check its project and settings before continuing. No upload or submission occurred."
+                )
             return
         if kind == "owned_preview" and self._work_owned_revision != self._owned_revision:
             self.owned_status.setText("Job changed during preview; preview it again.")
