@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from reezsynth_comfy_controls import (
     ComfyKeyframeTab, _prepare_owned_for_project, _save_owned_for_project,
+    _upload_owned_for_project,
 )
 from reezsynth_comfy_jobs import prepare_job
 from reezsynth_comfy_processing import (
@@ -81,6 +82,13 @@ class ProcessingTests(ProcessingFixture, unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "different project"):
                 _save_owned_for_project(job.directory, str(other), object())
             save.assert_not_called()
+        with patch("reezsynth_comfy_controls.upload_job_inputs") as upload:
+            with self.assertRaisesRegex(ValueError, "different project"):
+                _upload_owned_for_project(job.directory, str(other))
+            upload.assert_not_called()
+            loaded = _upload_owned_for_project(job.directory, str(self.project))
+            upload.assert_called_once_with(job.directory)
+            self.assertFalse(loaded.attempted)
 
     def test_preview_and_save_preserve_native_pixels_and_metadata(self):
         result = prepare_preview(self.request)
@@ -218,6 +226,59 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
         self.assertEqual(request.mode, "generate")
         self.assertEqual(tab.owned_job.text(), str(prepared.directory))
         self.assertIn("No upload or submission occurred", tab.prepare_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_upload_uses_saved_job_and_never_submits(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        directory = self.project / ".reezsynth-candidates" / "comfy-job-example"
+        tab.owned_job.setText(str(directory))
+        result = SimpleNamespace(directory=directory, endpoint="http://127.0.0.1:8188")
+        with patch("reezsynth_comfy_controls._upload_owned_for_project", return_value=result) as upload:
+            tab.upload_owned_job()
+            self.assertFalse(tab.owned_upload_button.isEnabled())
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        self.assertIsNone(tab._worker)
+        upload.assert_called_once_with(str(directory), str(self.project.resolve()))
+        self.assertTrue(tab.owned_upload_button.isEnabled())
+        self.assertIn("No inference started", tab.owned_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_upload_reports_original_job_when_selection_changes(self):
+        import threading
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        original = self.project / ".reezsynth-candidates" / "comfy-job-original"
+        tab.owned_job.setText(str(original))
+        release = threading.Event()
+        started = threading.Event()
+        def delayed(*_):
+            started.set()
+            release.wait(2)
+            return SimpleNamespace(directory=original, endpoint="http://127.0.0.1:8188")
+        with patch("reezsynth_comfy_controls._upload_owned_for_project", side_effect=delayed):
+            tab.upload_owned_job()
+            self.assertTrue(started.wait(2))
+            tab.owned_job.setText(str(original) + "-other")
+            release.set()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        self.assertIsNone(tab._worker)
+        self.assertIn(str(original), tab.owned_status.text())
+        self.assertIn("selection changed", tab.owned_status.text())
         tab.deleteLater()
         parent.deleteLater()
 

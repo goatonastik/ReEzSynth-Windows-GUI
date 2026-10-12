@@ -22,6 +22,7 @@ from reezsynth_comfy_processing import (
     PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
 )
 from reezsynth_comfy_prepare import PrepareJobRequest, prepare_qwen_job
+from reezsynth_comfy_transport import upload_job_inputs
 from reezsynth_keyframe_candidates import import_candidate
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent
 
@@ -57,6 +58,12 @@ def _prepare_owned_for_project(directory, project):
 def _save_owned_for_project(directory, project, preview):
     job = _owned_project_job(directory, project)
     return save_job_candidate(job.directory, preview)
+
+
+def _upload_owned_for_project(directory, project):
+    job = _owned_project_job(directory, project)
+    upload_job_inputs(job.directory)
+    return load_job(job.directory)
 
 
 class _WorkSignals(QObject):
@@ -150,11 +157,14 @@ class ComfyKeyframeTab(QWidget):
         owned_row.addWidget(browse_owned)
         layout.addLayout(owned_row)
         owned_actions = QHBoxLayout()
+        self.owned_upload_button = QPushButton("Upload frozen inputs (no inference)")
+        self.owned_upload_button.clicked.connect(self.upload_owned_job)
         self.owned_preview_button = QPushButton("Preview completed job")
         self.owned_preview_button.clicked.connect(self.preview_owned_job)
         self.owned_save_button = QPushButton("Save unreviewed result")
         self.owned_save_button.setEnabled(False)
         self.owned_save_button.clicked.connect(self.save_owned_job)
+        owned_actions.addWidget(self.owned_upload_button)
         owned_actions.addWidget(self.owned_preview_button)
         owned_actions.addWidget(self.owned_save_button)
         owned_actions.addStretch()
@@ -399,6 +409,20 @@ class ComfyKeyframeTab(QWidget):
         self._owned_preview_project = project
         self._start_work("owned_preview", _prepare_owned_for_project, directory, project)
 
+    def upload_owned_job(self):
+        if self._worker is not None:
+            return
+        try:
+            project = self.main_window.path_value(self.main_window.project_dir)
+        except ValueError as exc:
+            self.owned_status.setText(str(exc))
+            return
+        directory = self.owned_job.text().strip()
+        if not directory:
+            self.owned_status.setText("Choose a prepared job folder first.")
+            return
+        self._start_work("owned_upload", _upload_owned_for_project, directory, project)
+
     def save_owned_job(self):
         if self.owned_result is None or self._worker is not None:
             return
@@ -506,11 +530,15 @@ class ComfyKeyframeTab(QWidget):
         self.import_button.setEnabled(False)
         self.save_button.setEnabled(False)
         self.owned_preview_button.setEnabled(False)
+        self.owned_upload_button.setEnabled(False)
         self.owned_save_button.setEnabled(False)
         self.prepare_button.setEnabled(False)
         if kind.startswith("owned_"):
-            self.owned_status.setText("Checking the local ComfyUI server and reading its completed job..." if kind == "owned_preview"
-                                      else "Saving unreviewed result...")
+            self.owned_status.setText(
+                "Uploading frozen inputs to the job's saved local ComfyUI address. No inference starts..."
+                if kind == "owned_upload" else
+                "Checking the local ComfyUI server and reading its completed job..."
+                if kind == "owned_preview" else "Saving unreviewed result...")
         elif kind != "job_prepare":
             self.candidate_status.setText(f"{kind.capitalize()} in progress...")
         if kind == "job_prepare":
@@ -566,6 +594,7 @@ class ComfyKeyframeTab(QWidget):
         self.propose_button.setEnabled(True)
         self.import_button.setEnabled(True)
         self.owned_preview_button.setEnabled(True)
+        self.owned_upload_button.setEnabled(True)
         self.prepare_button.setEnabled(True)
         self.save_button.setEnabled(self.current_result is not None)
         self.owned_save_button.setEnabled(self.owned_result is not None)
@@ -599,6 +628,18 @@ class ComfyKeyframeTab(QWidget):
             return
         if kind == "owned_preview" and self._work_owned_revision != self._owned_revision:
             self.owned_status.setText("Job changed during preview; preview it again.")
+            return
+        if kind == "owned_upload":
+            if self._work_owned_revision != self._owned_revision:
+                self.owned_status.setText(
+                    f"Job selection changed during upload. Inputs for {value.directory} may have "
+                    "uploaded; inspect that job before continuing. No inference started."
+                )
+            else:
+                self.owned_status.setText(
+                    f"Frozen inputs uploaded to {value.endpoint} for {value.directory}. "
+                    "No inference started."
+                )
             return
         if kind not in {"save", "owned_save", "owned_preview"} and self._work_revision != self._input_revision:
             self.candidate_status.setText("Inputs changed during processing; rebuild preview.")

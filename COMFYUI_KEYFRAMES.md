@@ -259,8 +259,13 @@ masks, Preserve drawing transparency, and an explicit model background. The
 vision-reference preprocessing acknowledgement starts unchecked. Preparation
 runs in a CPU worker, freezes all selected files and the intended frame, and
 shows the resulting job folder. Changing controls while it runs does not alter
-that frozen job. Upload, submission, progress and model inference are separate
-future actions; a prepared folder is not a queued ComfyUI task.
+that frozen job. The tab can upload a selected prepared job's frozen inputs to
+the saved loopback ComfyUI address. It checks project ownership first, runs in
+a background worker, and reports if the selection changes while it uploads.
+Upload does not submit the prompt or start inference. Use a newly prepared job
+if the saved server-side input bytes differ or an attempted job needs another
+run. Submission, progress and model inference remain separate future actions;
+a prepared or uploaded folder is not a queued ComfyUI task.
 
 ## Fixed-alpha reconstruction of model intermediates
 
