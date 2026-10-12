@@ -6,8 +6,9 @@ Keyframe. It can read the current project's numbered source frame and any
 matching drawing. A connection check reads the status of an explicitly entered
 ComfyUI server on this PC. The separate Prepare Qwen Job action freezes native
 inputs and settings under the selected project without contacting the server.
-It does not start a server, upload inputs, load models, submit jobs or change
-numbered keyframes.
+Preparation does not start a server, upload inputs, load models, submit jobs or
+change numbered keyframes. A separate explicit Upload Frozen Inputs action
+copies a prepared job's inputs to its saved local server without starting inference.
 
 Candidates can be imported from PNG files for review. The source, drawing (in
 Modify mode) and candidate must have the same original pixel dimensions. A
@@ -113,9 +114,9 @@ is never inferred during recovery.
 The two symlink redirect tests skip on Windows accounts that cannot create
 symlinks; other record and integrity tests still run.
 
-The tab now uses this module to prepare frozen jobs and to inspect owned
-completed results. Worker-side upload and submission functions exist, but the
-tab does not call them. It does not start generation, monitor progress, cancel
+The tab now uses this module to prepare frozen jobs, upload inputs, and inspect
+owned completed results. Worker-side submission exists but the tab does not
+call it. It does not start generation, monitor progress, cancel
 jobs, or reserve a GPU; those pieces require separate validation before live
 inference is offered.
 
@@ -142,6 +143,35 @@ task's slot. The tab has no generation action yet, and this gate does not reserv
 the user's external ComfyUI process or persist an uncertain job across restart.
 When live generation is added, its admission check must also respect component
 maintenance in progress; those setup workers use a separate existing guard.
+
+## Durable submission coordinator (not yet connected to the tab)
+
+The standalone coordinator in `reezsynth_comfy_session.py` reserves one job in
+a local SQLite database before invoking the existing single-attempt transport.
+All controllers for an application profile must share that database path.
+Sending and recovery hold the same database transaction, so a second controller
+cannot release an apparently unattempted job while its sender is still working.
+If recovery resolves a reservation before sending starts, the sender rechecks
+the reservation and stops without sending.
+
+The coordinator holds the in-process GPU gate while work is active or uncertain.
+Restore performs no network request; it reconstructs admission from the saved
+reservation. Refresh reads only that reserved job. Lost replies, missing history,
+invalid ownership, and network errors cannot authorize another submission or
+release the reservation. A verified terminal status is committed before the
+local gate is released. A proven pre-submission failure can also release it.
+The attempted marker is never removed, including after terminal completion.
+
+CPU tests cover a terminated sender process, restart, concurrent recovery,
+stale observations, and the real HTTP transport against a fake local server
+that accepts a prompt and drops its reply. These tests do not validate model
+quality or available VRAM. The database coordinates generator submissions;
+the GPU gate does not exclude renders in other ReEzSynth instances or control
+external ComfyUI work, and terminal status does not prove models were unloaded.
+GUI integration must restore admission before enabling GPU operations, use a
+stable application-profile database path, handle workers during close, and
+respect the existing component-maintenance guard. No live Generate action is
+exposed by this module alone.
 
 ## Experimental native-reference workflow planner
 

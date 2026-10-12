@@ -516,6 +516,16 @@ approval and assignment remain unimplemented.
 The three edit intentions are currently provenance labels; they do not alter
 compositing until a corresponding inference workflow is added.
 
+The tab now prepares frozen Qwen jobs and explicitly uploads their inputs without
+starting inference. A standalone durable submission coordinator now covers
+single-attempt sending, GPU admission, restart recovery and uncertain replies;
+its CPU tests include a terminated sender process and a local fake server.
+It is not yet connected to a Generate action. Next: integrate a stable
+application-profile recovery database, restore its admission before GPU actions
+are enabled, add explicit submission/status controls and safe window-close
+handling, and respect component maintenance. Then validate live backend status
+and native-size output quality with the owner notified before VRAM-intensive work.
+
 ## Next model handoff
 
 The high-reasoning implementation sequence is complete, including the approved
