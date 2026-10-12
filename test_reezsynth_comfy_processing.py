@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from reezsynth_comfy_controls import (
@@ -218,6 +218,49 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
         self.assertEqual(request.mode, "generate")
         self.assertEqual(tab.owned_job.text(), str(prepared.directory))
         self.assertIn("No upload or submission occurred", tab.prepare_status.text())
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_modify_tab_passes_protected_inputs_and_shows_denoise(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        self.assertFalse(tab.qwen_form.isRowVisible(tab.qwen_denoise_row))
+        tab.mode.setCurrentIndex(1)
+        self.assertTrue(tab.qwen_form.isRowVisible(tab.qwen_denoise_row))
+        tab.source.setText(str(self.files["source"]))
+        tab.drawing.setText(str(self.files["drawing"]))
+        tab.edit_mask.setText(str(self.files["edit_mask"]))
+        tab.protection_mask.setText(str(self.files["protection_mask"]))
+        tab.radius.setValue(2)
+        tab.frame_number.setValue(97)
+        tab.qwen_prompt.setText("Refine strokes inside the edit mask")
+        tab.vision_ack.setChecked(True)
+        prepared = SimpleNamespace(directory=self.project / ".reezsynth-candidates" / "comfy-job-modify")
+        with patch("reezsynth_comfy_controls.prepare_qwen_job", return_value=prepared) as worker:
+            tab.prepare_new_job()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        self.assertIsNone(tab._worker)
+        request = worker.call_args.args[0]
+        self.assertEqual(request.mode, "modify")
+        self.assertEqual(request.intended_frame_number, 97)
+        self.assertEqual(request.drawing_path, str(self.files["drawing"]))
+        self.assertEqual(request.edit_mask_path, str(self.files["edit_mask"]))
+        self.assertEqual(request.protection_mask_path, str(self.files["protection_mask"]))
+        self.assertEqual(request.background, (255, 255, 255))
+        self.assertEqual(request.denoise, .5)
+        self.assertEqual(request.protection_radius, 2)
+        self.assertEqual(request.alpha_policy, AlphaPolicy.PRESERVE.value)
+        self.assertEqual(request.intent, EditIntent.REFINE_STROKES.value)
+        self.assertTrue(tab.prepare_status.textInteractionFlags() & Qt.TextInteractionFlag.TextSelectableByMouse)
+        tab.mode.setCurrentIndex(0)
+        self.assertFalse(tab.qwen_form.isRowVisible(tab.qwen_denoise_row))
+        self.assertEqual(tab.qwen_denoise.value(), 1)
         tab.deleteLater()
         parent.deleteLater()
 

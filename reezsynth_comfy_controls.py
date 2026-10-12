@@ -255,6 +255,7 @@ class ComfyKeyframeTab(QWidget):
         self.qwen_denoise.setRange(.01, 1)
         self.qwen_denoise.setSingleStep(.05)
         self.qwen_denoise.setValue(1)
+        self.qwen_denoise_row = qwen_form.rowCount()
         qwen_form.addRow("Denoise", self.qwen_denoise)
         self.qwen_background = QComboBox()
         self.qwen_background.addItem("White", (255, 255, 255))
@@ -282,6 +283,7 @@ class ComfyKeyframeTab(QWidget):
         layout.addWidget(self.prepare_button)
         self.prepare_status = QLabel("No new job prepared. This action uses CPU only.")
         self.prepare_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.prepare_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.prepare_status.setWordWrap(True)
         layout.addWidget(self.prepare_status)
         self.mode.currentIndexChanged.connect(self._qwen_mode_changed)
@@ -424,6 +426,7 @@ class ComfyKeyframeTab(QWidget):
 
     def _qwen_mode_changed(self):
         modifying = self.mode.currentData() == "modify"
+        self.qwen_form.setRowVisible(self.qwen_denoise_row, modifying)
         self.qwen_form.setRowVisible(self.qwen_background_row, modifying)
         self.qwen_denoise.setValue(.5 if modifying else 1)
 

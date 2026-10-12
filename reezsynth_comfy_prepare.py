@@ -60,11 +60,6 @@ def prepare_qwen_job(request: PrepareJobRequest):
         options = {"intent": intent, "alpha_policy": policy,
                    "background": request.background,
                    "protection_radius": request.protection_radius}
-    elif any(path.strip() for path in (
-            request.drawing_path, request.edit_mask_path, request.protection_mask_path)):
-        # Existing tab paths may remain populated while switching to Generate;
-        # they are intentionally ignored, never supplied to this mode.
-        pass
     settings = QwenSettings(
         mode=request.mode, prompt=request.prompt, seed=request.seed,
         steps=request.steps, guidance=request.guidance, denoise=request.denoise,
