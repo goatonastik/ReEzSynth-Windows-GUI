@@ -17,6 +17,7 @@ MODULES = (
     "test_reezsynth_comfy_output",
     "test_reezsynth_comfy_status",
     "test_reezsynth_comfy_session",
+    "test_reezsynth_comfy_gui_session",
     "test_reezsynth_comfy_qwen",
     "test_reezsynth_gpu_gate",
     "test_reezsynth_keyframe_protection",

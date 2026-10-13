@@ -227,6 +227,76 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(restarted.restore().status, "blocked")
         self.assertIsNotNone(restarted.gate.owner)
 
+    def test_corrupt_database_render_only_keeps_evidence_and_restart_guard(self):
+        self.start()
+        self.path.write_bytes(b"invalid sqlite database")
+        evidence = self.path.read_bytes()
+        restarted = ComfySession(self.path, GpuAdmission())
+        self.assertEqual(restarted.restore().status, "blocked")
+        self.assertTrue(restarted.can_enter_render_only)
+        self.assertEqual(restarted.enter_render_only().status, "blocked")
+        self.assertIsNotNone(restarted.gate.owner)
+        self.assertFalse(restarted.render_only)
+        self.assertEqual(restarted.enter_render_only(confirmed_idle=True).status, "render_only")
+        self.assertIsNone(restarted.gate.owner)
+        self.assertFalse(restarted.can_enter_render_only)
+        with patch.object(restarted, "_transaction", side_effect=AssertionError("Must not read/write recovery")), \
+                patch("reezsynth_comfy_session.submit_uploaded_job") as submit, \
+                patch("reezsynth_comfy_session.fetch_job_status") as status:
+            self.assertEqual(restarted.submit(self.job.directory, self.project).status, "render_only")
+            self.assertEqual(restarted.refresh().status, "render_only")
+            self.assertEqual(restarted.restore().status, "render_only")
+            submit.assert_not_called()
+            status.assert_not_called()
+        self.assertEqual(self.path.read_bytes(), evidence)
+        self.assertTrue(load_job(self.job.directory).attempted)
+        again = ComfySession(self.path, GpuAdmission())
+        self.assertEqual(again.restore().status, "blocked")
+        self.assertIsNotNone(again.gate.owner)
+
+    def test_render_only_preserves_valid_uncertainty_and_cannot_free_other_owner(self):
+        self.start()
+        evidence = self.path.read_bytes()
+        self.assertEqual(self.session.enter_render_only(confirmed_idle=True).status, "render_only")
+        self.assertEqual(self.path.read_bytes(), evidence)
+        self.assertTrue(load_job(self.job.directory).attempted)
+        token = self.gate.acquire("render")
+        self.assertEqual(self.session.refresh().status, "render_only")
+        self.assertEqual(self.session.enter_render_only(confirmed_idle=True).status, "render_only")
+        self.assertEqual(self.gate.owner, "render")
+        self.gate.release(token)
+        fresh = ComfySession(self.path, GpuAdmission())
+        self.assertEqual(fresh.restore().status, "unknown")
+        self.assertIsNotNone(fresh.gate.owner)
+
+    def test_render_only_refuses_during_sender_and_never_waits_for_new_job(self):
+        entered, release = threading.Event(), threading.Event()
+        def sending(directory):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError("Test release timed out")
+            return self.accept(directory)
+        with patch("reezsynth_comfy_session.submit_uploaded_job", side_effect=sending):
+            thread = threading.Thread(target=self.session.submit, args=(self.job.directory, self.project))
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertEqual(self.session.enter_render_only(confirmed_idle=True).status, "blocked")
+                self.assertFalse(self.session.render_only)
+                self.assertIsNotNone(self.gate.owner)
+            finally:
+                release.set()
+                thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertIsNotNone(self.gate.owner)
+
+    def test_render_only_without_owned_recovery_cannot_release_render(self):
+        token = self.gate.acquire("render")
+        self.assertEqual(self.session.enter_render_only(confirmed_idle=True).status, "blocked")
+        self.assertFalse(self.session.render_only)
+        self.assertEqual(self.gate.owner, "render")
+        self.gate.release(token)
+
     def test_missing_database_or_record_cannot_release_known_reservation(self):
         self.start()
         saved_database = self.path.read_bytes()

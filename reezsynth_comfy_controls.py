@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from functools import partial
 from pathlib import Path
 
 from PIL import Image
@@ -22,6 +23,7 @@ from reezsynth_comfy_processing import (
     PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
 )
 from reezsynth_comfy_prepare import PrepareJobRequest, prepare_qwen_job
+from reezsynth_comfy_session import ComfySession
 from reezsynth_comfy_transport import upload_job_inputs
 from reezsynth_keyframe_candidates import import_candidate
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent
@@ -66,6 +68,15 @@ def _upload_owned_for_project(directory, project):
     return load_job(job.directory)
 
 
+def _submit_session_job(session, directory, project):
+    attempt = session.submit(directory, project)
+    if attempt.status == "not_submitted":
+        previous = session.restore()
+        if previous.status != "idle":
+            return attempt, previous
+    return attempt, attempt
+
+
 class _WorkSignals(QObject):
     finished = Signal(int, str, object, object)
 
@@ -80,14 +91,15 @@ class _ImageWork(QRunnable):
         try:
             value, error = self.function(*self.args), None
         except (OSError, ValueError, SyntaxError) as exc:
-            value, error = None, str(exc)
-        except Exception as exc:
-            value, error = None, f"Preview processing failed: {type(exc).__name__}: {exc}"
+            value, error = None, str(exc) or type(exc).__name__
+        except BaseException as exc:
+            label = "ComfyUI job" if self.kind.startswith("session_") else "Preview processing"
+            value, error = None, f"{label} failed: {type(exc).__name__}: {exc}"
         self.signals.finished.emit(self.token, self.kind, value, error)
 
 
 class ComfyKeyframeTab(QWidget):
-    """Keep ComfyUI optional and never start or modify an external server."""
+    """Keep ComfyUI optional; never start or control an external server process."""
 
     def __init__(self, main_window, preferences):
         super().__init__(main_window)
@@ -111,6 +123,7 @@ class ComfyKeyframeTab(QWidget):
         self._owned_preview_project = None
         self._preview_project = None
         self._display_images = {}
+        self.session: ComfySession | None = None
 
         outer = QVBoxLayout(self)
         scroll = QScrollArea(self)
@@ -173,6 +186,26 @@ class ComfyKeyframeTab(QWidget):
         self.owned_status.setTextFormat(Qt.TextFormat.PlainText)
         self.owned_status.setWordWrap(True)
         layout.addWidget(self.owned_status)
+        session_actions = QHBoxLayout()
+        self.session_submit_button = QPushButton("Start generation (uses GPU)")
+        self.session_submit_button.setEnabled(False)
+        self.session_submit_button.clicked.connect(self.start_generation)
+        self.session_refresh_button = QPushButton("Check generation status")
+        self.session_refresh_button.setEnabled(False)
+        self.session_refresh_button.clicked.connect(self.check_generation_status)
+        self.session_render_only_button = QPushButton("Use rendering only...")
+        self.session_render_only_button.setEnabled(False)
+        self.session_render_only_button.clicked.connect(self.use_rendering_only)
+        session_actions.addWidget(self.session_submit_button)
+        session_actions.addWidget(self.session_refresh_button)
+        session_actions.addWidget(self.session_render_only_button)
+        session_actions.addStretch()
+        layout.addLayout(session_actions)
+        self.session_status = QLabel("Generation recovery is not connected yet.")
+        self.session_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.session_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.session_status.setWordWrap(True)
+        layout.addWidget(self.session_status)
 
         form = QFormLayout()
         self.form = form
@@ -380,6 +413,118 @@ class ComfyKeyframeTab(QWidget):
         field.textChanged.connect(self._owned_inputs_changed)
         self._bound_project_field = field
 
+    def attach_session(self, session: ComfySession):
+        """Restore local admission before the main window enables render actions."""
+        self.session = session
+        self._show_session_update(session.restore())
+
+    def _sync_session_actions(self):
+        available = self.session is not None and self._worker is None
+        enabled = available and not self.session.render_only
+        self.session_submit_button.setEnabled(enabled)
+        self.session_refresh_button.setEnabled(enabled)
+        self.session_render_only_button.setEnabled(available and self.session.can_enter_render_only)
+
+    def session_operation_pending(self):
+        """Cover admission changes until the worker's UI callback completes."""
+        return self._worker is not None and self._worker.kind.startswith("session_")
+
+    def gpu_wait_message(self):
+        if self.session_operation_pending():
+            return "Wait for the current ComfyUI operation to finish."
+        owner = self.main_window.gpu_gate.owner
+        if owner is None:
+            return ""
+        if self.session is not None and self.session.can_enter_render_only:
+            return ("ComfyUI generation or recovery still reserves local GPU work. "
+                    "Open ComfyUI / Keyframes and check generation status. If recovery is unavailable, "
+                    "Use rendering only explains how to continue after verifying external jobs are stopped.")
+        return f"Wait for {owner} to finish before starting another operation."
+
+    def _show_session_update(self, update, action=""):
+        location = f" Reserved job: {update.directory}." if update.directory else ""
+        if update.status in {"completed", "failed", "cancelled"}:
+            message = f"Generation {update.status}.{location}"
+        elif update.status == "not_submitted":
+            message = f"No prompt was submitted.{location}"
+        elif update.status == "idle":
+            message = "No generation job is reserved."
+        elif update.status == "render_only":
+            message = ("Rendering-only mode for this session. Generation and recovery checks are disabled. "
+                       "All recovery records are preserved; restart ReEzSynth to retry recovery. "
+                       "ComfyUI has not been stopped and its job is not marked completed.")
+        elif update.status == "blocked":
+            recovery_path = f" Recovery file: {self.session.path}." if self.session else ""
+            message = (f"Generation status unavailable; local GPU work may remain blocked."
+                       f"{location}{recovery_path} Check the error below and retry the status check.")
+        else:
+            message = f"Generation {update.status}; check this job for progress.{location}"
+        if update.error:
+            message += f" {action or 'Check'}: {update.error}"
+        self.session_status.setText(message)
+        self._sync_session_actions()
+
+    def use_rendering_only(self):
+        if self._worker is not None or self.session is None or not self.session.can_enter_render_only:
+            return
+        answer = QMessageBox.question(
+            self, "Continue with rendering only?",
+            "Try Check generation status first; verified completion releases the lock normally.\n\n"
+            "Only continue after verifying ComfyUI has no running or queued jobs and closing "
+            "other ReEzSynth windows. ReEzSynth cannot verify that the uncertain job has ended.\n\n"
+            "This releases the local rendering lock and disables generation and recovery checks "
+            "until you restart ReEzSynth. It keeps all recovery records and does not stop "
+            "ComfyUI, cancel its jobs, or retry a prompt. A damaged recovery file will still "
+            "need repair before generation can resume.\n\n"
+            "Have you verified the jobs are stopped and want to continue with rendering only?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._start_work("session_render_only", partial(self.session.enter_render_only, confirmed_idle=True))
+
+    def start_generation(self):
+        if self._worker is not None or self.session is None:
+            return
+        if self.session.render_only:
+            self._show_session_update(self.session.restore())
+            return
+        window = self.main_window
+        wait_message = self.gpu_wait_message()
+        if wait_message:
+            self.session_status.setText(wait_message)
+            return
+        if (getattr(window, "busy", False) or getattr(window, "process", None) is not None
+                or getattr(window, "parallel_queue", None) is not None
+                or getattr(window, "close_when_idle", False)
+                or window.options.edge_preview_active() or window.options.installation_active()):
+            self.session_status.setText("Wait for rendering, preview, or component maintenance to finish.")
+            return
+        try:
+            project = window.path_value(window.project_dir)
+        except ValueError as exc:
+            self.session_status.setText(str(exc))
+            return
+        directory = self.owned_job.text().strip()
+        if not directory:
+            self.session_status.setText("Choose a prepared job folder first.")
+            return
+        self._start_work("session_submit", _submit_session_job, self.session, directory, project)
+
+    def check_generation_status(self):
+        if self._worker is not None or self.session is None:
+            return
+        window = self.main_window
+        if not self.session.can_enter_render_only:
+            wait_message = self.gpu_wait_message()
+            if not wait_message and (window.busy or window.process is not None or window.close_when_idle
+                                     or window.options.edge_preview_active() or window.options.installation_active()):
+                wait_message = "Wait for rendering, preview, or component maintenance before checking generation status."
+            if wait_message:
+                self.session_status.setText(wait_message)
+                return
+        self._start_work("session_refresh", self.session.refresh)
+
     def _owned_inputs_changed(self, *_):
         was_displayed = self.owned_result is not None
         self._owned_revision += 1
@@ -533,13 +678,20 @@ class ComfyKeyframeTab(QWidget):
         self.owned_upload_button.setEnabled(False)
         self.owned_save_button.setEnabled(False)
         self.prepare_button.setEnabled(False)
+        self.session_submit_button.setEnabled(False)
+        self.session_refresh_button.setEnabled(False)
+        self.session_render_only_button.setEnabled(False)
+        if kind.startswith("session_"):
+            self.session_status.setText("Recording the generation attempt..." if kind == "session_submit"
+                                        else "Enabling rendering-only mode..." if kind == "session_render_only"
+                                        else "Checking the reserved job on its saved local server...")
         if kind.startswith("owned_"):
             self.owned_status.setText(
                 "Uploading frozen inputs to the job's saved local ComfyUI address. No inference starts..."
                 if kind == "owned_upload" else
                 "Checking the local ComfyUI server and reading its completed job..."
                 if kind == "owned_preview" else "Saving unreviewed result...")
-        elif kind != "job_prepare":
+        elif kind != "job_prepare" and not kind.startswith("session_"):
             self.candidate_status.setText(f"{kind.capitalize()} in progress...")
         if kind == "job_prepare":
             self.prepare_status.setText("Freezing native inputs and preparing a local job. No submission or model load...")
@@ -596,14 +748,25 @@ class ComfyKeyframeTab(QWidget):
         self.owned_preview_button.setEnabled(True)
         self.owned_upload_button.setEnabled(True)
         self.prepare_button.setEnabled(True)
+        self._sync_session_actions()
         self.save_button.setEnabled(self.current_result is not None)
         self.owned_save_button.setEnabled(self.owned_result is not None)
         if error:
-            (self.prepare_status if kind == "job_prepare" else
+            (self.session_status if kind.startswith("session_") else
+             self.prepare_status if kind == "job_prepare" else
              self.owned_status if kind.startswith("owned_") else
              self.candidate_status).setText(error)
             self.save_button.setEnabled(self.current_result is not None)
             self.owned_save_button.setEnabled(self.owned_result is not None)
+            return
+        if kind == "session_submit":
+            attempt, durable = value
+            self._show_session_update(durable, "Attempt")
+            if attempt.error and attempt.error != durable.error:
+                self.session_status.setText(self.session_status.text() + f" Attempt: {attempt.error}")
+            return
+        if kind in {"session_refresh", "session_render_only"}:
+            self._show_session_update(value)
             return
         if kind == "job_prepare":
             directory = str(value.directory)

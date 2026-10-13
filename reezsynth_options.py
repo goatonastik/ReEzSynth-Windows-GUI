@@ -675,8 +675,18 @@ class Options(QObject):
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self.w, title, str(exc))
 
-    def install_flowdiffuser_timm(self):
+    def maintenance_wait_message(self):
+        message = self.w.comfy_tab.gpu_wait_message()
+        if message:
+            return message
         if self.edge_preview_active() or self.w.busy or self.installation_active():
+            return 'Wait for the current render, preview or component operation to finish.'
+        return ''
+
+    def install_flowdiffuser_timm(self):
+        message = self.maintenance_wait_message()
+        if message:
+            QMessageBox.information(self.w, 'Engine maintenance busy', message)
             return
         status = optional_flow_status()['FLOW_DIFF']
         if status.get('dependencies') and status.get('backbones'):
@@ -751,9 +761,9 @@ class Options(QObject):
         self.start_engine_action('readiness check', program, arguments)
 
     def rebuild_engine_component(self, component):
-        if self.installation_active() or self.edge_preview_active() or self.w.busy:
-            QMessageBox.information(self.w, 'Engine maintenance busy',
-                                    'Wait for the current render or component operation to finish.')
+        message = self.maintenance_wait_message()
+        if message:
+            QMessageBox.information(self.w, 'Engine maintenance busy', message)
             return
         label = 'Legacy RAFT extension' if component == 'legacy' else 'FuouM native extension'
         program, arguments = rebuild_command(component, self.application())
@@ -770,9 +780,9 @@ class Options(QObject):
         self.start_engine_action(label + ' rebuild', program, arguments)
 
     def start_engine_action(self, label, program, arguments):
-        if self.installation_active() or self.edge_preview_active() or self.w.busy:
-            QMessageBox.information(self.w, 'Engine maintenance busy',
-                                    'Wait for the current render or component operation to finish.')
+        message = self.maintenance_wait_message()
+        if message:
+            QMessageBox.information(self.w, 'Engine maintenance busy', message)
             return
         self.engine_action_pending = True
         self.engine_action_label = label
@@ -1403,7 +1413,8 @@ class Options(QObject):
     def maybe_start(self):
         if self.loading or self.w.loading_project or self.w.busy or self.w.close_when_idle or not self.auto_armed:
             return
-        if self.installation_active() or self.edge_preview_active():
+        if (self.installation_active() or self.edge_preview_active()
+                or self.w.gpu_gate.owner is not None or self.w.comfy_tab.session_operation_pending()):
             self.auto_timer.start()
             return
         if QApplication.activeModalWidget() is not None:

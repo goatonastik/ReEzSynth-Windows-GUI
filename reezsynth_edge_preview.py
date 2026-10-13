@@ -154,7 +154,12 @@ class EdgePreviewWindow(QDialog):
 
     def update_preview(self):
         w = self.options.w
-        if self.running() or w.busy or w.process is not None or w.close_when_idle or self.options.installation_active():
+        wait_message = w.comfy_tab.gpu_wait_message()
+        if wait_message:
+            self.status.setText(wait_message)
+            return
+        if (self.running() or w.busy or w.process is not None or w.close_when_idle
+                or self.options.installation_active()):
             self.status.setText('Wait for rendering or component maintenance to finish.')
             return
         try:

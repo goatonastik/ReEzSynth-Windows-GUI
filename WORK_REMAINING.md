@@ -502,17 +502,18 @@ separately granted that permission on 2026-09-26 (implementation described above
 The initial ComfyUI / Keyframes tab now supports explicit read-only loopback
 readiness checks, source-frame context, Generate/Modify selection and
 non-destructive native-size PNG candidate intake. This is a foundation only:
-there is no inference submission, protected-band processing, approval or
-numbered-key assignment yet. See COMFYUI_KEYFRAMES.md. The generator does not
-reintroduce direct video import or synchronized video comparison playback.
+submission is explicit and experimental; protected-band inference, approval and
+numbered-key assignment remain unvalidated or unfinished. See COMFYUI_KEYFRAMES.md.
+The generator does not reintroduce direct video import or synchronized video
+comparison playback.
 
 The standalone generator protection module now supplies explicit masks,
 square protection bands, exact protected RGBA preservation, two alpha policies,
 static pixel QC and native-grid padding/crop-back. Synthetic tests cover these
 contracts. The Modify tab now provides the three requested edit choices, mask
 selection, background/alpha preview, CPU-only protected compositing and saving an
-unreviewed version with input provenance. Live inference, interactive mask painting,
-approval and assignment remain unimplemented.
+unreviewed version with input provenance. Live inference quality remains
+unvalidated; interactive mask painting, approval and assignment remain unimplemented.
 The three edit intentions are currently provenance labels; they do not alter
 compositing until a corresponding inference workflow is added.
 
@@ -520,11 +521,19 @@ The tab now prepares frozen Qwen jobs and explicitly uploads their inputs withou
 starting inference. A standalone durable submission coordinator now covers
 single-attempt sending, GPU admission, restart recovery and uncertain replies;
 its CPU tests include a terminated sender process and a local fake server.
-It is not yet connected to a Generate action. Next: integrate a stable
-application-profile recovery database, restore its admission before GPU actions
-are enabled, add explicit submission/status controls and safe window-close
-handling, and respect component maintenance. Then validate live backend status
-and native-size output quality with the owner notified before VRAM-intensive work.
+It is connected to explicit Start Generation and Check Generation Status actions.
+The application restores its profile recovery database before GPU rendering can
+start, blocks conflicting local work during submission or recovery, and waits
+for local ComfyUI workers before closing. A submitted external server job may
+continue after the window closes. Offscreen GUI tests cover recovery, local
+admission and close behavior without running models. If recovery is unavailable,
+an explicit rendering-only action releases this instance's guard only after the
+user confirms external jobs are stopped and other controllers are closed. It
+preserves all evidence and disables generation for the session; restart retries
+recovery. Permanent repair/reset of a damaged database remains a separate task.
+Next: validate live backend status and native-size output quality with the owner
+notified before VRAM-intensive
+work; then add progress/cancellation controls and safe approval/assignment.
 
 ## Next model handoff
 

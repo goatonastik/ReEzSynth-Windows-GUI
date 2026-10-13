@@ -45,6 +45,38 @@ class ComfySession:
         self._token = None
         self._had_reservation = False
         self._mutex = threading.RLock()
+        self._render_only = False
+
+    @property
+    def render_only(self):
+        return self._render_only
+
+    @property
+    def can_enter_render_only(self):
+        return self._token is not None and not self._render_only
+
+    def enter_render_only(self, *, confirmed_idle=False):
+        """Release only this process's lease after explicit user verification.
+
+        This is a temporary escape from unavailable recovery, not a database
+        reset or a claim that the external job finished. Keep all evidence and
+        disable every session operation until restart. The caller must have the
+        user verify no queued/running ComfyUI work and close other controllers.
+        """
+        if not self._mutex.acquire(blocking=False):
+            return SessionUpdate("blocked", error="Wait for the current ComfyUI operation before confirming rendering-only mode.")
+        try:
+            if confirmed_idle is not True:
+                return SessionUpdate("blocked", error="Confirm ComfyUI has no queued or running work first.")
+            if self._render_only:
+                return SessionUpdate("render_only")
+            if self._token is None:
+                return SessionUpdate("blocked", error="This session has no recovery lock to release.")
+            self._render_only = True
+            self._release()
+            return SessionUpdate("render_only")
+        finally:
+            self._mutex.release()
 
     def _hold(self):
         if self._token is None:
@@ -128,6 +160,8 @@ class ComfySession:
     def restore(self):
         """Restore admission without network access or assuming a job has ended."""
         with self._mutex:
+            if self._render_only:
+                return SessionUpdate("render_only")
             if not self.path.exists() and not self.path.is_symlink():
                 if self._token is not None:
                     return SessionUpdate("blocked", error="ComfyUI recovery database disappeared while a job was reserved.")
@@ -143,6 +177,8 @@ class ComfySession:
     def submit(self, directory, project):
         """Explicitly submit a prepared/uploaded job once, after durable admission."""
         with self._mutex:
+            if self._render_only:
+                return SessionUpdate("render_only", error="Generation is disabled until restart in rendering-only mode.")
             reserved = False
             record = None
             try:
@@ -204,6 +240,8 @@ class ComfySession:
     def refresh(self):
         """Read the reserved job only; missing history never permits a retry."""
         with self._mutex:
+            if self._render_only:
+                return SessionUpdate("render_only")
             try:
                 self._hold()
                 if self._had_reservation and not self.path.exists():

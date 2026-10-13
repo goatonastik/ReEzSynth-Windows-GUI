@@ -9,6 +9,9 @@ inputs and settings under the selected project without contacting the server.
 Preparation does not start a server, upload inputs, load models, submit jobs or
 change numbered keyframes. A separate explicit Upload Frozen Inputs action
 copies a prepared job's inputs to its saved local server without starting inference.
+Start Generation explicitly submits a prepared and uploaded job once. Check
+Generation Status reads the saved job after submission or application restart.
+Neither action starts or stops an external ComfyUI process.
 
 Candidates can be imported from PNG files for review. The source, drawing (in
 Modify mode) and candidate must have the same original pixel dimensions. A
@@ -25,9 +28,9 @@ The local address accepts only an HTTP loopback origin and makes an asynchronous
 five-second, read-only `/system_stats` request with redirects disabled. No
 network request occurs when the application opens.
 
-Next milestones are selection and verification of an actual ComfyUI model/workflow adapter;
-asynchronous submission, progress, cancellation and output retrieval; then
-explicit approval, versioning and safe numbered-key assignment. Managed backend
+Next milestones are live quality validation of the experimental Qwen adapter,
+progress and cancellation controls; then explicit approval, versioning and safe
+numbered-key assignment. Managed backend
 installation and additional model families follow separate validation gates.
 Existing render projects and presets retain their behavior.
 
@@ -114,11 +117,10 @@ is never inferred during recovery.
 The two symlink redirect tests skip on Windows accounts that cannot create
 symlinks; other record and integrity tests still run.
 
-The tab now uses this module to prepare frozen jobs, upload inputs, and inspect
-owned completed results. Worker-side submission exists but the tab does not
-call it. It does not start generation, monitor progress, cancel
-jobs, or reserve a GPU; those pieces require separate validation before live
-inference is offered.
+The tab uses this module to prepare frozen jobs, upload inputs, and inspect
+owned completed results. A separate explicit action now submits through the
+durable session coordinator. The tab does not provide continuous progress or
+cancellation controls, and live model inference has not been validated here.
 
 A separate read-only status helper can query a single job by its ID on the
 configured loopback server. It rejects redirects and oversized responses. A
@@ -139,12 +141,11 @@ The exclusive attempt marker has been tested with two separate processes.
 ReEzSynth now has an in-process GPU work gate. A render batch owns one token
 until its workers finish; Edge Preview uses the same gate until its worker exits.
 Only the matching token can release it, so an old callback cannot free another
-task's slot. The tab has no generation action yet, and this gate does not reserve
-the user's external ComfyUI process or persist an uncertain job across restart.
-When live generation is added, its admission check must also respect component
-maintenance in progress; those setup workers use a separate existing guard.
+task's slot. The session restores a token for an uncertain job across restart
+and checks component maintenance before submitting. The gate does not reserve
+the user's external ComfyUI process or coordinate separate ReEzSynth instances.
 
-## Durable submission coordinator (not yet connected to the tab)
+## Durable submission and recovery
 
 The standalone coordinator in `reezsynth_comfy_session.py` reserves one job in
 a local SQLite database before invoking the existing single-attempt transport.
@@ -168,10 +169,36 @@ that accepts a prompt and drops its reply. These tests do not validate model
 quality or available VRAM. The database coordinates generator submissions;
 the GPU gate does not exclude renders in other ReEzSynth instances or control
 external ComfyUI work, and terminal status does not prove models were unloaded.
-GUI integration must restore admission before enabling GPU operations, use a
-stable application-profile database path, handle workers during close, and
-respect the existing component-maintenance guard. No live Generate action is
-exposed by this module alone.
+The tab now connects this coordinator to explicit Start Generation and Check
+Generation Status actions. The profile database is `comfy-session.sqlite` in
+ReEzSynth's application configuration directory. Startup restores its local
+reservation without contacting ComfyUI before rendering is enabled. A pending
+submission or active reservation blocks local rendering, edge preview and
+component maintenance. The window waits for a local ComfyUI worker before
+closing; a submitted server job can continue after the window closes. Status
+checks always use the reserved job and its saved server, regardless of which
+prepared job is currently selected in the tab. An uncertain or missing server
+result stays reserved until a verified terminal result or proven pre-submission
+failure. The status action does not retry generation. The GUI integration is
+covered by offscreen tests with no model or live server; live inference remains
+unvalidated and can use substantial VRAM.
+
+If a damaged recovery record or unavailable job history keeps rendering blocked,
+first use Check Generation Status to retry recovery. The error includes the
+recovery file's location. The separate **Use rendering only...** action offers a
+temporary way to use synthesis rendering. It requires explicit confirmation that
+ComfyUI has no running or queued jobs and other ReEzSynth windows have been closed;
+ReEzSynth cannot establish those facts from an unreadable record. Declining the
+confirmation keeps the guard. This action is unavailable during a local ComfyUI
+worker, releases only this instance's recovery lease, and disables generation
+submission and session recovery checks for the rest of the application session.
+It does not contact or stop ComfyUI, mark the job completed, delete or change the
+database, or remove any submission-attempt marker. Project previews and CPU
+preparation remain available. Restart retries normal recovery and restores the
+guard if uncertainty remains. A damaged database still needs repair before
+generation can resume; rendering-only mode is not a permanent database reset.
+Tests cover damaged records, confirmation refusal, attempted-job preservation,
+restart, competing local workers, and verified terminal release.
 
 ## Experimental native-reference workflow planner
 
@@ -257,8 +284,8 @@ The fake-server tests include both the one-image Generate and two-image Modify
 paths, including recovery after an upload receipt is missing. A compatible
 existing upload can be checked without re-uploading; if a receipt remains but
 the server-side input has disappeared, create a new plan/job. These safeguards do not constitute
-live model or visual-quality validation, and the transport is not yet wired to
-the tab.
+live model or visual-quality validation. The tab invokes the transport only
+through its durable session coordinator after an explicit Start Generation action.
 
 A read-only owned-output helper now requests only the frozen job's ID, verifies
 terminal ownership, and accepts exactly one PNG from the frozen SaveImage node.
@@ -292,10 +319,12 @@ shows the resulting job folder. Changing controls while it runs does not alter
 that frozen job. The tab can upload a selected prepared job's frozen inputs to
 the saved loopback ComfyUI address. It checks project ownership first, runs in
 a background worker, and reports if the selection changes while it uploads.
-Upload does not submit the prompt or start inference. Use a newly prepared job
-if the saved server-side input bytes differ or an attempted job needs another
-run. Submission, progress and model inference remain separate future actions;
-a prepared or uploaded folder is not a queued ComfyUI task.
+Upload does not submit the prompt or start inference. Start Generation submits
+the selected prepared job after verifying its frozen uploads and live node
+schema; this is the action that can start model inference and use VRAM. Use a
+newly prepared job if the saved server-side input bytes differ or an attempted
+job needs another run. A prepared or uploaded folder alone is not a queued
+ComfyUI task.
 
 ## Fixed-alpha reconstruction of model intermediates
 

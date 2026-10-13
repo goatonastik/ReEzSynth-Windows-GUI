@@ -95,6 +95,7 @@ from reezsynth_video_plan import (plan_grouped_video, check_blend_dependencies,
 from reezsynth_beta_controls import BetaProjectTab
 from reezsynth_comfy_controls import ComfyKeyframeTab
 from reezsynth_gpu_gate import GpuAdmission, GpuBusy
+from reezsynth_comfy_session import ComfySession
 
 
 APP_NAME = "ReEzSynth-Windows-GUI"
@@ -415,6 +416,8 @@ class MainWindow(QMainWindow):
 
         self.reset_streams()
         self.build_interface()
+        self.comfy_tab.attach_session(
+            ComfySession(self.options.directory / "comfy-session.sqlite", self.gpu_gate))
         self.set_busy(False)
         restore_ui_state(self)
         self.options.restore()
@@ -1133,6 +1136,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def run_rows(self, rows, grouped=False):
+        if self.comfy_tab.session_operation_pending():
+            self.status.setText('Wait for the current ComfyUI operation to finish.')
+            return
         if self.options.edge_preview_active():
             self.status.setText('Wait for Edge Preview to finish, or cancel it before rendering.')
             return
@@ -1311,6 +1317,9 @@ class MainWindow(QMainWindow):
         self.start_records(records, batch, shared, parallel, worker_script, application)
 
     def run_image(self):
+        if self.comfy_tab.session_operation_pending():
+            self.status.setText('Wait for the current ComfyUI operation to finish.')
+            return
         if self.options.edge_preview_active():
             self.status.setText('Wait for Edge Preview to finish, or cancel it before rendering.')
             return
@@ -1393,6 +1402,9 @@ class MainWindow(QMainWindow):
         return row
 
     def recover_queue(self):
+        if self.comfy_tab.session_operation_pending():
+            self.status.setText('Wait for the current ComfyUI operation to finish.')
+            return
         if self.busy or self.process is not None or self.parallel_queue is not None:
             return
         if self.gpu_gate.owner is not None:
@@ -1489,6 +1501,9 @@ class MainWindow(QMainWindow):
 
     def start_records(self, records, batch, shared, parallel, worker_script, application,
                         journal_name='.reezsynth-queue.json'):
+        if self.comfy_tab.session_operation_pending():
+            self.status.setText('Wait for the current ComfyUI operation to finish.')
+            return
         if self.options.edge_preview_active():
             self.status.setText('Wait for Edge Preview to finish, or cancel it before rendering.')
             return
@@ -2330,6 +2345,17 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Cannot save diagnostics log", str(exc))
 
     def closeEvent(self, event):
+        if self.comfy_tab._worker is not None:
+            event.ignore()
+            if self.close_when_idle:
+                self.close_when_idle = False
+                self.set_busy(self.busy)
+            QMessageBox.information(
+                self, 'ComfyUI operation running',
+                'Wait for the current ComfyUI operation to finish before closing ReEzSynth. '
+                'A submitted generation job can continue on the local ComfyUI server after ReEzSynth closes.',
+            )
+            return
         if self.options.edge_preview_active():
             preview = self.options.edge_preview
             preview.close_parent = True
