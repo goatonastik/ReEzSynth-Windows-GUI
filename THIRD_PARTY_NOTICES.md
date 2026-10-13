@@ -38,7 +38,7 @@ or use the Princeton or contributor names to endorse this project.
 The optional memory-efficient correlation wheel is a ReEzSynth Windows build from
 the included RAFT `alt_cuda_corr` source with documented compatibility changes. It
 is limited to the Python, PyTorch, CUDA, Windows and GPU architectures listed in
-`INSTALL_WINDOWS.md`; normal RAFT remains available when it is incompatible.
+`docs/INSTALL_WINDOWS.md`; normal RAFT remains available when it is incompatible.
 
 - Upstream project: https://github.com/princeton-vl/RAFT
 - Retained license and build source: `third_party/raft_alt_cuda_corr/`

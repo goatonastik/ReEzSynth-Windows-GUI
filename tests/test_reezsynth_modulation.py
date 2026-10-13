@@ -14,9 +14,9 @@ from reezsynth_config import validate_render, PresetStore
 from reezsynth_image import validate_image_settings
 from reezsynth_modulation import (pack_maps, read_map, legacy_modulation,
     VideoModulation, validate_video_maps)
-import test_reezsynth_image as image_tests
-from test_reezsynth_lifecycle import LifecycleFixture, gui
-from test_reezsynth_gui import GuiFixture
+import tests.test_reezsynth_image as image_tests
+from tests.test_reezsynth_lifecycle import LifecycleFixture, gui
+from tests.test_reezsynth_gui import GuiFixture
 
 
 def write(path, value):
@@ -168,7 +168,7 @@ class ImageModulationAdapterTests(unittest.TestCase):
         import sys
         Engine = sys.modules['ezsynth.main_ez'].ImageSynthBase
         original = Engine.__init__
-        spec = importlib.util.spec_from_file_location('isolated_eb', Path(__file__).parent / 'ezsynth/utils/_eb.py')
+        spec = importlib.util.spec_from_file_location('isolated_eb', Path(__file__).resolve().parents[1] / 'ezsynth/utils/_eb.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         seen = []

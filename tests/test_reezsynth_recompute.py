@@ -13,7 +13,7 @@ from reezsynth_engines import LEGACY, FUOUM
 from reezsynth_fuoum_pipeline import extend_pipeline
 from reezsynth_provenance import effective_settings
 from reezsynth_sequence import frame_storage
-from test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_gui import GuiFixture
 
 
 class RecomputeTests(unittest.TestCase):

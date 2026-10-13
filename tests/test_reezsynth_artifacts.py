@@ -11,9 +11,9 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
-import test_reezsynth_render_adapter as adapter
-from test_reezsynth_grouped import upstream_engine
-from test_reezsynth_lifecycle import LifecycleFixture, gui
+import tests.test_reezsynth_render_adapter as adapter
+from tests.test_reezsynth_grouped import upstream_engine
+from tests.test_reezsynth_lifecycle import LifecycleFixture, gui
 from reezsynth_artifacts import artifact_records, save_artifacts, validate_exports
 from reezsynth_sequence import DiskSequence, array_sequence, frame_storage
 from reezsynth_video_plan import plan_grouped_video

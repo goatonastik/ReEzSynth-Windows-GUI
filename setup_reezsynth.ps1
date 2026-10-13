@@ -33,7 +33,7 @@ if (-not $CondaExe) {
     $CondaExe = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
 }
 if (-not $CondaExe -or -not (Test-Path -LiteralPath $CondaExe -PathType Leaf)) {
-    throw 'Conda not found. Install Miniforge/Miniconda, or supply -CondaExe C:\path\Scripts\conda.exe. See INSTALL_WINDOWS.md.'
+    throw 'Conda not found. Install Miniforge/Miniconda, or supply -CondaExe C:\path\Scripts\conda.exe. See docs/INSTALL_WINDOWS.md.'
 }
 $CondaExe = (Resolve-Path -LiteralPath $CondaExe).Path
 

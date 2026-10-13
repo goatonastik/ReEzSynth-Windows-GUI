@@ -103,7 +103,7 @@ class FuoumAlphaTests(unittest.TestCase):
         np.testing.assert_array_equal(result[:, 4:, 3], 192)
 
 
-from test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_gui import GuiFixture
 
 class FuoumAlphaGuiTests(GuiFixture):
     def test_preview_checkerboard_and_opaque_pixels(self):
@@ -142,7 +142,7 @@ class FuoumAlphaGuiTests(GuiFixture):
         self.assertFalse(controls['fuoum_alpha_mask_mode'].isEnabled())
 
 
-import test_reezsynth_render_adapter as adapter
+import tests.test_reezsynth_render_adapter as adapter
 
 class FuoumAlphaAdapterTests(unittest.TestCase):
     setUp = adapter.RenderAdapterTests.setUp

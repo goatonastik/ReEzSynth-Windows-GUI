@@ -30,7 +30,7 @@ def require_alt_cuda_corr():
         raise RuntimeError(
             'Memory-efficient RAFT requires the compiled alt_cuda_corr extension. '
             'Run build_reezsynth_corr.py --install in the ReEzSynth environment '
-            '(see INSTALL_WINDOWS.md). No slow fallback was selected.'
+            '(see docs/INSTALL_WINDOWS.md). No slow fallback was selected.'
         ) from exc
     if getattr(alt_cuda_corr, 'reezsynth_build', None) != '0.2.0':
         raise RuntimeError('Rebuild alt_cuda_corr using build_reezsynth_corr.py --install for the tested ReEzSynth interface.')

@@ -18,8 +18,8 @@ from reezsynth_fuoum import (build_configs, install_final_pass_compatibility,
                              native_guides, render_cache)
 from reezsynth_engine_setup import (configured_runtime, readiness_command,
                                     rebuild_command, version_summary)
-from test_reezsynth_gui import GuiFixture
-from test_reezsynth_lifecycle import LifecycleFixture
+from tests.test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_lifecycle import LifecycleFixture
 from diagnose_reezsynth_release import selected_keyframes
 
 
@@ -278,7 +278,7 @@ class EngineRoutingTests(LifecycleFixture):
     def test_disabled_legacy_settings_are_retained_but_excluded_from_fuoum_jobs(self):
         self.fuoum()
         self.w.options.widgets['render']['memory_efficient_raft'].setChecked(True)
-        from test_reezsynth_gui import gui
+        from tests.test_reezsynth_gui import gui
         self.run_queue()
         self.until(lambda: not self.w.busy, 10)
         jobs = list(self.w.batch.rglob('job.json'))

@@ -10,7 +10,7 @@ CPU-only installation/fallback feature.
 
 ## Repaired implementation
 
-The versioned [repair layer](reezsynth_torch_backend.py) replaces only an engine
+The versioned [repair layer](../reezsynth_torch_backend.py) replaces only an engine
 instance's level function inside the existing compatibility wrapper. Original
 methods are restored on completion/failure. The pinned pyramid construction,
 resampling, flow, guide preparation and NNF transport remain in use. It repairs:

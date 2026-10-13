@@ -1,7 +1,7 @@
 """Lightweight regression tests for the ReEzSynth persistent worker.
 
 Run:
-    python test_reezsynth_worker.py
+    python -m tests.test_reezsynth_worker
 
 These tests:
 - Do not initialize the rendering engine or GPU.
@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 WORKER_SOURCE = ROOT / "reezsynth_shared_worker.py"
 SESSION_PREFIX = "@@REEZSYNTH_SESSION@@"
 PROCESS_TIMEOUT_SECONDS = 15

@@ -12,7 +12,7 @@ from reezsynth_config import validate_render, PresetStore
 from reezsynth_engines import FUOUM, LEGACY, validate_capabilities
 from reezsynth_provenance import effective_settings
 from reezsynth_resources import estimate_job_vram
-from test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_gui import GuiFixture
 
 
 class TorchBackendAuditTests(unittest.TestCase):

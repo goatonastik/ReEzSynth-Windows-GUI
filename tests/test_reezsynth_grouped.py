@@ -12,12 +12,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-import test_reezsynth_render_adapter as adapter
-from test_reezsynth_lifecycle import LifecycleFixture, gui
+import tests.test_reezsynth_render_adapter as adapter
+from tests.test_reezsynth_lifecycle import LifecycleFixture, gui
 from reezsynth_video_plan import (check_blend_dependencies, plan_grouped_video,
                                   synthesis_work, validate_blend_options)
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def upstream_engine(captured):

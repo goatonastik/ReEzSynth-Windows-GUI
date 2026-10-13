@@ -1,7 +1,7 @@
 # Project status
 
 Updated 2026-09-28. Live files are authoritative. Usage and settings are described
-in [README.md](README.md).
+in [README.md](../README.md).
 
 ## Dependency and optional-flow notice closure (2026-09-23)
 

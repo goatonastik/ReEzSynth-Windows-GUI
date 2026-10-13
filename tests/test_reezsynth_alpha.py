@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from reezsynth_alpha import read_style, as_bgra, keyframe_guides, selected_alpha
-import test_reezsynth_render_adapter as adapter
+import tests.test_reezsynth_render_adapter as adapter
 
 
 def samples(size=128):
@@ -161,7 +161,7 @@ class AlphaAdapterTests(unittest.TestCase):
         self.assertFalse((self.output / 'COMPLETE.txt').exists())
 
     def test_rgba_image_synthesis_preserves_style_with_grayscale_guides(self):
-        from test_reezsynth_image import ImageAdapterTests
+        from tests.test_reezsynth_image import ImageAdapterTests
         ImageAdapterTests.prepare(self)
         style = samples()['partial']
         save(self.settings['style'], style)
@@ -180,7 +180,7 @@ class AlphaAdapterTests(unittest.TestCase):
         np.testing.assert_array_equal(result, cv2.resize(style, (160, 80)))
 
     def test_mixed_group_promotes_only_styles_and_keeps_frame_identity(self):
-        from test_reezsynth_grouped import upstream_engine
+        from tests.test_reezsynth_grouped import upstream_engine
         from reezsynth_video_plan import plan_grouped_video
         captured = {}
         Engine = upstream_engine(captured)
@@ -317,7 +317,7 @@ class AlphaReconstructionTests(unittest.TestCase):
                 np.testing.assert_array_equal(result[0], value)
 
     def test_rgba_live_pass_boundaries_channels_and_work_counts(self):
-        from test_reezsynth_grouped import upstream_engine
+        from tests.test_reezsynth_grouped import upstream_engine
         from reezsynth_video_plan import synthesis_work
         captured = {}
         Engine = upstream_engine(captured)
@@ -387,7 +387,7 @@ class AlphaNativeTests(unittest.TestCase):
         if os.environ.get('REEZSYNTH_ALPHA_NATIVE_CHILD') != '1':
             result = subprocess.run([sys.executable, '-B', '-m', 'unittest', self.id()],
                 env=dict(os.environ, OMP_NUM_THREADS='1', REEZSYNTH_ALPHA_NATIVE_CHILD='1'),
-                cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=60)
+                cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return
         from ezsynth.utils._ebsynth import ebsynth

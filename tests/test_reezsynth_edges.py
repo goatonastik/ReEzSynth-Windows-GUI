@@ -17,7 +17,7 @@ from reezsynth_edges import (EDGE_DEFAULTS, EDGE_SPECS, compute_tuned_edge,
 from reezsynth_engines import LEGACY, FUOUM
 from reezsynth_precompute_cache import edge_identity
 from reezsynth_provenance import effective_settings
-from test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_gui import GuiFixture
 
 
 class EdgeSettingsTests(unittest.TestCase):

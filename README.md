@@ -7,15 +7,18 @@ ReEzSynth aims to make the workflow easier to manage: select your source
 image sequence and styled keyframes, configure frame ranges, queue renders,
 and monitor progress without manually preparing each rendering job.
 
+See the [documentation index](docs/README.md) for installation, feature, and
+development guides.
+
 Rendering now includes a **Synthesis engine** selector for Trentonom0r3/Ezsynth
 and FuouM/ReEzSynth. Standard setup installs both engines. The original engine
 remains the initial selection. FuouM uses a separate Python runtime and supports
 image synthesis, RAFT/NeuFlow video, masks/custom guides, exports, and grouped
 blending or directional passes.
 Engine-specific controls are labelled and greyed out when inapplicable. See
-[dual-engine setup and capabilities](DUAL_ENGINE.md), the
-[remaining-work checklist](WORK_REMAINING.md), and [release gates](RELEASE_AUDIT.md).
-Candidate source/installer builds are documented in [PACKAGING.md](PACKAGING.md);
+[dual-engine setup and capabilities](docs/DUAL_ENGINE.md), the
+[remaining-work checklist](docs/WORK_REMAINING.md), and [release gates](docs/RELEASE_AUDIT.md).
+Candidate source/installer builds are documented in [docs/PACKAGING.md](docs/PACKAGING.md);
 the packaging workflow never publishes a release automatically.
 
 ## Project goals
@@ -39,7 +42,7 @@ change as rendering, queue management, and resource handling are refined.
 Contributions are welcome under the repository's GNU AGPL v3 license. See
 [CONTRIBUTING.md](CONTRIBUTING.md) before submitting code or assets,
 [SECURITY.md](SECURITY.md) for private vulnerability reporting, and
-[SECURITY_CHECKS.md](SECURITY_CHECKS.md) for the automated checks and evidence
+[docs/SECURITY_CHECKS.md](docs/SECURITY_CHECKS.md) for the automated checks and evidence
 required before a downloadable public release.
 
 ## Windows installation
@@ -134,12 +137,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install_reezsynth.ps1 -Che
 
 For manual installation, install the same components in the numbered order above,
 then run `setup_reezsynth.ps1`. Detailed custom-Conda, troubleshooting, optional
-component, and native rebuild instructions are in [Windows setup](INSTALL_WINDOWS.md).
+component, and native rebuild instructions are in [Windows setup](docs/INSTALL_WINDOWS.md).
 
 ## Using the interface
 
 For a new machine, use the installer workflow above or follow
-[Windows setup](INSTALL_WINDOWS.md). The setup script
+[Windows setup](docs/INSTALL_WINDOWS.md). The setup script
 creates the GUI environment and the separate FuouM worker environment, installs
 pinned dependencies and FuouM's RAFT/NeuFlow checkpoints, and checks both engines
 without rendering. The installer bootstrap supplies Git, Miniforge, the CUDA 12.8
@@ -176,7 +179,7 @@ from every tab, including while a worker is running.
   Legacy retains that source-over behavior. FuouM transparent styles instead offer
   **Transparent artwork** (mask clips opacity) or **Composite onto source** in
   Rendering. Without masks, FuouM preserves transparent PNG output. See
-  [TRANSPARENT_FUOUM.md](TRANSPARENT_FUOUM.md) for guarantees and limitations.
+  [docs/TRANSPARENT_FUOUM.md](docs/TRANSPARENT_FUOUM.md) for guarantees and limitations.
 - **Custom edge guides:** select a numbered edge-guide sequence and enable **Use
   custom edge-guide frames** in Rendering to use those maps instead of automatic
   Classic, PST, or PAGE edge generation. Edge-guide numbers and dimensions must
@@ -238,7 +241,7 @@ version and field validation as JSON; job files and worker protocol remain JSON.
 Rendering also offers separate **native FuouM YAML** interchange: settings-only
 import into the current GUI project and full-source-folder native project export,
 with compatibility confirmation and unsupported-feature reporting. This is not
-a lossless frontend/native round trip. See [NATIVE_FUOUM_YAML.md](NATIVE_FUOUM_YAML.md).
+a lossless frontend/native round trip. See [docs/NATIVE_FUOUM_YAML.md](docs/NATIVE_FUOUM_YAML.md).
 Queue journals are local recovery records, not shareable presets: they contain
 absolute input and runtime paths and should be removed or reviewed before sharing
 a render folder.
@@ -261,7 +264,7 @@ Highest uses Standard settings with automatic pyramid depth. Video weight 6, Map
 Patch size must leave at least one usable pyramid level: each processed style
 and target dimension must be at least twice the patch size plus one pixel.
 Invalid combinations report an error before engine initialization. Current numeric
-ranges and their limitations are listed in [NUMERIC_SETTINGS.md](NUMERIC_SETTINGS.md).
+ranges and their limitations are listed in [docs/NUMERIC_SETTINGS.md](docs/NUMERIC_SETTINGS.md).
 Processing size defaults to Original resolution; explicitly saved size choices
 remain respected. With Original resolution selected, video jobs check selected
 source-frame and keyframe dimensions before creating outputs or launching workers.
@@ -388,7 +391,7 @@ time and memory. Parallel admission includes patch-buffer reservations, and a
 per-level free-memory guard rejects oversized work with guidance to reduce
 processing/patch size or choose `cuda`. Disk-backed clip storage does not bound
 these GPU buffers. Manifests record `frontend-torch-v1` and its adapter hash.
-See [TORCH_BACKEND_AUDIT.md](TORCH_BACKEND_AUDIT.md) for repairs, evidence and limits.
+See [docs/TORCH_BACKEND_AUDIT.md](docs/TORCH_BACKEND_AUDIT.md) for repairs, evidence and limits.
 
 ### Output naming
 
@@ -455,7 +458,7 @@ The Windows setup installs the bundled compiled `alt_cuda_corr` extension; no
 extra commands, CUDA Toolkit, or C++ compiler are needed after downloading a
 complete repository release. It supports the project-pinned Windows x64 CPython
 3.11/PyTorch 2.11.0+cu128 environment and NVIDIA architectures 7.5, 8.0, 8.6,
-8.9 and 12.0. See [memory-efficient RAFT support](INSTALL_WINDOWS.md#memory-efficient-raft-extension)
+8.9 and 12.0. See [memory-efficient RAFT support](docs/INSTALL_WINDOWS.md#memory-efficient-raft-extension)
 for compatibility and manual rebuilding.
 It retains full-resolution RAFT features, model weights, search neighborhoods and
 iteration counts. The former pure-PyTorch implementation was too slow in the user's
@@ -478,13 +481,14 @@ continues while the popup is visible. No automatic resizing or retry occurs.
 
 ### Regression tests
 
-Run these explicit modules in the existing environment, without real GPU renders:
+Run the maintained suite in the existing environment, without real GPU renders:
 
 ```powershell
-python -B -m unittest discover -p "test_reezsynth_*.py" -v
+python -B run_maintained_tests.py --verbose
 ```
 
-`python -B run_maintained_tests.py` is the canonical equivalent used by CI.
+Use `python -B -m unittest tests.test_reezsynth_gui -v` to run one module.
+The maintained runner is also used by CI.
 GitHub-hosted Windows CI installs CPU PyTorch and sets CUDA hidden; real GPU
 diagnostics are available only through an explicit workflow-dispatch choice on a
 preconfigured self-hosted runner labelled `reezsynth-gpu`.
@@ -494,7 +498,7 @@ and include CPU image handling and CPU RAFT numerical checks without pretrained
 weights. Audio playback is mocked. The canonical runner selects the maintained
 lightweight suite.
 
-See [PROJECT_STATUS.md](PROJECT_STATUS.md) for results and remaining manual checks.
+See [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for results and remaining manual checks.
 Bounded GPU memory and output checks have passed; overnight/multi-GPU stability,
 general visual-quality review and native audio playback remain unverified.
 Use `python -B diagnose_reezsynth_stability.py --plan` to inspect the alternating
@@ -513,17 +517,17 @@ Rendering now includes a collapsible **Advanced edge settings** panel beneath
 Edge method, with PST/PAGE tuning and a separate **Edge Preview…** window.
 Preview one source frame at the render processing size, inspect an overlay or
 compare with defaults, then save the tuning in rendering presets/projects.
-Custom edge-guide frames bypass detector tuning. See [EDGE_TUNING.md](EDGE_TUNING.md).
+Custom edge-guide frames bypass detector tuning. See [docs/EDGE_TUNING.md](docs/EDGE_TUNING.md).
 
 FuouM video also offers **Recompute optical flow** and **Recompute edges** controls
 in Rendering. They compute fresh data for each render without reading or replacing
 shared cache entries. Both default to off; projects/presets remember the choices.
-See [PRECOMPUTE_RECOMPUTE.md](PRECOMPUTE_RECOMPUTE.md) for scope and verification.
+See [docs/PRECOMPUTE_RECOMPUTE.md](docs/PRECOMPUTE_RECOMPUTE.md) for scope and verification.
 
 Rendering also has an opt-in **Store clip frames on disk to limit RAM** switch.
 It keeps complete propagation/blending sequences while using a bounded decoded
 array cache and temporary disk storage. It needs additional disk space and I/O;
-per-frame GPU requirements are unchanged. See [FRAME_STORAGE.md](FRAME_STORAGE.md)
+per-frame GPU requirements are unchanged. See [docs/FRAME_STORAGE.md](docs/FRAME_STORAGE.md)
 for its memory scope, cleanup behavior and diagnostic commands.
 For small real CUDA checks of the frontend adapter, run
 `python -B diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
@@ -535,7 +539,7 @@ FuouM's CUDA and alternate PyTorch backends against controlled mathematical
 invariants. Add `--repaired` to test the frontend repair layer. Without it, the
 original upstream backend still fails and a nonzero result is expected for
 `torch`/`both`. See
-[TORCH_BACKEND_AUDIT.md](TORCH_BACKEND_AUDIT.md) for failures and repair scope.
+[docs/TORCH_BACKEND_AUDIT.md](docs/TORCH_BACKEND_AUDIT.md) for failures and repair scope.
 Add `--shared-worker` to the adapter diagnostic commands to run through the persistent
 worker protocol and verify its completion event and normal cleanup/exit.
 For the video diagnostic, also add `--live-preview` to renew a preview-window
@@ -637,7 +641,7 @@ Its reworked pipeline credits **FuouM**; related earlier work is available at
 [FuouM/ReEzSynth](https://github.com/FuouM/ReEzSynth) supplies the included
 PyTorch/CUDA synthesis engine. It is a separate project from the original
 Ezsynth pipeline and this Windows GUI. The supported revision, local build
-compatibility patch and adapter limits are documented in DUAL_ENGINE.md.
+compatibility patch and adapter limits are documented in docs/DUAL_ENGINE.md.
 
 ### ReEzSynth Windows GUI
 
@@ -651,4 +655,4 @@ redistributing this project.
 
 The consolidated runtime attribution and exact provenance references are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). A public candidate must also
-complete [CLEAN_MACHINE_TEST.md](CLEAN_MACHINE_TEST.md).
+complete [docs/CLEAN_MACHINE_TEST.md](docs/CLEAN_MACHINE_TEST.md).

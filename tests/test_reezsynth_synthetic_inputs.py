@@ -43,7 +43,7 @@ class SyntheticInputTests(unittest.TestCase):
                                 for item in settings['guides'] for key in ('source', 'target')))
 
     def test_operational_python_has_no_example_directory_dependency(self):
-        root = Path(__file__).resolve().parent
+        root = Path(__file__).resolve().parents[1]
         tracked = subprocess.run(
             ['git', 'ls-files', '*.py'], cwd=root, text=True, encoding='utf-8',
             errors='strict', check=True, capture_output=True).stdout.splitlines()

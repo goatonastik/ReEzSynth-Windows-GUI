@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import cv2
 import numpy as np
-import test_reezsynth_render_adapter as adapter
-from test_reezsynth_lifecycle import LifecycleFixture, gui
+import tests.test_reezsynth_render_adapter as adapter
+from tests.test_reezsynth_lifecycle import LifecycleFixture, gui
 from reezsynth_config import validate_weights
 from reezsynth_output_location import output_root, create_unique_directory
 from reezsynth_project_controls import project_naming

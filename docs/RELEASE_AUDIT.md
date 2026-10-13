@@ -45,19 +45,19 @@ be packaged; stop workers before deleting them to reclaim disk space.
 
 ## Notices and provenance
 
-- The base repository's [LICENSE](LICENSE) is **GNU AGPL v3**, not ordinary GPL
+- The base repository's [LICENSE](../LICENSE) is **GNU AGPL v3**, not ordinary GPL
   or MIT. See the [original repository license](https://github.com/Trentonom0r3/Ezsynth/blob/main/LICENSE).
-- FuouM's pinned source declares MIT; retain [its license](licenses/FuouM-MIT.txt)
+- FuouM's pinned source declares MIT; retain [its license](../licenses/FuouM-MIT.txt)
   and [upstream attribution](https://github.com/FuouM/ReEzSynth/blob/aaa8d06170e6cc59054410aa9c422edd789f7ab2/LICENSE).
 - RAFT declares BSD-3-Clause. The retained
-  [license](third_party/raft_alt_cuda_corr/LICENSE) accompanies the compiled
+  [license](../third_party/raft_alt_cuda_corr/LICENSE) accompanies the compiled
   correlation source; see [upstream](https://github.com/princeton-vl/RAFT/blob/master/LICENSE).
   The three tracked checkpoints were compared byte-for-byte with the official
   archive referenced by `download_models.sh` at pinned RAFT commit `2888e15`;
   that script and archive are retained in ignored evidence. This establishes their
   source chain, while any model/training-data rights beyond the repository license
   remain a release-review question.
-- NeuFlow v2 declares Apache-2.0. Retain [its license](licenses/NeuFlow-Apache-2.0.txt)
+- NeuFlow v2 declares Apache-2.0. Retain [its license](../licenses/NeuFlow-Apache-2.0.txt)
   and [official repository attribution](https://github.com/neufieldrobotics/NeuFlow_v2).
   Downloaded checkpoints are pinned to `204b5e3744461d90303b9ff82caa7a1bb56a2ca2`
   with exact hashes in `setup_fuoum.py`. A repository's code license alone does
@@ -66,7 +66,7 @@ be packaged; stop workers before deleting them to reclaim disk space.
   its code public domain and also gives a patent warning. That does not establish
   the provenance of this checkout's existing DLL or of the commercial application.
 - EF-RAFT revision `9ad323b373ba5f10f3bf97fdcf57e624be37d1b2` is BSD-3-Clause;
-  retain [its exact license](licenses/EF-RAFT-BSD-3-Clause.txt). Its optional
+  retain [its exact license](../licenses/EF-RAFT-BSD-3-Clause.txt). Its optional
   checkpoints are not bundled.
 - The adapted FlowDiffuser files were distributed in Trentonom0r3/Ezsynth commit
   `b198f2d` together with that repository's AGPL-3.0 license. ReEzSynth preserves

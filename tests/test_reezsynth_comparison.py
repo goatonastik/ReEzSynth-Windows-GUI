@@ -10,7 +10,7 @@ from reezsynth_engines import FUOUM, file_sha256
 from reezsynth_config import atomic_json
 from reezsynth_queue_recovery import snapshot_inputs
 from unittest.mock import patch
-from test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_gui import GuiFixture
 
 class ComparisonTests(unittest.TestCase):
     def plans(self, kind='flow', **blend):

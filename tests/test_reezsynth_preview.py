@@ -14,11 +14,11 @@ import numpy as np
 from PySide6.QtCore import QEvent
 from PySide6.QtGui import QImage
 
-from test_reezsynth_gui import GuiFixture
-from test_reezsynth_lifecycle import LifecycleFixture, SOURCE, gui
-from test_reezsynth_grouped import upstream_engine
-import test_reezsynth_render_adapter as adapter
-import test_reezsynth_image as image_adapter
+from tests.test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_lifecycle import LifecycleFixture, SOURCE, gui
+from tests.test_reezsynth_grouped import upstream_engine
+import tests.test_reezsynth_render_adapter as adapter
+import tests.test_reezsynth_image as image_adapter
 from reezsynth_preview import PreviewTile
 from reezsynth_preview_transport import PreviewPublisher, PREVIEW_DIR, preview_channels
 from reezsynth_video_plan import plan_grouped_video

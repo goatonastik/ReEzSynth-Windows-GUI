@@ -42,7 +42,7 @@ def source_revision(root):
                             capture_output=True, text=True, timeout=10,
                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     if result.returncode:
-        raise ValueError('FuouM source must be a Git checkout. See DUAL_ENGINE.md.')
+        raise ValueError('FuouM source must be a Git checkout. See docs/DUAL_ENGINE.md.')
     return result.stdout.strip()
 
 
@@ -53,7 +53,7 @@ def prepare_runtime(options, application, require_native=True):
     source = Path(application.get('fuoum_source') or default_runtime()['fuoum_source']).expanduser().resolve()
     python = Path(application.get('fuoum_python') or default_runtime()['fuoum_python']).expanduser().resolve()
     if not python.is_file():
-        raise ValueError('Configure the FuouM Python executable in Settings. See DUAL_ENGINE.md for setup.')
+        raise ValueError('Configure the FuouM Python executable in Settings. See docs/DUAL_ENGINE.md for setup.')
     for name in ('ezsynth/config.py', 'ezsynth/pipeline.py', 'ezsynth/engines/synthesis_engine.py'):
         if not (source / name).is_file():
             raise ValueError(f'FuouM source folder is incomplete: {source / name}')
@@ -61,7 +61,7 @@ def prepare_runtime(options, application, require_native=True):
     if revision != FUOUM_REVISION:
         raise ValueError(f'The FuouM adapter requires revision {FUOUM_REVISION}; found {revision}.')
     if require_native and not list(source.glob('ebsynth_torch*.pyd')):
-        raise ValueError('Build the FuouM CUDA extension with build_fuoum_engine.py before rendering. See DUAL_ENGINE.md.')
+        raise ValueError('Build the FuouM CUDA extension with build_fuoum_engine.py before rendering. See docs/DUAL_ENGINE.md.')
     return dict(engine=engine, revision=revision, python=str(python), source=str(source))
 
 
@@ -132,7 +132,7 @@ def preflight_flow(options, runtime):
         return validate_flow_model_available(options['flow_model'], options['flow_arch'])
     model = fuoum_checkpoint(options, runtime['source'])
     if not model.is_file() or not model.stat().st_size:
-        raise ValueError(f'FuouM optical-flow checkpoint is missing: {model}. See DUAL_ENGINE.md.')
+        raise ValueError(f'FuouM optical-flow checkpoint is missing: {model}. See docs/DUAL_ENGINE.md.')
     return model
 
 

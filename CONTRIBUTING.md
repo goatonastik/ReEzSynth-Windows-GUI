@@ -27,11 +27,11 @@ permission, not merely permission to use it privately.
 1. Create a topic branch from `main`.
 2. Keep the change focused and update relevant documentation.
 3. Run `python -B run_maintained_tests.py` in the supported Python 3.11 environment.
-4. Run the checks in [SECURITY_CHECKS.md](SECURITY_CHECKS.md) when the change affects
+4. Run the checks in [docs/SECURITY_CHECKS.md](docs/SECURITY_CHECKS.md) when the change affects
    setup, subprocess execution, downloads, dependencies, or release packaging.
 5. Open a pull request describing the behavior change, validation performed, and
    any third-party material introduced or changed.
 
 Pull requests run maintained tests, CodeQL, Bandit, dependency review, and a
 known-vulnerability audit. A passing result does not override the release gates
-in [RELEASE_AUDIT.md](RELEASE_AUDIT.md).
+in [docs/RELEASE_AUDIT.md](docs/RELEASE_AUDIT.md).

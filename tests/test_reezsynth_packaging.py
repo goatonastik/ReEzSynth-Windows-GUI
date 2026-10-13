@@ -11,7 +11,7 @@ import unittest
 import yaml
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class PackagingTests(unittest.TestCase):
             'third_party/raft_alt_cuda_corr/LICENSE',
         } <= tracked)
         self.assertTrue((ROOT / 'THIRD_PARTY_NOTICES.md').is_file())
-        self.assertTrue((ROOT / 'CLEAN_MACHINE_TEST.md').is_file())
+        self.assertTrue((ROOT / 'docs/CLEAN_MACHINE_TEST.md').is_file())
         notices = (ROOT / 'THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8')
         self.assertIn('b198f2d7051eee542c4efc51c2d43dc442630bbf', notices)
         self.assertIn('imageio-ffmpeg 0.6.0', notices)
@@ -116,19 +116,21 @@ class PackagingTests(unittest.TestCase):
             self.assertIn(owned, installer)
         self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
         self.assertIn('Type: dirifempty; Name: "{app}"', installer)
-        for document in ('INSTALL_WINDOWS.md', 'THIRD_PARTY_NOTICES.md',
-                         'CLEAN_MACHINE_TEST.md'):
+        self.assertIn('Type: dirifempty; Name: "{app}\\tests"', installer)
+        self.assertIn('Type: dirifempty; Name: "{app}\\docs"', installer)
+        for document in ('docs/INSTALL_WINDOWS.md', 'THIRD_PARTY_NOTICES.md',
+                         'docs/CLEAN_MACHINE_TEST.md'):
             shortcut_line = next(line for line in installer.splitlines()
-                                 if line.startswith('Name:') and document in line)
+                                 if line.startswith('Name:') and document.replace('/', '\\') in line)
             self.assertIn(r'Filename: "{sys}\notepad.exe"', shortcut_line)
-            self.assertIn('Parameters: """{app}\\' + document + '"""', shortcut_line)
+            self.assertIn('Parameters: """{app}\\' + document.replace('/', '\\') + '"""', shortcut_line)
         finish_guide = next(line for line in installer.splitlines()
                             if line.startswith('Filename:') and
                             'Open the Windows setup guide' in line)
         self.assertIn(r'Filename: "{sys}\notepad.exe"', finish_guide)
-        self.assertIn(r'Parameters: """{app}\INSTALL_WINDOWS.md"""', finish_guide)
+        self.assertIn(r'Parameters: """{app}\docs\INSTALL_WINDOWS.md"""', finish_guide)
         self.assertNotIn('shellexec', finish_guide)
-        clean_test = (ROOT / 'CLEAN_MACHINE_TEST.md').read_text(encoding='utf-8')
+        clean_test = (ROOT / 'docs/CLEAN_MACHINE_TEST.md').read_text(encoding='utf-8')
         self.assertNotIn('check_reezsynth_engines.py --all', clean_test)
         self.assertIn('--fuoum-source engine_sources\\fuoum_reezsynth', clean_test)
         self.assertIn(r'--fuoum-python .engine_envs\fuoum\Scripts\python.exe', clean_test)
@@ -138,16 +140,17 @@ class PackagingTests(unittest.TestCase):
         files_line = next(line for line in installer.splitlines()
                           if line.startswith('Source:') and r'{#SourceDir}\*' in line)
         for excluded in (
-                r'.github\*', r'installer\*', 'test_*.py', 'test_progress.txt',
+                r'.github\*', r'installer\*', r'tests\*', 'test_*.py', 'test_progress.txt',
                 'build_release.ps1', 'requirements-ci.txt', 'run_maintained_tests.py'):
             self.assertIn(excluded, files_line)
         self.assertNotIn('createallsubdirs', files_line)
+        self.assertNotIn(r'docs\*', files_line)
         for required in (
                 'reezsynth_gui.py', 'install_reezsynth.ps1', 'setup_reezsynth.ps1', 'check_reezsynth.py',
-                'diagnose_reezsynth_release.py', 'INSTALL_WINDOWS.md',
-                'THIRD_PARTY_NOTICES.md', 'PROJECT_STATUS.md', 'RELEASE_AUDIT.md',
-                'WORK_REMAINING.md', 'licenses', 'third_party', 'runtime-assets.json'):
-            self.assertNotIn(required, files_line)
+                'diagnose_reezsynth_release.py', 'docs/INSTALL_WINDOWS.md',
+                'THIRD_PARTY_NOTICES.md', 'docs/PROJECT_STATUS.md', 'docs/RELEASE_AUDIT.md',
+                'docs/WORK_REMAINING.md', 'licenses', 'third_party', 'runtime-assets.json'):
+            self.assertNotIn(required.replace('/', '\\'), files_line)
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell installer plan')
     def test_prerequisite_bootstrap_plan_executes_without_writes(self):

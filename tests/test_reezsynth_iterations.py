@@ -12,7 +12,7 @@ import numpy as np
 from reezsynth_config import quality_profile, validate_render
 from reezsynth_iterations import (expand_schedule, parse_schedule, resolve,
     legacy_schedule, fuoum_synthesize, ScheduleRecorder)
-from test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_gui import GuiFixture
 
 
 class ScheduleTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class ScheduleTests(unittest.TestCase):
 
     def test_real_legacy_wrapper_arrays_clamping_and_restoration(self):
         # Load only the pure method, without importing torch or the DLL.
-        tree = ast.parse((Path(__file__).parent / 'ezsynth/utils/_eb.py').read_text())
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'ezsynth/utils/_eb.py').read_text())
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'EbsynthRunner')
         method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'validate_per_levels')
         namespace = {'c_int': c_int}

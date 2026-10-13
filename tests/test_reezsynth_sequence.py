@@ -12,8 +12,8 @@ import numpy as np
 
 from reezsynth_sequence import (ArrayStorage, DiskSequence, array_sequence,
                                 frame_storage, number_lookup, number_of, storage_enabled, completion_path)
-from test_reezsynth_grouped import upstream_engine
-import test_reezsynth_render_adapter as adapter
+from tests.test_reezsynth_grouped import upstream_engine
+import tests.test_reezsynth_render_adapter as adapter
 
 
 class SequenceTests(unittest.TestCase):

@@ -272,7 +272,7 @@ class RenderAdapterTests(unittest.TestCase):
 class SynthesisDimensionTests(unittest.TestCase):
     def test_preflight_matches_live_wrapper_pyramid_availability(self):
         # Execute only the pure upstream method; never load the native DLL.
-        tree = ast.parse((Path(__file__).parent / 'ezsynth/utils/_eb.py').read_text(encoding='utf-8'))
+        tree = ast.parse((Path(__file__).resolve().parents[1] / 'ezsynth/utils/_eb.py').read_text(encoding='utf-8'))
         runner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'EbsynthRunner')
         method = next(node for node in runner.body if isinstance(node, ast.FunctionDef) and node.name == 'get_max_pyramid_level')
         namespace = {}

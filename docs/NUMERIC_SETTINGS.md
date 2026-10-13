@@ -108,8 +108,8 @@ remaining low-level options keep their previous documented limits:
   as one adjacent flow step. Arbitrary/gapped file lists need an explicit timing
   and interpolation design before implementation, not an unchecked file picker.
 
-Local references: [RunConfig](ezsynth/aux_classes.py),
-[native wrapper and pyramid calculation](ezsynth/utils/_eb.py),
-[frontend validation](reezsynth_config.py),
-[image adapter](reezsynth_image.py), and
-[blending validation](reezsynth_video_plan.py).
+Local references: [RunConfig](../ezsynth/aux_classes.py),
+[native wrapper and pyramid calculation](../ezsynth/utils/_eb.py),
+[frontend validation](../reezsynth_config.py),
+[image adapter](../reezsynth_image.py), and
+[blending validation](../reezsynth_video_plan.py).

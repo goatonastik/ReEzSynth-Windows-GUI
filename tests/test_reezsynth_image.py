@@ -11,8 +11,8 @@ import cv2
 import numpy as np
 from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QDropEvent
-import test_reezsynth_render_adapter as adapter
-from test_reezsynth_lifecycle import LifecycleFixture, gui
+import tests.test_reezsynth_render_adapter as adapter
+from tests.test_reezsynth_lifecycle import LifecycleFixture, gui
 from reezsynth_engines import FUOUM, LEGACY
 from reezsynth_image import validate_image_settings
 from reezsynth_image_controls import ImageFileEdit
@@ -33,7 +33,7 @@ class ImageAdapterTests(unittest.TestCase):
         self.job = dict(type='image_synthesis', image_synthesis=self.settings, output=str(self.output),
                         quality='Standard', max_width=0)
         captured = dict(calls=[])
-        tree = ast.parse((Path(__file__).parent/'ezsynth/main_ez.py').read_text())
+        tree = ast.parse((Path(__file__).resolve().parents[1]/'ezsynth/main_ez.py').read_text())
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ImageSynthBase')
         cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'run']
         module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0), cls], type_ignores=[])

@@ -15,8 +15,8 @@ from PySide6.QtGui import QCloseEvent, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QCheckBox
 
-from test_reezsynth_gui import GuiFixture, gui, controls
-from test_reezsynth_lifecycle import LifecycleFixture
+from tests.test_reezsynth_gui import GuiFixture, gui, controls
+from tests.test_reezsynth_lifecycle import LifecycleFixture
 from reezsynth_config import (APPLICATION, GROUPS, KEYFRAME_PRESERVATION_MODES, LIMITS, PREVIEW, RENDER, SPIN_RULES, STANDARD, WEIGHTS, PresetStore,
     discover_pairs, validate_group, validate_render, validate_weights)
 from reezsynth_jobs import validate_masks

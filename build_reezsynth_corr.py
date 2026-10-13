@@ -33,7 +33,7 @@ def main():
     import torch
     from torch.utils.cpp_extension import CUDA_HOME
     if not CUDA_HOME or not (Path(CUDA_HOME) / 'bin/nvcc.exe').is_file():
-        raise RuntimeError('Install a CUDA toolkit matching PyTorch and set CUDA_HOME. See INSTALL_WINDOWS.md.')
+        raise RuntimeError('Install a CUDA toolkit matching PyTorch and set CUDA_HOME. See docs/INSTALL_WINDOWS.md.')
     nvcc = subprocess.check_output([str(Path(CUDA_HOME) / 'bin/nvcc.exe'), '--version'], text=True)
     version = re.search(r'release (\d+\.\d+)', nvcc)
     if not version or version[1] != torch.version.cuda:

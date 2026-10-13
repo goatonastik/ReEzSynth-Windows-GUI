@@ -11,7 +11,7 @@ from reezsynth_native_yaml import DEFAULTS, import_settings, export_project, rea
 from reezsynth_config import validate_render, validate_weights
 from reezsynth_engines import FUOUM
 from reezsynth_serialization import write_document
-from test_reezsynth_gui import GuiFixture
+from tests.test_reezsynth_gui import GuiFixture
 
 
 def native_document():
@@ -192,7 +192,7 @@ class NativeYamlTests(unittest.TestCase):
             self.assertEqual(data['project']['style_indices'], [0, 2])
 
     def test_schema_fields_match_pinned_checkout_when_available(self):
-        path = Path(__file__).parent / 'engine_sources/fuoum_reezsynth/ezsynth/config.py'
+        path = Path(__file__).resolve().parents[1] / 'engine_sources/fuoum_reezsynth/ezsynth/config.py'
         if not path.is_file():
             self.skipTest('Pinned checkout is optional for dependency-light tests.')
         classes = {node.name: node for node in ast.parse(path.read_text()).body if isinstance(node, ast.ClassDef)}

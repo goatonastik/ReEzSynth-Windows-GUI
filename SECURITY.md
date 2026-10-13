@@ -24,6 +24,6 @@ release is published or supported yet.
 
 ## Security evidence
 
-The automated and release checks are described in [SECURITY_CHECKS.md](SECURITY_CHECKS.md).
+The automated and release checks are described in [docs/SECURITY_CHECKS.md](docs/SECURITY_CHECKS.md).
 Passing them is evidence against known classes of defects and supply-chain
 tampering; it is not a mathematical proof that software is harmless.

@@ -1,4 +1,4 @@
-"""Offscreen GUI/control regressions; run: python -B test_reezsynth_gui.py.
+"""Offscreen GUI/control regressions; run: python -B -m tests.test_reezsynth_gui.
 
 Uses temporary INI settings and directories, no renderer or GPU. Stale history
 retention is documented current behavior, not a guarantee of path availability.

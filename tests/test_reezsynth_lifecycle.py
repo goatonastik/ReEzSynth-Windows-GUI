@@ -9,9 +9,9 @@ from PySide6.QtCore import QEvent, QProcess
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QSignalSpy, QTest
 
-from test_reezsynth_gui import GuiFixture, gui
+from tests.test_reezsynth_gui import GuiFixture, gui
 
-SOURCE = Path(__file__).resolve().parent
+SOURCE = Path(__file__).resolve().parents[1]
 MOCK_RENDERER = '''
 import json
 import time
@@ -39,6 +39,12 @@ class LifecycleFixture(GuiFixture):
     def setUp(self):
         super().setUp()
         self.enterContext(patch.object(gui, 'validate_flow_model_available'))
+        # Mock workers do not allocate GPU memory. Keep their parallel-admission
+        # tests independent of a user's concurrent GPU workload.
+        self.enterContext(patch('reezsynth_parallel.gpu_snapshot', return_value={
+            'index': 0, 'uuid': 'GPU-test', 'name': 'Test GPU',
+            'total_mib': 32768, 'used_mib': 2768, 'free_mib': 30000,
+        }))
         shutil.copy2(SOURCE / "reezsynth_shared_worker.py", self.root)
         (self.root / "reezsynth_jobs.py").write_text(MOCK_RENDERER, encoding="utf-8")
         self.mode("normal")

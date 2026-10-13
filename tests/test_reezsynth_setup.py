@@ -26,7 +26,7 @@ import setup_flowdiffuser
 from setup_flowdiffuser import BACKBONES, PACKAGES
 from reezsynth_synthetic_inputs import frame, style, write
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class SetupTests(unittest.TestCase):
@@ -60,11 +60,11 @@ class SetupTests(unittest.TestCase):
         self.assertIn('temporal stability', plan['review_focus'])
 
     def test_maintained_runner_excludes_upstream_and_real_gpu_diagnostics(self):
-        self.assertIn('test_reezsynth_gui', run_maintained_tests.MODULES)
-        self.assertIn('test_reezsynth_video_export', run_maintained_tests.MODULES)
-        self.assertTrue(all(name.startswith('test_reezsynth_') for name in run_maintained_tests.MODULES))
-        self.assertNotIn('test_imgsynth', run_maintained_tests.MODULES)
-        self.assertNotIn('test_redux', run_maintained_tests.MODULES)
+        self.assertIn('tests.test_reezsynth_gui', run_maintained_tests.MODULES)
+        self.assertIn('tests.test_reezsynth_video_export', run_maintained_tests.MODULES)
+        self.assertTrue(all(name.startswith('tests.test_reezsynth_') for name in run_maintained_tests.MODULES))
+        self.assertNotIn('tests.test_imgsynth', run_maintained_tests.MODULES)
+        self.assertNotIn('tests.test_redux', run_maintained_tests.MODULES)
 
     def test_combined_engine_checker_runs_both_components_and_combines_failures(self):
         with contextlib.redirect_stdout(io.StringIO()), \

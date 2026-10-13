@@ -10,8 +10,8 @@ from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QCheckBox
 
-from test_reezsynth_gui import GuiFixture, gui
-from test_reezsynth_lifecycle import LifecycleFixture
+from tests.test_reezsynth_gui import GuiFixture, gui
+from tests.test_reezsynth_lifecycle import LifecycleFixture
 from reezsynth_config import (OPTIONAL_FLOW_HASHES, validate_group, validate_render,
                               validate_flow_model_available)
 
