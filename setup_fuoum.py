@@ -39,7 +39,7 @@ def check_build_prerequisites(source):
     nvcc = str(Path(cuda) / 'bin/nvcc.exe') if cuda else shutil.which('nvcc')
     if not nvcc or not Path(nvcc).is_file():
         raise RuntimeError('Both engines are included in setup. Building FuouM requires the CUDA 12.8 toolkit. '
-                           'Install it and set CUDA_HOME to its installation folder. See INSTALL_WINDOWS.md.')
+                           'Install it and set CUDA_HOME to its installation folder. See docs/INSTALL_WINDOWS.md.')
     flags = dict(text=True, encoding='utf-8', errors='replace', timeout=30,
                  creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     version = subprocess.check_output([str(nvcc), '--version'], **flags)
@@ -49,7 +49,7 @@ def check_build_prerequisites(source):
     vswhere = Path(os.environ.get('ProgramFiles(x86)', 'C:/Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vswhere.exe'
     if not vswhere.is_file():
         raise RuntimeError('Building FuouM requires Visual Studio 2022 C++ build tools and the Windows SDK. '
-                           'See INSTALL_WINDOWS.md.')
+                           'See docs/INSTALL_WINDOWS.md.')
     installations = json.loads(subprocess.check_output([
         str(vswhere), '-products', '*', '-version', '[17.0,18.0)', '-requires',
         'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-format', 'json'], **flags))

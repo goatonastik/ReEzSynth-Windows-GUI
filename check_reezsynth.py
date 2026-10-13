@@ -30,7 +30,7 @@ def verify_assets(root=ROOT):
         if not path.is_relative_to(root.resolve()):
             raise ValueError('Runtime manifest path escapes the project.')
         if not path.is_file():
-            raise ValueError(f'Missing {relative}. See INSTALL_WINDOWS.md; do not download replacement DLLs from unrelated sites.')
+            raise ValueError(f'Missing {relative}. See docs/INSTALL_WINDOWS.md; do not download replacement DLLs from unrelated sites.')
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         if digest != expected:

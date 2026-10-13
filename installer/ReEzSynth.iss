@@ -48,14 +48,14 @@ VersionInfoProductVersion={#MyNumericVersion}
 ; Keep the installer focused on the runnable application and user-facing support
 ; material. The complete repository, tests and maintainer records remain in the
 ; companion source ZIP and public Git repository.
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: ".github\*,installer\*,test_*.py,test_progress.txt,build_release.ps1,requirements-ci.txt,run_maintained_tests.py"; Flags: ignoreversion recursesubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: ".github\*,installer\*,tests\*,test_*.py,test_progress.txt,build_release.ps1,requirements-ci.txt,run_maintained_tests.py"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"
 Name: "{group}\Install ReEzSynth prerequisites and dependencies"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install_reezsynth.ps1"""; WorkingDir: "{app}"
-Name: "{group}\Windows setup guide"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\INSTALL_WINDOWS.md"""
+Name: "{group}\Windows setup guide"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\docs\INSTALL_WINDOWS.md"""
 Name: "{group}\Third-party notices"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\THIRD_PARTY_NOTICES.md"""
-Name: "{group}\Clean-machine test guide"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\CLEAN_MACHINE_TEST.md"""
+Name: "{group}\Clean-machine test guide"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\docs\CLEAN_MACHINE_TEST.md"""
 Name: "{group}\Uninstall ReEzSynth"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\ReEzSynth"; Filename: "{app}\run_reezsynth.bat"; WorkingDir: "{app}"; Tasks: desktopicon
 
@@ -68,7 +68,7 @@ Name: "prerequisites\cuda"; Description: "NVIDIA CUDA Toolkit 12.8 (required for
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "{code:GetBootstrapParameters}"; WorkingDir: "{app}"; Description: "Set up and validate the ReEzSynth engine environment now (selected prerequisites run first; large download; administrator approval may be required)"; Flags: postinstall skipifsilent
-Filename: "{sys}\notepad.exe"; Parameters: """{app}\INSTALL_WINDOWS.md"""; Description: "Open the Windows setup guide"; Flags: postinstall skipifsilent
+Filename: "{sys}\notepad.exe"; Parameters: """{app}\docs\INSTALL_WINDOWS.md"""; Description: "Open the Windows setup guide"; Flags: postinstall skipifsilent
 
 [Registry]
 Root: HKCU; Subkey: "Software\ReEzSynth"; ValueType: string; ValueName: "Version"; ValueData: "{#MyAppVersion}"; Flags: uninsdeletekey

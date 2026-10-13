@@ -36,7 +36,7 @@ if "%~1"=="" (
         echo.
         echo Examples:
         echo   run_reezsynth.bat
-        echo   run_reezsynth.bat test_reezsynth_worker.py
+        echo   run_reezsynth.bat check_reezsynth.py
         set "RESULT=1"
         goto finish
     )
@@ -89,7 +89,7 @@ echo   conda activate %ENV_NAME%
 echo   .\run_reezsynth.bat
 echo.
 echo For a custom installation, set CONDA_EXE to its conda.exe path.
-echo For first-time setup, see INSTALL_WINDOWS.md and setup_reezsynth.ps1.
+echo For first-time setup, see docs/INSTALL_WINDOWS.md and setup_reezsynth.ps1.
 set "RESULT=1"
 goto finish
 

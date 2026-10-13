@@ -1,0 +1,243 @@
+"""Release packaging policy and installer safety checks."""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class PackagingTests(unittest.TestCase):
+    def test_tracked_tree_has_no_bundled_raster_media(self):
+        tracked = subprocess.run(
+            ['git', 'ls-files'], cwd=ROOT, check=True, capture_output=True,
+            text=True, encoding='utf-8', errors='strict').stdout.splitlines()
+        raster = {'.bmp', '.gif', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'}
+        self.assertEqual([name for name in tracked if Path(name).suffix.lower() in raster], [])
+        self.assertFalse(any(name == 'examples' or name.startswith('examples/') for name in tracked))
+
+    def test_runtime_distribution_keeps_only_reviewed_assets_and_notices(self):
+        tracked = set(subprocess.run(
+            ['git', 'ls-files'], cwd=ROOT, check=True, capture_output=True,
+            text=True, encoding='utf-8', errors='strict').stdout.splitlines())
+        manifest = json.loads((ROOT / 'runtime-assets.json').read_text(encoding='utf-8'))
+        expected = {
+            'ezsynth/utils/ebsynth.dll',
+            'ezsynth/utils/flow_utils/models/raft-sintel.pth',
+            'ezsynth/utils/flow_utils/models/raft-kitti.pth',
+            'wheels/reezsynth_alt_cuda_corr-0.2.0-cp311-cp311-win_amd64.whl',
+        }
+        self.assertEqual(set(manifest['files']), expected)
+        self.assertTrue(expected <= tracked)
+        self.assertFalse((ROOT / 'ezsynth' / 'utils' / 'flow_utils' / 'models' /
+                          'raft-small.pth').exists())
+        self.assertTrue({
+            'LICENSE',
+            'licenses/EF-RAFT-BSD-3-Clause.txt',
+            'licenses/FuouM-MIT.txt',
+            'licenses/NeuFlow-Apache-2.0.txt',
+            'third_party/raft_alt_cuda_corr/LICENSE',
+        } <= tracked)
+        self.assertTrue((ROOT / 'THIRD_PARTY_NOTICES.md').is_file())
+        self.assertTrue((ROOT / 'docs/CLEAN_MACHINE_TEST.md').is_file())
+        notices = (ROOT / 'THIRD_PARTY_NOTICES.md').read_text(encoding='utf-8')
+        self.assertIn('b198f2d7051eee542c4efc51c2d43dc442630bbf', notices)
+        self.assertIn('imageio-ffmpeg 0.6.0', notices)
+        self.assertIn("embedded in ReEzSynth's release artifacts", notices)
+
+    def test_builder_requires_reviewed_commit_and_rejects_private_inputs(self):
+        script = (ROOT / 'build_release.ps1').read_text(encoding='utf-8')
+        for required in (
+                'status --porcelain --untracked-files=normal',
+                'git -C $root archive',
+                "'/examples/'", "'/diagnostic_outputs/'", "'/.engine_envs/'",
+                "'/output_synth/'", "'/.reezsynth-cache/'", "'/.reezsynth-candidates/'",
+                '$forbiddenExtensions', 'SHA256SUMS.txt', 'RELEASE_MANIFEST.json'):
+            self.assertIn(required, script)
+        self.assertNotIn('gh release', script.lower())
+
+    def test_installer_is_per_user_and_runs_ordered_bootstrap(self):
+        installer = (ROOT / 'installer' / 'ReEzSynth.iss').read_text(encoding='utf-8')
+        self.assertIn(r'DefaultDirName={localappdata}\Programs\ReEzSynth', installer)
+        self.assertIn('PrivilegesRequired=lowest', installer)
+        setup_line = next(line for line in installer.splitlines()
+                          if line.startswith('Filename:') and '{code:GetBootstrapParameters}' in line)
+        self.assertIn('postinstall', setup_line)
+        self.assertNotIn('unchecked', setup_line)
+        for task in ('prerequisites\\git', 'prerequisites\\conda',
+                     'prerequisites\\visualstudio', 'prerequisites\\cuda'):
+            task_line = next(line for line in installer.splitlines()
+                             if line.startswith('Name: "' + task + '"'))
+            self.assertNotIn('unchecked', task_line)
+            self.assertIn('required', task_line)
+        self.assertIn('{code:GetBootstrapParameters}', setup_line)
+        for switch in ('-SkipGit', '-SkipConda', '-SkipVisualStudio', '-SkipCuda'):
+            self.assertIn(switch, installer)
+        bootstrap = (ROOT / 'install_reezsynth.ps1').read_text(encoding='utf-8')
+        ordered = ['Git.Git', 'CondaForge.Miniforge3',
+                   'Microsoft.VisualStudio.2022.BuildTools', 'Nvidia.CUDA']
+        positions = [bootstrap.index(item) for item in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("-Version '12.8'", bootstrap)
+        self.assertIn('Microsoft.VisualStudio.Workload.VCTools', bootstrap)
+        self.assertIn("Join-Path $PSScriptRoot 'setup_reezsynth.ps1'", bootstrap)
+        self.assertIn("Join-Path $PSScriptRoot '.reezsynth-setup-resume.json'", bootstrap)
+        self.assertIn("[ValidateSet('Auto', 'WinGet', 'Direct')]", bootstrap)
+        for name in ('Git', 'Conda', 'VisualStudio', 'Cuda'):
+            self.assertIn(f'Invoke-PrerequisiteInstall -Name {name}', bootstrap)
+        self.assertIn('Get-AuthenticodeSignature -LiteralPath $Path', bootstrap)
+        self.assertIn('Prerequisite metadata must pin a SHA-256 checksum or Authenticode publisher', bootstrap)
+        self.assertIn('Scripting.FileSystemObject', bootstrap)
+        self.assertIn('NSIS requires /D= to be the final, unquoted argument', bootstrap)
+        self.assertIn("Sha256 = 'd065a4e23c3d9a6b5073d609b5be0830227ec3ca053c083ba385061ddfaf94c6'", bootstrap)
+        self.assertIn("Sha256 = '71cf9519087be74fa53021219ff292beb2fc05fa49e0bb6eb0e0b6b14fccbaab'", bootstrap)
+        self.assertIn("Sha256 = '779bee8ff557255c1cf5f36e0230f081675b9bb41e44be38839920cd5209bdeb'", bootstrap)
+        self.assertIn("'visual_studio_integration_12.8'", bootstrap)
+        self.assertNotIn("'Display.Driver'", bootstrap)
+        self.assertIn("$arguments += '-Resume'", bootstrap)
+        self.assertIn('$env:CUDA_HOME = $cuda', bootstrap)
+        self.assertIn('$env:CUDA_PATH = $cuda', bootstrap)
+        self.assertIn("'um\\Windows.h'", bootstrap)
+        self.assertIn("'ucrt\\stdio.h'", bootstrap)
+        self.assertIn('Engine setup cannot start because required components are unavailable', bootstrap)
+        for owned in (r'{app}\.engine_envs', r'{app}\engine_sources',
+                      r'{app}\__pycache__', r'{app}\ezsynth',
+                      r'{app}\.prerequisite-cache',
+                      r'{app}\.reezsynth-conda-path.txt',
+                      r'{app}\.reezsynth-env-name.txt',
+                      r'{app}\.reezsynth-setup-resume.json'):
+            self.assertIn(owned, installer)
+        self.assertNotIn('Type: filesandordirs; Name: "{app}"', installer)
+        self.assertIn('Type: dirifempty; Name: "{app}"', installer)
+        for document in ('docs/INSTALL_WINDOWS.md', 'THIRD_PARTY_NOTICES.md',
+                         'docs/CLEAN_MACHINE_TEST.md'):
+            shortcut_line = next(line for line in installer.splitlines()
+                                 if line.startswith('Name:') and document.replace('/', '\\') in line)
+            self.assertIn(r'Filename: "{sys}\notepad.exe"', shortcut_line)
+            self.assertIn('Parameters: """{app}\\' + document.replace('/', '\\') + '"""', shortcut_line)
+        finish_guide = next(line for line in installer.splitlines()
+                            if line.startswith('Filename:') and
+                            'Open the Windows setup guide' in line)
+        self.assertIn(r'Filename: "{sys}\notepad.exe"', finish_guide)
+        self.assertIn(r'Parameters: """{app}\docs\INSTALL_WINDOWS.md"""', finish_guide)
+        self.assertNotIn('shellexec', finish_guide)
+        clean_test = (ROOT / 'docs/CLEAN_MACHINE_TEST.md').read_text(encoding='utf-8')
+        self.assertNotIn('check_reezsynth_engines.py --all', clean_test)
+        self.assertIn('--fuoum-source engine_sources\\fuoum_reezsynth', clean_test)
+        self.assertIn(r'--fuoum-python .engine_envs\fuoum\Scripts\python.exe', clean_test)
+
+    def test_installer_omits_only_maintainer_inventory(self):
+        installer = (ROOT / 'installer' / 'ReEzSynth.iss').read_text(encoding='utf-8')
+        files_line = next(line for line in installer.splitlines()
+                          if line.startswith('Source:') and r'{#SourceDir}\*' in line)
+        for excluded in (
+                r'.github\*', r'installer\*', r'tests\*', 'test_*.py',
+                'test_progress.txt',
+                'build_release.ps1', 'requirements-ci.txt', 'run_maintained_tests.py'):
+            self.assertIn(excluded, files_line)
+        self.assertNotIn('createallsubdirs', files_line)
+        for required in (
+                'reezsynth_gui.py', 'install_reezsynth.ps1', 'setup_reezsynth.ps1', 'check_reezsynth.py',
+                'diagnose_reezsynth_release.py', 'docs/INSTALL_WINDOWS.md',
+                'THIRD_PARTY_NOTICES.md', 'docs/PROJECT_STATUS.md', 'docs/RELEASE_AUDIT.md',
+                'docs/WORK_REMAINING.md', 'licenses', 'third_party', 'runtime-assets.json'):
+            self.assertNotIn(required.replace('/', '\\'), files_line)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell installer plan')
+    def test_prerequisite_bootstrap_plan_executes_without_writes(self):
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        marker = ROOT / '.reezsynth-setup-resume.json'
+        before = marker.read_bytes() if marker.exists() else None
+        completed = subprocess.run([
+            str(powershell), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+            str(ROOT / 'install_reezsynth.ps1'), '-Plan', '-SkipGit', '-SkipConda',
+            '-SkipVisualStudio', '-SkipCuda', '-SkipEngineSetup',
+        ], cwd=ROOT, text=True, encoding='utf-8', errors='replace',
+            capture_output=True, timeout=30)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        output = completed.stdout + completed.stderr
+        positions = [output.index(label) for label in (
+            'Git for Windows', 'Miniforge (Conda)',
+            'Visual Studio 2022 C++ Build Tools and Windows SDK',
+            'NVIDIA CUDA Toolkit 12.8',
+            'ReEzSynth Python environments, engines, checkpoints and verification',
+        )]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('Plan only: no packages, environments or files were changed.', output)
+        after = marker.read_bytes() if marker.exists() else None
+        self.assertEqual(after, before)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell installer plan')
+    def test_direct_prerequisite_plan_is_no_write_and_lists_verified_sources(self):
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        cache = ROOT / '.prerequisite-cache'
+        before = cache.exists()
+        completed = subprocess.run([
+            str(powershell), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+            str(ROOT / 'install_reezsynth.ps1'), '-Plan', '-PrerequisiteSource', 'Direct',
+            '-SkipEngineSetup',
+        ], cwd=ROOT, text=True, encoding='utf-8', errors='replace',
+            capture_output=True, timeout=30)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        output = completed.stdout + completed.stderr
+        self.assertIn('Prerequisite installer source: Direct', output)
+        self.assertEqual(cache.exists(), before)
+
+    def test_package_workflow_only_builds_manual_candidates(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'package.yml').read_text(encoding='utf-8')
+        parsed = yaml.safe_load(workflow)
+        self.assertEqual(set(parsed['on']), {'workflow_dispatch'})
+        self.assertNotIn('actions/create-release', workflow)
+        self.assertNotIn('softprops/action-gh-release', workflow)
+        self.assertIn('retention-days: 14', workflow)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell packaging check')
+    def test_source_builder_runs_in_windows_powershell_and_rejects_raster(self):
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        with tempfile.TemporaryDirectory(prefix='reezsynth packaging test ') as directory:
+            probe = Path(directory)
+            shutil.copy2(ROOT / 'build_release.ps1', probe)
+            shutil.copy2(ROOT / 'LICENSE', probe)
+            (probe / '.gitignore').write_text('/dist/\n', encoding='utf-8')
+            (probe / 'app.py').write_text('print("packaging test")\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '--quiet'], cwd=probe, check=True)
+            self.commit_probe(probe, 'clean fixture')
+
+            command = [str(powershell), '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                       '-File', str(probe / 'build_release.ps1'),
+                       '-Version', '0.1.0-preview.1', '-SourceOnly']
+            completed = subprocess.run(command, cwd=probe, text=True, encoding='utf-8',
+                                       errors='replace', capture_output=True)
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            dist = probe / 'dist'
+            manifest = json.loads((dist / 'RELEASE_MANIFEST.json').read_text(encoding='utf-8'))
+            head = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=probe, check=True,
+                                  text=True, capture_output=True).stdout.strip()
+            self.assertEqual(manifest['commit'], head)
+            self.assertTrue((dist / 'SHA256SUMS.txt').is_file())
+            self.assertEqual(len(list(dist.glob('*-source.zip'))), 1)
+
+            (probe / 'forbidden.png').write_bytes(b'not an image')
+            self.commit_probe(probe, 'forbidden fixture')
+            rejected = subprocess.run(command, cwd=probe, text=True, encoding='utf-8',
+                                      errors='replace', capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn('forbidden local/example media paths', rejected.stdout + rejected.stderr)
+
+    @staticmethod
+    def commit_probe(probe, message):
+        subprocess.run(['git', 'add', '--all'], cwd=probe, check=True)
+        subprocess.run(['git', '-c', 'user.name=ReEzSynth Test',
+                        '-c', 'user.email=test@invalid.example',
+                        'commit', '--quiet', '-m', message], cwd=probe, check=True)
+
+
+if __name__ == '__main__':
+    unittest.main()
