@@ -534,8 +534,12 @@ recovery. Permanent repair/reset of a damaged database remains a separate task.
 Optional read-only status checks now run every ten seconds while the ComfyUI tab
 is visible and the reserved job is active; they are off by default. Next:
 validate live backend status and native-size output quality with the owner
-notified before VRAM-intensive work; then design owned-job cancellation and
-safe approval/assignment. A percentage progress indicator still needs a
+notified before VRAM-intensive work. A CPU-only explicit approval action now
+binds a saved schema-3 candidate to its exact bytes, project and intended or
+selected frame. It records approval without changing numbered synthesis keys.
+Safe numbered-key assignment and owned-job cancellation remain separate work;
+the latter requires verified backend identity and durable queued-cancel evidence.
+See COMFYUI_CANCELLATION_DESIGN.md. A percentage progress indicator still needs a
 verified backend source.
 
 ## Next model handoff

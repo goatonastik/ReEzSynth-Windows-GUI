@@ -317,6 +317,22 @@ a background worker, show its raw and enforced previews, and save that unreviewe
 candidate. Preview requires the same local ComfyUI server to remain reachable
 for read-only job status and output requests. It does not start generation or
 select a target frame for older jobs.
+After saving, the candidate folder appears in **Saved candidate**. It can also
+be reopened with **Browse candidate**. **Review saved candidate** reloads its
+native RGBA image and checks the saved record, provenance, raw output, frozen
+job and frame. The frame control must match the job's intended frame when one
+was recorded; for an older job without one, select the frame before reviewing.
+Inspect the displayed image, then choose **Approve reviewed image** to create
+an exclusive `approval.json` bound to the exact image, provenance, raw output,
+job manifest, project and frame. Editing a saved file or changing the project,
+candidate or frame requires a fresh review. An interrupted approval marker
+blocks a second approval until inspected. Approval does not create, replace or
+assign a numbered synthesis keyframe. Older imported candidates still remain
+unreviewed pending a separate approval adapter.
+Approval is one-shot for that saved candidate and frame. To choose a different
+frame after approval, save a fresh candidate from the completed job and review
+it again. An already approved candidate can still be reviewed, but its Approve
+button stays disabled.
 For a new experimental Qwen job, enter a prompt, seed, sampling settings and
 source frame; Modify also requires an existing drawing, both 8-bit grayscale
 masks, Preserve drawing transparency, and an explicit model background. The

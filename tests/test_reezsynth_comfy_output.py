@@ -19,6 +19,7 @@ from reezsynth_comfy_jobs import claim_submission, record_receipt
 from reezsynth_comfy_output import fetch_owned_output
 from reezsynth_comfy_qwen import QwenSettings, plan_qwen
 from reezsynth_comfy_candidate import prepare_job_candidate, save_job_candidate
+from reezsynth_comfy_approval import load_candidate_review, approve_candidate
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent, protection_band
 
 
@@ -205,6 +206,84 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(record["candidate_sha256"], hashlib.sha256(preview.image_png).hexdigest())
         self.assertEqual(record["raw_output_sha256"], hashlib.sha256(self.server.image).hexdigest())
         self.assertIsNone(record["qc"])
+
+    def test_approval_records_exact_saved_image_and_frame_without_assigning_key(self):
+        saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))
+        key = saved.image_path.parent.parent.parent / "keys" / "kling97.png"
+        key.parent.mkdir()
+        key.write_bytes(b"existing numbered key")
+        original = key.read_bytes()
+        review = load_candidate_review(saved.image_path.parent.parent.parent,
+                                       saved.image_path.parent, 97)
+        self.assertEqual(review.image_png, saved.image_path.read_bytes())
+        approval = approve_candidate(review)
+        marker = json.loads(approval.read_bytes())
+        self.assertEqual(marker["status"], "approved_unassigned")
+        self.assertEqual(marker["frame_number"], 97)
+        self.assertEqual(marker["candidate_sha256"], hashlib.sha256(review.image_png).hexdigest())
+        self.assertEqual(key.read_bytes(), original)
+        self.assertEqual(json.loads(saved.metadata_path.read_bytes())["status"], "unreviewed")
+        reopened = load_candidate_review(saved.image_path.parent.parent.parent,
+                                         saved.image_path.parent, 97)
+        self.assertTrue(reopened.approved)
+        with self.assertRaisesRegex(ValueError, "approved in another window"):
+            approve_candidate(review)
+
+    def test_approval_rejects_stale_image_and_wrong_project_or_frame(self):
+        saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))
+        project = saved.image_path.parent.parent.parent
+        directory = saved.image_path.parent
+        review = load_candidate_review(project, directory, 97)
+        with self.assertRaisesRegex(ValueError, "frame"):
+            load_candidate_review(project, directory, 98)
+        other = project / "other-project"
+        other.mkdir()
+        with self.assertRaisesRegex(ValueError, "selected project"):
+            load_candidate_review(other, directory, 97)
+        original = saved.image_path.read_bytes()
+        saved.image_path.write_bytes(original + b"changed")
+        with self.assertRaisesRegex(ValueError, "saved bytes"):
+            approve_candidate(review)
+        self.assertFalse((directory / "approval.json").exists())
+
+    def test_approval_rejects_changed_manifest_and_redirected_candidate(self):
+        saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))
+        project = saved.image_path.parent.parent.parent
+        review = load_candidate_review(project, saved.image_path.parent, 97)
+        manifest = self.job.directory / "manifest.json"
+        manifest.write_bytes(manifest.read_bytes() + b" ")
+        with self.assertRaisesRegex(ValueError, "provenance"):
+            approve_candidate(review)
+        redirect = project / ".reezsynth-candidates" / "comfy-preview-redirect"
+        try:
+            redirect.symlink_to(saved.image_path.parent, target_is_directory=True)
+        except OSError:
+            return  # Windows accounts without symlink privilege.
+        with self.assertRaisesRegex(ValueError, "selected project"):
+            load_candidate_review(project, redirect, 97)
+
+    def test_interrupted_approval_marker_is_not_accepted_or_overwritten(self):
+        saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))
+        review = load_candidate_review(saved.image_path.parent.parent.parent,
+                                       saved.image_path.parent, 97)
+        marker = saved.image_path.parent / "approval.json"
+        marker.write_bytes(b'{"schema":')  # A crash after exclusive create.
+        with self.assertRaisesRegex(ValueError, "approval marker"):
+            approve_candidate(review)
+        self.assertEqual(marker.read_bytes(), b'{"schema":')
+
+    def test_older_job_approval_binds_explicit_selected_frame(self):
+        self.modify_job()
+        saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))
+        project = saved.image_path.parent.parent.parent
+        with self.assertRaisesRegex(ValueError, "frame"):
+            load_candidate_review(project, saved.image_path.parent)
+        review = load_candidate_review(project, saved.image_path.parent, 7)
+        self.assertEqual(review.frame_number, 7)
+        marker = json.loads(approve_candidate(review).read_bytes())
+        self.assertEqual(marker["frame_number"], 7)
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            load_candidate_review(project, saved.image_path.parent, 8)
 
     def test_save_rejects_mutated_preview_or_changed_job(self):
         from dataclasses import replace

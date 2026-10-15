@@ -197,6 +197,52 @@ class ProcessingTests(ProcessingFixture, unittest.TestCase):
 
 
 class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
+    def test_saved_candidate_review_and_approval_follow_frozen_selection(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        candidate = self.project / ".reezsynth-candidates" / "comfy-preview-example"
+        tab.saved_candidate.setText(str(candidate))
+        tab.frame_number.setValue(7)
+        review = SimpleNamespace(image_png=self.files["drawing"].read_bytes(), frame_number=7,
+                                 approved=False)
+        with patch("reezsynth_comfy_controls.load_candidate_review", return_value=review) as load:
+            tab.review_saved_candidate()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        load.assert_called_once_with(str(self.project.resolve()), str(candidate), 7)
+        self.assertIs(tab.candidate_review, review)
+        self.assertTrue(tab.approve_button.isEnabled())
+        self.assertEqual(tab.view.currentText(), "Saved candidate for approval")
+        self.assertFalse(tab.preview.pixmap().isNull())
+        tab.frame_number.setValue(8)
+        self.assertIsNone(tab.candidate_review)
+        self.assertFalse(tab.approve_button.isEnabled())
+        tab.frame_number.setValue(7)
+        with patch("reezsynth_comfy_controls.load_candidate_review", return_value=review):
+            tab.review_saved_candidate()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        marker = candidate / "approval.json"
+        with patch("reezsynth_comfy_controls.approve_candidate", return_value=marker) as approve:
+            tab.approve_reviewed_candidate()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        approve.assert_called_once_with(review)
+        self.assertIn("Approval recorded", tab.approval_status.text())
+        self.assertFalse(tab.approve_button.isEnabled())
+        self.assertEqual(hashlib.sha256(self.key.read_bytes()).hexdigest(), self.key_hash)
+        tab.deleteLater()
+        parent.deleteLater()
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

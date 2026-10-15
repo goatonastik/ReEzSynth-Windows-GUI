@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from reezsynth_comfy_client import normalize_local_endpoint, parse_system_stats
 from reezsynth_comfy_candidate import prepare_job_candidate, save_job_candidate
+from reezsynth_comfy_approval import load_candidate_review, approve_candidate
 from reezsynth_comfy_jobs import load_job
 from reezsynth_comfy_processing import (
     PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
@@ -121,6 +122,8 @@ class ComfyKeyframeTab(QWidget):
         self._owned_revision = 0
         self._qwen_revision = 0
         self._owned_preview_project = None
+        self._review_revision = 0
+        self.candidate_review = None
         self._preview_project = None
         self._display_images = {}
         self.session: ComfySession | None = None
@@ -190,6 +193,28 @@ class ComfyKeyframeTab(QWidget):
         self.owned_status.setTextFormat(Qt.TextFormat.PlainText)
         self.owned_status.setWordWrap(True)
         layout.addWidget(self.owned_status)
+        review_row = QHBoxLayout()
+        self.saved_candidate = QLineEdit()
+        self.saved_candidate.setAccessibleName("Saved ComfyUI candidate folder")
+        self.saved_candidate.setPlaceholderText("Project/.reezsynth-candidates/comfy-preview-...")
+        self.saved_candidate.textChanged.connect(self._review_inputs_changed)
+        browse_candidate = QPushButton("Browse candidate...")
+        browse_candidate.clicked.connect(self._browse_saved_candidate)
+        self.review_button = QPushButton("Review saved candidate")
+        self.review_button.clicked.connect(self.review_saved_candidate)
+        self.approve_button = QPushButton("Approve reviewed image")
+        self.approve_button.setEnabled(False)
+        self.approve_button.clicked.connect(self.approve_reviewed_candidate)
+        review_row.addWidget(QLabel("Saved candidate"))
+        review_row.addWidget(self.saved_candidate, 1)
+        review_row.addWidget(browse_candidate)
+        review_row.addWidget(self.review_button)
+        review_row.addWidget(self.approve_button)
+        layout.addLayout(review_row)
+        self.approval_status = QLabel("Review a saved ComfyUI result before approval. Approval does not assign a keyframe.")
+        self.approval_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.approval_status.setWordWrap(True)
+        layout.addWidget(self.approval_status)
         session_actions = QHBoxLayout()
         self.session_submit_button = QPushButton("Start generation (uses GPU)")
         self.session_submit_button.setEnabled(False)
@@ -224,6 +249,7 @@ class ComfyKeyframeTab(QWidget):
         form.addRow("Mode", self.mode)
         self.frame_number = QSpinBox()
         self.frame_number.setRange(0, 2147483647)
+        self.frame_number.valueChanged.connect(self._review_inputs_changed)
         frame_row = QHBoxLayout()
         frame_row.addWidget(self.frame_number)
         from_project = QPushButton("Use project frame")
@@ -554,6 +580,7 @@ class ComfyKeyframeTab(QWidget):
         self._start_work("session_refresh", self.session.refresh)
 
     def _owned_inputs_changed(self, *_):
+        self._review_inputs_changed()
         was_displayed = self.owned_result is not None
         self._owned_revision += 1
         self.owned_result = None
@@ -565,6 +592,40 @@ class ComfyKeyframeTab(QWidget):
             self.preview.clear()
             self.preview.setText("Preview needs rebuilding for this job.")
         self.owned_status.setText("Job changed. Preview it again before saving.")
+
+    def _review_inputs_changed(self, *_):
+        self._review_revision += 1
+        self.candidate_review = None
+        if hasattr(self, "approve_button"):
+            self.approve_button.setEnabled(False)
+
+    def _browse_saved_candidate(self):
+        selected = QFileDialog.getExistingDirectory(self, "Choose saved ComfyUI candidate",
+                                                   self.saved_candidate.text())
+        if selected:
+            self.saved_candidate.setText(selected)
+
+    def review_saved_candidate(self):
+        if self._worker is not None:
+            return
+        try:
+            project = self.main_window.path_value(self.main_window.project_dir)
+        except ValueError as exc:
+            self.approval_status.setText(str(exc))
+            return
+        directory = self.saved_candidate.text().strip()
+        if not directory:
+            self.approval_status.setText("Choose a saved ComfyUI candidate folder first.")
+            return
+        self.candidate_review = None
+        self.approve_button.setEnabled(False)
+        self._start_work("candidate_review", load_candidate_review,
+                         project, directory, self.frame_number.value())
+
+    def approve_reviewed_candidate(self):
+        if self._worker is not None or self.candidate_review is None:
+            return
+        self._start_work("candidate_approve", approve_candidate, self.candidate_review)
 
     def preview_owned_job(self):
         if self._worker is not None:
@@ -696,6 +757,7 @@ class ComfyKeyframeTab(QWidget):
         self._work_token += 1
         self._work_revision = self._input_revision
         self._work_owned_revision = self._owned_revision
+        self._work_review_revision = self._review_revision
         worker = _ImageWork(self._work_token, kind, function, *args)
         worker.signals.finished.connect(self._work_finished)
         self._worker = worker
@@ -706,6 +768,8 @@ class ComfyKeyframeTab(QWidget):
         self.owned_preview_button.setEnabled(False)
         self.owned_upload_button.setEnabled(False)
         self.owned_save_button.setEnabled(False)
+        self.review_button.setEnabled(False)
+        self.approve_button.setEnabled(False)
         self.prepare_button.setEnabled(False)
         self.session_submit_button.setEnabled(False)
         self.session_refresh_button.setEnabled(False)
@@ -724,6 +788,9 @@ class ComfyKeyframeTab(QWidget):
             self.candidate_status.setText(f"{kind.capitalize()} in progress...")
         if kind == "job_prepare":
             self.prepare_status.setText("Freezing native inputs and preparing a local job. No submission or model load...")
+        if kind.startswith("candidate_"):
+            self.approval_status.setText("Checking saved candidate bytes..." if kind == "candidate_review"
+                                         else "Recording approval for the reviewed image...")
         self.image_pool.start(worker)
 
     def preview_strokes(self):
@@ -776,13 +843,17 @@ class ComfyKeyframeTab(QWidget):
         self.import_button.setEnabled(True)
         self.owned_preview_button.setEnabled(True)
         self.owned_upload_button.setEnabled(True)
+        self.review_button.setEnabled(True)
         self.prepare_button.setEnabled(True)
         self._sync_session_actions()
         self.save_button.setEnabled(self.current_result is not None)
         self.owned_save_button.setEnabled(self.owned_result is not None)
+        self.approve_button.setEnabled(self.candidate_review is not None
+                                       and not self.candidate_review.approved)
         if error:
             (self.session_status if kind.startswith("session_") else
              self.prepare_status if kind == "job_prepare" else
+             self.approval_status if kind.startswith("candidate_") else
              self.owned_status if kind.startswith("owned_") else
              self.candidate_status).setText(error)
             if kind.startswith("session_"):
@@ -792,6 +863,29 @@ class ComfyKeyframeTab(QWidget):
                 self._sync_session_actions()
             self.save_button.setEnabled(self.current_result is not None)
             self.owned_save_button.setEnabled(self.owned_result is not None)
+            self.approve_button.setEnabled(self.candidate_review is not None
+                                           and not self.candidate_review.approved)
+            return
+        if kind == "candidate_review":
+            if self._work_review_revision != self._review_revision:
+                self.approval_status.setText("Candidate, project or frame changed during review. Review again.")
+                return
+            self.candidate_review = value
+            self._display_images = {"Saved candidate for approval": value.image_png}
+            self._set_views("Saved candidate for approval")
+            self.approve_button.setEnabled(not value.approved)
+            self.approval_status.setText(
+                f"Saved frame {value.frame_number} already approved; no keyframe is assigned."
+                if value.approved else
+                f"Reviewing saved frame {value.frame_number} at native resolution. "
+                "Approve this exact saved image after inspecting it; no keyframe is assigned.")
+            return
+        if kind == "candidate_approve":
+            self.candidate_review = None
+            self.approve_button.setEnabled(False)
+            suffix = (" Selection changed while approval was recorded; the earlier reviewed image was approved."
+                      if self._work_review_revision != self._review_revision else "")
+            self.approval_status.setText(f"Approval recorded: {value}. No numbered keyframe was changed.{suffix}")
             return
         if kind == "session_submit":
             attempt, durable = value
@@ -881,6 +975,7 @@ class ComfyKeyframeTab(QWidget):
         elif kind == "owned_save":
             self.owned_result = None
             self.owned_save_button.setEnabled(False)
+            self.saved_candidate.setText(str(value.image_path.parent))
             self.owned_status.setText(
                 f"Unreviewed result saved: {value.image_path}. "
                 "Choose and approve its target frame separately."
