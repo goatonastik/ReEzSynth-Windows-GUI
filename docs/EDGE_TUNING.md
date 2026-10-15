@@ -105,10 +105,10 @@ invalidation while retaining cached flow.
 Opt-in real-worker checks (synthetic frames; no synthesis or flow models):
 
 ```powershell
-python -B diagnose_reezsynth_edges.py --engine legacy
-python -B diagnose_reezsynth_edges.py --engine fuoum
-python -B diagnose_reezsynth_edges.py --engine legacy --gui
-python -B diagnose_reezsynth_edges.py --engine fuoum --gui
+python -B tools/diagnostics/diagnose_reezsynth_edges.py --engine legacy
+python -B tools/diagnostics/diagnose_reezsynth_edges.py --engine fuoum
+python -B tools/diagnostics/diagnose_reezsynth_edges.py --engine legacy --gui
+python -B tools/diagnostics/diagnose_reezsynth_edges.py --engine fuoum --gui
 ```
 
 The GUI checks use temporary preferences and retain offscreen screenshots under

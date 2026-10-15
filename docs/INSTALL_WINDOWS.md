@@ -272,7 +272,7 @@ the isolated pins in `requirements-cupy-cuda13.txt`:
 
 ```powershell
 python -m pip install -r requirements-cupy-cuda13.txt -c reezsynth-working-requirements.txt
-python -B diagnose_reezsynth_engines.py --engine legacy --gpu-blending --cupy-poisson
+python -B tools/diagnostics/diagnose_reezsynth_engines.py --engine legacy --gpu-blending --cupy-poisson
 ```
 
 The second command exercises the readiness kernel, GPU histogram blending and
@@ -287,7 +287,7 @@ edges and GPU blending/correlation disabled. To check both native backends and C
 optical flow through real frontend jobs, run:
 
 ```powershell
-python -B diagnose_ebsynth_backend.py both
+python -B tools/diagnostics/diagnose_ebsynth_backend.py both
 ```
 
 This starts separate CUDA-hidden workers and validates image/video outputs,

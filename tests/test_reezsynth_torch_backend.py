@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-import diagnose_reezsynth_torch_backend as audit
+from tools.diagnostics import diagnose_reezsynth_torch_backend as audit
 from reezsynth_config import validate_render, PresetStore
 from reezsynth_engines import FUOUM, LEGACY, validate_capabilities
 from reezsynth_provenance import effective_settings

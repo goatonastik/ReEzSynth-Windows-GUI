@@ -1,4 +1,11 @@
 """Opt-in transparent FuouM end-to-end small-job matrix; no bundled media."""
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from datetime import datetime
 import json
 from pathlib import Path
@@ -33,7 +40,7 @@ def preview_sheet(report):
 
 
 def main():
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     report = root / 'diagnostic_outputs' / ('fuoum_alpha_video_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     report.mkdir(parents=True)
     inputs = report / 'inputs'; inputs.mkdir()

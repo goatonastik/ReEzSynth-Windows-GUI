@@ -266,7 +266,7 @@ in [README.md](../README.md).
 ## Alternate PyTorch backend fails readiness (2026-09-12)
 
 - Audited the pinned FuouM alternate synthesis backend before exposing controls.
-  Added `diagnose_reezsynth_torch_backend.py`, which runs separate CUDA/PyTorch
+  Added `tools/diagnostics/diagnose_reezsynth_torch_backend.py`, which runs separate CUDA/PyTorch
   workers against nine independent constant-style/cost/shape/NNF invariants.
   It retains incremental reports, native exceptions, source/extension/diagnostic
   hashes, output hashes, device, timings and allocator peaks; failures return a
@@ -414,7 +414,7 @@ in [README.md](../README.md).
 
 ## Quality and stability harnesses added (2026-09-12)
 
-- `diagnose_reezsynth_stability.py` alternates both engines across painting,
+- `tools/diagnostics/diagnose_reezsynth_stability.py` alternates both engines across painting,
   poster and flat styles, records each child report and GPU baseline/drift, and
   supports bounded cycles or a deadline-based overnight campaign. A bounded
   128x128 Preview cycle passed all six cases; post-exit drift was 154-292 MiB.
@@ -430,7 +430,7 @@ in [README.md](../README.md).
   Retained report: `diagnostic_outputs/stability_20260912_193422_040460`.
   Repeat the overnight campaign on an otherwise idle host, or with an
   attributable per-process metric, before treating it as release evidence.
-- `diagnose_reezsynth_quality.py` validates user-supplied numbered frames,
+- `tools/diagnostics/diagnose_reezsynth_quality.py` validates user-supplied numbered frames,
   keyframes and optional masks, then produces a both-engine Standard/Highest
   review matrix with videos, auxiliary maps/flow and descriptive key-boundary
   metrics. Legacy and FuouM Standard both passed the bundled 11-frame input at
@@ -987,7 +987,7 @@ are inventoried in NUMERIC_SETTINGS.md and are not full arbitrary-parameter pari
   consistency, four pinned runtime hashes, RTX 5090 CUDA availability, the
   EbSynth DLL entry point, the bundled correlation extension, and isolated Qt GUI
   construction. It did not load a model or perform synthesis.
-- `diagnose_reezsynth_adapter.py` provides an opt-in small real-render check for
+- `tools/diagnostics/diagnose_reezsynth_adapter.py` provides an opt-in small real-render check for
   the frontend adapter, including masks and custom edge guides. It uses bundled
   examples at 512×288 and writes only ignored diagnostic output.
 - Real local checks on 2026-09-11 passed: direct three-frame CUDA video synthesis
@@ -1019,7 +1019,7 @@ are inventoried in NUMERIC_SETTINGS.md and are not full arbitrary-parameter pari
   point used by the parallel queue. Both wrote valid output and `COMPLETE.txt` in
   5.395 seconds. The GUI's QProcess coordination still has its separate mock
   lifecycle coverage; this verifies the two real renderer processes together.
-- `diagnose_reezsynth_gui.py` passed a real offscreen MainWindow run with copied
+- `tools/diagnostics/diagnose_reezsynth_gui.py` passed a real offscreen MainWindow run with copied
   bundled inputs and temporary QSettings. It opened the Preview window, received
   a synthesis-stage tile through the GUI's QProcess output handling, found the
   completed output marker, and verified that the worker and UI both finalized.

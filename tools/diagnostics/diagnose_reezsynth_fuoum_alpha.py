@@ -1,4 +1,11 @@
 """Opt-in four-channel synthesis probe; does not enable transparent job routing."""
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from datetime import datetime
 import json
 from pathlib import Path
@@ -46,7 +53,7 @@ def worker(path):
 
 
 def main():
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     report = root / 'diagnostic_outputs' / ('fuoum_alpha_probe_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     report.mkdir(parents=True)
     runtime = prepare_runtime({'engine': FUOUM}, {})

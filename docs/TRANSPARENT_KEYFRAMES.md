@@ -77,7 +77,7 @@ analysis outputs are deliberately **not committed repository assets**. A reviewe
 must retain or regenerate them locally to reproduce this differential; neither
 the beta executable nor its rendered output is versioned here.
 
-`diagnose_reezsynth_alpha.py` runs six actual frontend Legacy one-frame jobs on
+`tools/diagnostics/diagnose_reezsynth_alpha.py` runs six actual frontend Legacy one-frame jobs on
 CPU with one OpenMP thread, patch 3, one pyramid level, four search/vote and
 PatchMatch iterations, zero uniformity, source-guide weight 6 and other guide
 weights zero. It writes a new `frontend_rgba` directory and refuses to overwrite

@@ -80,12 +80,12 @@ input bytes, resized-keyframe metadata and rejection of nonopaque 16-bit keys
 without publishing a completion marker.
 Existing Legacy alpha tests remain in the maintained suite.
 
-`diagnose_reezsynth_fuoum_alpha.py` passed 16 real backend probes (CUDA and
+`tools/diagnostics/diagnose_reezsynth_fuoum_alpha.py` passed 16 real backend probes (CUDA and
 experimental torch; weighted/plain voting; SSD/NCC; line art and half-alpha
 styles; final 3x3 pass). Retained diagnostic:
 `diagnostic_outputs/fuoum_alpha_probe_20260926_143204_459903`.
 
-`diagnose_reezsynth_fuoum_alpha_video.py` passed 16 small real job cases at 128x128:
+`tools/diagnostics/diagnose_reezsynth_fuoum_alpha_video.py` passed 16 small real job cases at 128x128:
 LSQR/LSMR/CG/AMG/seamless/disabled reconstruction, forward/reverse mode,
 bidirectional flow with disk-backed storage, both mask modes, pre-mask, mixed
 RGB/RGBA keys, experimental torch, single-frame and Image Synthesis. Keyframes

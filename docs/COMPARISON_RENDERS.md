@@ -43,7 +43,7 @@ open-sheet location are session-only; job specifications and the journal persist
 Validation: `test_reezsynth_comparison.py` covers planning, independent settings
 snapshots, templates, validation, sampling, sheet output, dependency snapshots,
 dependency remapping, incomplete-output rejection, UI guards and queue isolation.
-`diagnose_reezsynth_comparison.py` is an opt-in three-frame 128x128 real FuouM
+`tools/diagnostics/diagnose_reezsynth_comparison.py` is an opt-in three-frame 128x128 real FuouM
 comparison, not a production-resolution quality certification.
 
 Native s9 follow-up on 2026-09-28 compared RAFT and NeuFlow over frames 26–29 at

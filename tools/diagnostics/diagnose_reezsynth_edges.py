@@ -1,4 +1,11 @@
 """Opt-in real edge-worker smoke check; no synthesis or optical-flow models load."""
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import json
 from pathlib import Path
@@ -23,7 +30,7 @@ def gui_smoke(engine):
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
     import reezsynth_gui as gui
-    report = Path(__file__).parent / 'diagnostic_outputs' / ('edge_preview_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    report = Path(__file__).resolve().parents[2] / 'diagnostic_outputs' / ('edge_preview_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     report.mkdir(parents=True)
     app = QApplication.instance() or QApplication([])
     font = Path('C:/Windows/Fonts/segoeui.ttf')
@@ -129,7 +136,7 @@ def main():
                            application=runtime)
             path = work / 'request.json'
             path.write_text(json.dumps(request), encoding='utf-8')
-            result = subprocess.run([python, '-B', str(Path(__file__).with_name('reezsynth_edge_worker.py')), str(path)],
+            result = subprocess.run([python, '-B', str(Path(__file__).resolve().parents[2] / 'reezsynth_edge_worker.py'), str(path)],
                 capture_output=True, text=True, timeout=60,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             if result.returncode:

@@ -14,12 +14,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import check_reezsynth_engines
-import diagnose_reezsynth_quality
-import diagnose_reezsynth_stability
+from tools.diagnostics import diagnose_reezsynth_quality
+from tools.diagnostics import diagnose_reezsynth_stability
 import run_maintained_tests
 
 from check_reezsynth import EF_RAFT_MODELS, FLOW_DIFFUSION_MODEL, flow_extra_readiness, verify_assets
-from diagnose_reezsynth_adapter import (cancel_worker, render as run_adapter_diagnostic,
+from tools.diagnostics.diagnose_reezsynth_adapter import (cancel_worker, render as run_adapter_diagnostic,
                                         render_parallel)
 from reezsynth_config import install_optional_flow_files, optional_flow_status, OPTIONAL_FLOW_HASHES
 import setup_flowdiffuser
@@ -30,6 +30,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SetupTests(unittest.TestCase):
+    def test_relocated_diagnostic_runs_from_an_unrelated_working_directory(self):
+        script = ROOT / 'tools/diagnostics/diagnose_reezsynth_stability.py'
+        with tempfile.TemporaryDirectory() as unrelated:
+            result = subprocess.run([sys.executable, '-B', str(script), '--plan',
+                                     '--cycles', '1', '--hours', '1', '--frames', '3'],
+                                    cwd=unrelated, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = json.loads(result.stdout)
+        for case in plan['cases']:
+            self.assertEqual(Path(case['command'][2]),
+                             ROOT / 'tools/diagnostics/diagnose_reezsynth_release.py')
+            self.assertTrue(Path(case['command'][2]).is_file())
+
     def test_stability_campaign_plan_is_no_write_and_covers_both_engines(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             result = diagnose_reezsynth_stability.main([
@@ -191,7 +204,7 @@ class SetupTests(unittest.TestCase):
         event = ''.join('@@REEZSYNTH_SESSION@@' + json.dumps(
             {'event': 'job_done', 'job': str(path.resolve())}, ensure_ascii=True)
             for path in (job, second))
-        with patch('diagnose_reezsynth_adapter.subprocess.run',
+        with patch('tools.diagnostics.diagnose_reezsynth_adapter.subprocess.run',
                    return_value=SimpleNamespace(returncode=0, stdout=event, stderr='')) as run, \
              patch('sys.stdout', new_callable=io.StringIO):
             run_adapter_diagnostic([job, second], self.root, shared_worker=True)
@@ -202,7 +215,7 @@ class SetupTests(unittest.TestCase):
             {'action': 'run', 'job': str(second.resolve())},
             {'action': 'quit'},
         ])
-        with patch('diagnose_reezsynth_adapter.subprocess.run',
+        with patch('tools.diagnostics.diagnose_reezsynth_adapter.subprocess.run',
                    return_value=SimpleNamespace(returncode=0, stdout='', stderr='')), \
              patch('sys.stdout', new_callable=io.StringIO):
             with self.assertRaisesRegex(RuntimeError, 'did not report'):
@@ -225,7 +238,7 @@ class SetupTests(unittest.TestCase):
                 self.killed = True
                 self.returncode = -9
         process = Process()
-        with patch('diagnose_reezsynth_adapter.subprocess.Popen', return_value=process), \
+        with patch('tools.diagnostics.diagnose_reezsynth_adapter.subprocess.Popen', return_value=process), \
              patch('sys.stdout', new_callable=io.StringIO):
             cancel_worker(job, self.root)
         self.assertTrue(process.killed)
@@ -235,7 +248,7 @@ class SetupTests(unittest.TestCase):
         for job in jobs:
             job.write_text('{}', encoding='utf-8')
         completed = SimpleNamespace(returncode=0, stdout='', stderr='')
-        with patch('diagnose_reezsynth_adapter.subprocess.run', return_value=completed) as run, \
+        with patch('tools.diagnostics.diagnose_reezsynth_adapter.subprocess.run', return_value=completed) as run, \
              patch('sys.stdout', new_callable=io.StringIO):
             render_parallel(jobs, self.root)
         self.assertEqual(run.call_count, 2)

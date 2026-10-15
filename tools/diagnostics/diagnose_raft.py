@@ -1,3 +1,10 @@
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from pathlib import Path
 import time
 
@@ -11,7 +18,7 @@ from reezsynth_synthetic_inputs import frame
 
 
 def main():
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
 
     if not torch.cuda.is_available():
         raise RuntimeError("PyTorch CUDA is unavailable.")

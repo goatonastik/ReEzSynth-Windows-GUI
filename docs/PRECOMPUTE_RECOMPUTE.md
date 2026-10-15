@@ -53,7 +53,7 @@ An opt-in real diagnostic uses two generated 128x128 frames, both flow direction
 and separate warm/reuse/forced renders:
 
 ```powershell
-python -B diagnose_reezsynth_recompute.py
+python -B tools/diagnostics/diagnose_reezsynth_recompute.py
 ```
 
 It checks normal reuse, forced computation, successful outputs/completion,

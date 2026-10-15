@@ -3,6 +3,13 @@
 Runs each backend in its own worker. This is a readiness gate, not an artistic
 quality comparison or a frontend backend selector. Failure reports are retained.
 """
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 from datetime import datetime
 import hashlib

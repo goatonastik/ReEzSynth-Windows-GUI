@@ -4,6 +4,13 @@ Generates three deterministic inputs at a 512-pixel processing width. It deliber
 exercises masks and custom edge guides, then verifies completion and output
 dimensions.  Results are written only under ignored diagnostic_outputs/.
 """
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from datetime import datetime
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -302,7 +309,7 @@ if __name__ == '__main__':
     parser.add_argument('--parallel-workers', action='store_true',
                         help='Video only: run two independent jobs concurrently, like parallel rendering.')
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     if args.image and args.grouped:
         raise SystemExit('Choose either --image or --grouped.')
     if args.image:

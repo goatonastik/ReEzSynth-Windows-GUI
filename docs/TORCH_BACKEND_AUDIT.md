@@ -49,7 +49,7 @@ even when the repaired PyTorch search is selected.
 
 ## Reproduction and acceptance gate
 
-Run `python -B diagnose_reezsynth_torch_backend.py` from the configured Legacy
+Run `python -B tools/diagnostics/diagnose_reezsynth_torch_backend.py` from the configured Legacy
 environment. The diagnostic starts separate workers in the installed FuouM
 environment for `cuda` and `torch`. Use `--backend cuda` or `--backend torch`
 to select one. Add `--repaired` to test the frontend repair layer; omit it to
@@ -151,8 +151,8 @@ upstream implementation remains unchanged and should not be enabled directly.
   automatic GPU-aware parallel admission/completion with bounded storage.
 
 To repeat real frontend checks, use `--synthesis-backend torch` with
-`diagnose_reezsynth_release.py --engine fuoum` or
-`diagnose_reezsynth_gui.py --fuoum`. Release diagnostics accept `--only LABEL ...`
+`tools/diagnostics/diagnose_reezsynth_release.py --engine fuoum` or
+`tools/diagnostics/diagnose_reezsynth_gui.py --fuoum`. Release diagnostics accept `--only LABEL ...`
 to select generated cases; other flags such as `--extended`/`--images` still
 determine the available labels.
 

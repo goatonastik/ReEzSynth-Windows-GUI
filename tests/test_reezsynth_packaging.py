@@ -145,9 +145,11 @@ class PackagingTests(unittest.TestCase):
             self.assertIn(excluded, files_line)
         self.assertNotIn('createallsubdirs', files_line)
         self.assertNotIn(r'docs\*', files_line)
+        self.assertNotIn(r'tools\*', files_line)
+        self.assertNotIn(r'tools\diagnostics\*', files_line)
         for required in (
                 'reezsynth_gui.py', 'install_reezsynth.ps1', 'setup_reezsynth.ps1', 'check_reezsynth.py',
-                'diagnose_reezsynth_release.py', 'docs/INSTALL_WINDOWS.md',
+                'tools/diagnostics/diagnose_reezsynth_release.py', 'docs/INSTALL_WINDOWS.md',
                 'THIRD_PARTY_NOTICES.md', 'docs/PROJECT_STATUS.md', 'docs/RELEASE_AUDIT.md',
                 'docs/WORK_REMAINING.md', 'licenses', 'third_party', 'runtime-assets.json'):
             self.assertNotIn(required.replace('/', '\\'), files_line)

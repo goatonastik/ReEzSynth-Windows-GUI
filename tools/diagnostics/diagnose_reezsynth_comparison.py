@@ -1,4 +1,11 @@
 """Opt-in real three-frame FuouM comparison and contact-sheet diagnostic."""
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from datetime import datetime
 from pathlib import Path
 import subprocess
@@ -10,7 +17,7 @@ from reezsynth_engines import FUOUM, prepare_runtime, file_sha256
 from reezsynth_synthetic_inputs import frame, style, write
 
 def main():
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     batch = root / 'diagnostic_outputs' / ('comparison_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     batch.mkdir(parents=True)
     inputs = batch / 'inputs'; inputs.mkdir()

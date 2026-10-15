@@ -1,4 +1,11 @@
 """Run a bounded or overnight alternating-engine GPU stability campaign."""
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 from datetime import datetime
 import json
@@ -22,7 +29,7 @@ def used_mib(value):
 
 
 def case_command(engine, style, args):
-    command = [sys.executable, "-B", str(ROOT / "diagnose_reezsynth_release.py"),
+    command = [sys.executable, "-B", str(ROOT / "tools/diagnostics/diagnose_reezsynth_release.py"),
                "--engine", engine, "--frames", str(args.frames), "--repeats", "1",
                "--style", style, "--quality", args.quality,
                "--size", str(args.size[0]), str(args.size[1])]
@@ -69,7 +76,7 @@ def main(argv=None):
         print(json.dumps(plan, indent=2))
         return 0
 
-    from diagnose_reezsynth_engines import gpu_memory
+    from tools.diagnostics.diagnose_reezsynth_engines import gpu_memory
     base = ROOT / "diagnostic_outputs" / ("stability_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     base.mkdir(parents=True)
     baseline = gpu_memory()

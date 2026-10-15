@@ -1,3 +1,10 @@
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from datetime import datetime
 from pathlib import Path
 import time
@@ -11,7 +18,7 @@ from reezsynth_synthetic_inputs import frame, style
 
 
 def main():
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     size = (512, 288)
 
     frames = [frame(size, index, 11) for index in range(3)]

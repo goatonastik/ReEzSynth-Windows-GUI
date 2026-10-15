@@ -3,6 +3,13 @@
 Uses temporary preferences and generated deterministic inputs. Output is written only to
 diagnostic_outputs/. This is an opt-in CUDA diagnostic, not a normal test.
 """
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
@@ -33,7 +40,7 @@ def until(app, predicate, seconds, failure):
 
 def main(parallel=False, cancel=False, close_window=False, restart_after_cancel=False, fuoum=False,
          frames=None, cache_reuse=False, stream_frames=False, synthesis_backend='cuda'):
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     base = root / 'diagnostic_outputs' / ('gui_controller_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     video, keys, project = base / 'video', base / 'keys', base / 'project'
     video.mkdir(parents=True)
@@ -183,7 +190,7 @@ if __name__ == '__main__':
             raise SystemExit('Choose only one of --parallel, --cancel, --close, or --cancel-restart.')
         if args.cycles < 1 or (args.frames is not None and args.frames < 3):
             parser.error('Use at least one cycle and three frames.')
-        from diagnose_reezsynth_engines import gpu_memory
+        from tools.diagnostics.diagnose_reezsynth_engines import gpu_memory
         print('Aggregate GPU memory before cycles:', gpu_memory(), flush=True)
         for cycle in range(args.cycles):
             main(args.parallel, args.cancel, args.close, args.cancel_restart, args.fuoum, args.frames,

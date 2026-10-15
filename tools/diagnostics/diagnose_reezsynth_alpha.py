@@ -1,10 +1,17 @@
 """Compare the real Legacy exact-key adapter with preserved Windows beta PNGs.
 
-Usage: python -B diagnose_reezsynth_alpha.py diagnostic_outputs/beta_alpha_847bae6e2489
+Usage: python -B tools/diagnostics/diagnose_reezsynth_alpha.py diagnostic_outputs/beta_alpha_847bae6e2489
 Writes only a new frontend_rgba directory/report. Never overwrites beta evidence.
 CPU, one thread, six one-frame jobs; no optical-flow model or sequence render.
 This is a differential, not a byte-parity assertion between different engines.
 """
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 import json
 import os

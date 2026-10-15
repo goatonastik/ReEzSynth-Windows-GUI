@@ -1,4 +1,11 @@
 """Opt-in owner-footage inspection and bounded transparent FuouM acceptance run."""
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -60,7 +67,7 @@ def main():
     parser.add_argument('--full-resolution', action='store_true', help='Render the same short intervals without rescaling.')
     parser.add_argument('--native-keys', action='store_true', help='Exact native-resolution single-key payload checks, not interpolation.')
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     inputs = root / 'diagnostic_outputs/test-temp'
     records = inspect(inputs)
     if not args.run and not args.native_keys and not args.full_resolution:

@@ -35,9 +35,9 @@ it does not resume or reinterpret those scratch arrays.
 For a bounded real check:
 
 ```powershell
-python -B diagnose_reezsynth_quality.py --video-dir C:\path\to\source_frames --keyframe-dir C:\path\to\styled_keyframes --quality Standard --size 256 144 --stream-frames --bidirectional
-python -B diagnose_reezsynth_gui.py --stream-frames --cache-reuse --frames 13
-python -B diagnose_reezsynth_gui.py --fuoum --stream-frames --cache-reuse --frames 13
+python -B tools/diagnostics/diagnose_reezsynth_quality.py --video-dir C:\path\to\source_frames --keyframe-dir C:\path\to\styled_keyframes --quality Standard --size 256 144 --stream-frames --bidirectional
+python -B tools/diagnostics/diagnose_reezsynth_gui.py --stream-frames --cache-reuse --frames 13
+python -B tools/diagnostics/diagnose_reezsynth_gui.py --fuoum --stream-frames --cache-reuse --frames 13
 ```
 
 See PROJECT_STATUS.md for observed results. Per-frame native synthesis is not

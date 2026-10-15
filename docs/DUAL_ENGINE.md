@@ -129,7 +129,7 @@ RTX 5090. The helper builds for the detected GPU architecture:
 ```powershell
 .\.engine_envs\fuoum\Scripts\python.exe -B build_fuoum_engine.py
 .\.engine_envs\fuoum\Scripts\python.exe -m pip check
-python -B diagnose_reezsynth_engines.py --engine fuoum
+python -B tools/diagnostics/diagnose_reezsynth_engines.py --engine fuoum
 ```
 
 `build_fuoum_engine.py` applies the checked-in
@@ -169,7 +169,7 @@ FuouM exports both measured directions when enabled; Legacy exports its computed
 lower-to-higher pairs. No inverse field is manufactured by negating another.
 Do not compare differently scoped error maps as a common quality score.
 
-`diagnose_reezsynth_release.py` exercises repeated real sequence jobs with
+`tools/diagnostics/diagnose_reezsynth_release.py` exercises repeated real sequence jobs with
 `--engine legacy|fuoum`, `--frames`, `--repeats`, `--extended`,
 `--style poster|painting|flat`, `--images`, `--quality Preview|Standard|Highest`,
 `--bidirectional`, and `--size WIDTH HEIGHT`.
@@ -178,24 +178,24 @@ retargeted image dimensions, orderly shared-worker exit, and records process-tre
 RSS and sampled aggregate GPU memory. Adjacent-frame differences include motion;
 they are not flicker scores or proof of general visual parity.
 
-`diagnose_reezsynth_gui.py --fuoum --parallel --frames 60 --cycles 3` repeats real
+`tools/diagnostics/diagnose_reezsynth_gui.py --fuoum --parallel --frames 60 --cycles 3` repeats real
 GUI lifecycle checks. Substitute `--cancel-restart` or `--close` for those paths.
 
 
-`diagnose_reezsynth_engines.py` runs real image, video and grouped jobs through one
+`tools/diagnostics/diagnose_reezsynth_engines.py` runs real image, video and grouped jobs through one
 persistent worker, checks output dimensions/content, lossless image error maps,
 original numbering, previews, attribution and orderly exit. It records logs and
 aggregate GPU-memory observations under `diagnostic_outputs/`. These observations
 include other GPU users; sampled peaks are not exact per-process allocation peaks.
 
-GUI checks accept `--fuoum`: `diagnose_reezsynth_gui.py --fuoum --parallel` and
-`diagnose_reezsynth_gui.py --fuoum --cancel-restart`. They use temporary preferences
+GUI checks accept `--fuoum`: `tools/diagnostics/diagnose_reezsynth_gui.py --fuoum --parallel` and
+`tools/diagnostics/diagnose_reezsynth_gui.py --fuoum --cancel-restart`. They use temporary preferences
 and copied sample inputs. See PROJECT_STATUS.md for completed local checks.
 
 For the original engine, the real 4K check is:
 
 ```powershell
-python -B diagnose_reezsynth_engines.py --engine legacy --memory-efficient --four-k
+python -B tools/diagnostics/diagnose_reezsynth_engines.py --engine legacy --memory-efficient --four-k
 ```
 
 This is a short, three-frame test with Preview settings, not a long-production

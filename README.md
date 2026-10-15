@@ -8,7 +8,8 @@ image sequence and styled keyframes, configure frame ranges, queue renders,
 and monitor progress without manually preparing each rendering job.
 
 See the [documentation index](docs/README.md) for installation, feature, and
-development guides.
+development guides. Optional diagnostics and native build scripts are grouped in
+[tools/](tools/README.md).
 
 Rendering now includes a **Synthesis engine** selector for Trentonom0r3/Ezsynth
 and FuouM/ReEzSynth. Standard setup installs both engines. The original engine
@@ -301,7 +302,7 @@ CPU avoids its CUDA synthesis backend. Video optical flow can still use PyTorch
 CUDA when it is available, so CPU EbSynth is not a complete CPU-only video mode.
 When PyTorch CUDA is unavailable, CPU/Auto jobs can proceed with CPU optical flow,
 Classic edges, GPU blending off and memory-efficient CUDA correlation off.
-`diagnose_ebsynth_backend.py` performs bounded real image/video frontend checks in
+`tools/diagnostics/diagnose_ebsynth_backend.py` performs bounded real image/video frontend checks in
 fresh CUDA-hidden workers. CPU and Auto passed locally on generated diagnostic inputs; this
 is same-host functional evidence, not CPU-only installation portability coverage.
 Single-frame keyframe copies require no flow weights or GPU initialization.
@@ -501,11 +502,11 @@ lightweight suite.
 See [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for results and remaining manual checks.
 Bounded GPU memory and output checks have passed; overnight/multi-GPU stability,
 general visual-quality review and native audio playback remain unverified.
-Use `python -B diagnose_reezsynth_stability.py --plan` to inspect the alternating
+Use `python -B tools/diagnostics/diagnose_reezsynth_stability.py --plan` to inspect the alternating
 Legacy/FuouM campaign, then omit `--plan` for the default eight-hour run. Use
 `--cycles 1` for one bounded pass through painting, poster and flat styles.
 For user-supplied numbered frames and styled keyframes, run
-`python -B diagnose_reezsynth_quality.py --video-dir <frames> --keyframe-dir <keys> --plan`,
+`python -B tools/diagnostics/diagnose_reezsynth_quality.py --video-dir <frames> --keyframe-dir <keys> --plan`,
 review the matrix, then omit `--plan` to render Standard and Highest outputs from
 both engines with videos, raw maps, flow visualizations and boundary metrics.
 The matrix also verifies numerical flow exports. Add `--bidirectional` to use
@@ -530,11 +531,11 @@ array cache and temporary disk storage. It needs additional disk space and I/O;
 per-frame GPU requirements are unchanged. See [docs/FRAME_STORAGE.md](docs/FRAME_STORAGE.md)
 for its memory scope, cleanup behavior and diagnostic commands.
 For small real CUDA checks of the frontend adapter, run
-`python -B diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
-`python -B diagnose_reezsynth_adapter.py --image` for Image Synthesis, or
-`python -B diagnose_reezsynth_adapter.py --grouped` for grouped blending. They use
+`python -B tools/diagnostics/diagnose_reezsynth_adapter.py` for video masks/custom edge guides,
+`python -B tools/diagnostics/diagnose_reezsynth_adapter.py --image` for Image Synthesis, or
+`python -B tools/diagnostics/diagnose_reezsynth_adapter.py --grouped` for grouped blending. They use
 procedurally generated inputs and write ignored output under `diagnostic_outputs/`.
-The separate `python -B diagnose_reezsynth_torch_backend.py` command compares
+The separate `python -B tools/diagnostics/diagnose_reezsynth_torch_backend.py` command compares
 FuouM's CUDA and alternate PyTorch backends against controlled mathematical
 invariants. Add `--repaired` to test the frontend repair layer. Without it, the
 original upstream backend still fails and a nonzero result is expected for
@@ -552,7 +553,7 @@ preview or reuse checks.
 Use `--parallel-workers` to run two independent jobs concurrently through the
 same isolated-job entry point used by parallel rendering.
 For an end-to-end offscreen GUI-controller check with temporary settings, run
-`python -B diagnose_reezsynth_gui.py`. It opens the Preview window, runs one
+`python -B tools/diagnostics/diagnose_reezsynth_gui.py`. It opens the Preview window, runs one
 small shared-worker queue, verifies a preview tile and completion marker, then
 waits for the UI to unlock.
 Add `--parallel` to run two independent jobs through the GUI's ParallelQueue.

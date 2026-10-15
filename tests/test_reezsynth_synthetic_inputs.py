@@ -9,7 +9,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-import diagnose_reezsynth_release as release
+from tools.diagnostics import diagnose_reezsynth_release as release
 from reezsynth_engines import LEGACY
 from reezsynth_synthetic_inputs import frame, image_case, mask, style
 
@@ -45,11 +45,11 @@ class SyntheticInputTests(unittest.TestCase):
     def test_operational_python_has_no_example_directory_dependency(self):
         root = Path(__file__).resolve().parents[1]
         tracked = subprocess.run(
-            ['git', 'ls-files', '*.py'], cwd=root, text=True, encoding='utf-8',
+            ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '*.py'], cwd=root, text=True, encoding='utf-8',
             errors='strict', check=True, capture_output=True).stdout.splitlines()
         offenders = []
-        for relative in tracked:
-            if Path(relative).name.startswith('test_'):
+        for relative in sorted(set(tracked)):
+            if not (root / relative).is_file() or Path(relative).name.startswith('test_'):
                 continue
             tree = ast.parse((root / relative).read_text(encoding='utf-8-sig'), filename=relative)
             if any(isinstance(node, ast.Constant) and isinstance(node.value, str) and

@@ -1,4 +1,11 @@
 """Repeatable real-render release checks; all generated material goes to diagnostic_outputs."""
+
+# Support direct execution from any working directory.
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import argparse
 from datetime import datetime
 import json
@@ -12,7 +19,7 @@ import cv2
 import numpy as np
 from reezsynth_config import atomic_json, quality_profile, validate_render
 from reezsynth_engines import ROOT, LEGACY, FUOUM, prepare_runtime
-from diagnose_reezsynth_engines import gpu_memory
+from tools.diagnostics.diagnose_reezsynth_engines import gpu_memory
 from reezsynth_synthetic_inputs import frame as synthetic_frame, image_case, mask as synthetic_mask, style as synthetic_style
 
 

@@ -87,7 +87,7 @@ layouts; the numbered PNG outputs retain the full dimensions listed above.
 This check establishes full-resolution execution and payload preservation,
 not owner approval of interpolation quality or long-running stability.
 
-Reproducible opt-in diagnostic: `diagnose_reezsynth_fuoum_alpha_footage.py`.
+Reproducible opt-in diagnostic: `tools/diagnostics/diagnose_reezsynth_fuoum_alpha_footage.py`.
 Default invocation only inspects inputs; `--run` renders the shortest matched
 key-to-key interval per set at width 512; `--native-keys` tests original-size
 single-key payloads. It never overwrites existing output folders.

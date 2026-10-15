@@ -91,7 +91,7 @@ indices, single-key projects, range/cache/order guards, commented-file round tri
 cancelled actions, GUI state preservation and rollback. When the pinned checkout
 is available, its schema field names are checked against the projection.
 
-`diagnose_reezsynth_native_yaml.py` creates synthetic inputs, exports YAML and
+`tools/diagnostics/diagnose_reezsynth_native_yaml.py` creates synthetic inputs, exports YAML and
 checks it with the actual pinned Pydantic schema in the FuouM runtime. It imports
 supported settings back and verifies no output/cache was created. It does not
 render or certify native/frontend visual equivalence.

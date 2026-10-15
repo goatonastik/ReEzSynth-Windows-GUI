@@ -20,7 +20,7 @@ from reezsynth_engine_setup import (configured_runtime, readiness_command,
                                     rebuild_command, version_summary)
 from tests.test_reezsynth_gui import GuiFixture
 from tests.test_reezsynth_lifecycle import LifecycleFixture
-from diagnose_reezsynth_release import selected_keyframes
+from tools.diagnostics.diagnose_reezsynth_release import selected_keyframes
 
 
 class EngineTests(unittest.TestCase):
