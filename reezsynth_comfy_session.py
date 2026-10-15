@@ -249,6 +249,7 @@ class ComfySession:
                 with self._transaction() as connection:
                     record = self._read(connection)
                     if record is not None and record["resolution"] == "active":
+                        previous_record = dict(record)
                         job = self._matching_job(record)
                         if not job.attempted:
                             # This transaction excludes all session senders.
@@ -262,7 +263,10 @@ class ComfySession:
                             record["observation"] = asdict(observation)
                             if observation.status in TERMINAL:
                                 record["resolution"] = observation.status
-                        self._write(connection, record)
+                        # Polls may repeat the same observation for a long job.
+                        # Persist only a changed status or resolution.
+                        if record != previous_record:
+                            self._write(connection, record)
                 return self._update(record)
             except Exception as exc:
                 return SessionUpdate("blocked", error=str(exc) or type(exc).__name__)

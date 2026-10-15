@@ -531,9 +531,12 @@ an explicit rendering-only action releases this instance's guard only after the
 user confirms external jobs are stopped and other controllers are closed. It
 preserves all evidence and disables generation for the session; restart retries
 recovery. Permanent repair/reset of a damaged database remains a separate task.
-Next: validate live backend status and native-size output quality with the owner
-notified before VRAM-intensive
-work; then add progress/cancellation controls and safe approval/assignment.
+Optional read-only status checks now run every ten seconds while the ComfyUI tab
+is visible and the reserved job is active; they are off by default. Next:
+validate live backend status and native-size output quality with the owner
+notified before VRAM-intensive work; then design owned-job cancellation and
+safe approval/assignment. A percentage progress indicator still needs a
+verified backend source.
 
 ## Next model handoff
 

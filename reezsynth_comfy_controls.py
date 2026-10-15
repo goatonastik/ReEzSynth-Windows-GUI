@@ -124,6 +124,10 @@ class ComfyKeyframeTab(QWidget):
         self._preview_project = None
         self._display_images = {}
         self.session: ComfySession | None = None
+        self._session_status = "idle"
+        self.session_poll_timer = QTimer(self)
+        self.session_poll_timer.setInterval(10_000)
+        self.session_poll_timer.timeout.connect(self._auto_check_generation_status)
 
         outer = QVBoxLayout(self)
         scroll = QScrollArea(self)
@@ -201,6 +205,10 @@ class ComfyKeyframeTab(QWidget):
         session_actions.addWidget(self.session_render_only_button)
         session_actions.addStretch()
         layout.addLayout(session_actions)
+        self.session_auto_check = QCheckBox("Automatically check status every 10 seconds while this tab is open")
+        self.session_auto_check.setChecked(False)
+        self.session_auto_check.toggled.connect(self._sync_session_actions)
+        layout.addWidget(self.session_auto_check)
         self.session_status = QLabel("Generation recovery is not connected yet.")
         self.session_status.setTextFormat(Qt.TextFormat.PlainText)
         self.session_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -424,6 +432,25 @@ class ComfyKeyframeTab(QWidget):
         self.session_submit_button.setEnabled(enabled)
         self.session_refresh_button.setEnabled(enabled)
         self.session_render_only_button.setEnabled(available and self.session.can_enter_render_only)
+        if (available and enabled and self.isVisible() and self.session_auto_check.isChecked()
+                and self._session_status in {"unknown", "pending", "in_progress"}):
+            if not self.session_poll_timer.isActive():
+                self.session_poll_timer.start()
+        else:
+            self.session_poll_timer.stop()
+
+    def _auto_check_generation_status(self):
+        if self.session_poll_timer.isActive() and self._worker is None:
+            self.check_generation_status()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, "session_auto_check"):
+            self._sync_session_actions()
+
+    def hideEvent(self, event):
+        self.session_poll_timer.stop()
+        super().hideEvent(event)
 
     def session_operation_pending(self):
         """Cover admission changes until the worker's UI callback completes."""
@@ -442,6 +469,7 @@ class ComfyKeyframeTab(QWidget):
         return f"Wait for {owner} to finish before starting another operation."
 
     def _show_session_update(self, update, action=""):
+        self._session_status = update.status
         location = f" Reserved job: {update.directory}." if update.directory else ""
         if update.status in {"completed", "failed", "cancelled"}:
             message = f"Generation {update.status}.{location}"
@@ -655,6 +683,7 @@ class ComfyKeyframeTab(QWidget):
     def _start_work(self, kind, function, *args):
         if self._worker is not None:
             return
+        self.session_poll_timer.stop()
         if kind in {"preview", "proposal", "owned_preview"}:
             if kind == "owned_preview":
                 self.current_result = None
@@ -756,6 +785,11 @@ class ComfyKeyframeTab(QWidget):
              self.prepare_status if kind == "job_prepare" else
              self.owned_status if kind.startswith("owned_") else
              self.candidate_status).setText(error)
+            if kind.startswith("session_"):
+                # An unexpected worker failure is not a fresh status result.
+                # Stop opt-in polling until the user retries deliberately.
+                self._session_status = "blocked"
+                self._sync_session_actions()
             self.save_button.setEnabled(self.current_result is not None)
             self.owned_save_button.setEnabled(self.owned_result is not None)
             return

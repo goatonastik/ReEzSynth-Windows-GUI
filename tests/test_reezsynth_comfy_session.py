@@ -142,6 +142,16 @@ class SessionTests(unittest.TestCase):
                 self.job.prompt_id, "pending", False, False)):
             self.assertEqual(restarted.refresh().status, "in_progress")
 
+    def test_repeated_identical_observation_does_not_rewrite_recovery_record(self):
+        self.start()
+        observed = JobObservation(self.job.prompt_id, "pending", False, False)
+        with patch("reezsynth_comfy_session.fetch_job_status", return_value=observed), \
+                patch.object(self.session, "_write", wraps=self.session._write) as write:
+            self.assertEqual(self.session.refresh().status, "pending")
+            self.assertEqual(write.call_count, 1)
+            self.assertEqual(self.session.refresh().status, "pending")
+            self.assertEqual(write.call_count, 1)
+
     def test_restart_before_attempt_can_resolve_without_network(self):
         with patch.object(self.session, "_send_reserved", side_effect=SystemExit("crash")):
             with self.assertRaises(SystemExit):

@@ -21,6 +21,41 @@ class ComfyGuiSessionTests(GuiFixture):
             time.sleep(.01)
         self.assertIsNone(tab._worker)
 
+    def test_optional_status_checks_run_only_for_visible_active_job(self):
+        window = self.window()
+        tab = window.comfy_tab
+        window.show()
+        window.tabs.setCurrentWidget(tab)
+        self.app.processEvents()
+        self.assertTrue(tab.isVisible())
+        self.assertFalse(tab.session_auto_check.isChecked())
+        tab._show_session_update(SessionUpdate("pending", "saved job"))
+        self.assertFalse(tab.session_poll_timer.isActive())
+
+        tab.session_auto_check.setChecked(True)
+        self.assertTrue(tab.session_poll_timer.isActive())
+        with patch.object(tab, "check_generation_status") as refresh:
+            tab._auto_check_generation_status()
+            refresh.assert_called_once_with()
+
+        window.tabs.setCurrentIndex(0)
+        self.app.processEvents()
+        self.assertFalse(tab.session_poll_timer.isActive())
+        window.tabs.setCurrentWidget(tab)
+        self.app.processEvents()
+        self.assertTrue(tab.session_poll_timer.isActive())
+        tab._show_session_update(SessionUpdate("completed", "saved job"))
+        self.assertFalse(tab.session_poll_timer.isActive())
+        tab._show_session_update(SessionUpdate("blocked", error="status unavailable"))
+        self.assertFalse(tab.session_poll_timer.isActive())
+        tab._show_session_update(SessionUpdate("pending", "saved job"))
+        self.assertTrue(tab.session_poll_timer.isActive())
+        tab._work_token += 1
+        tab._work_finished(tab._work_token, "session_refresh", None, "worker crashed")
+        self.assertFalse(tab.session_poll_timer.isActive())
+        self.assertIn("worker crashed", tab.session_status.text())
+        tab.session_auto_check.setChecked(False)
+
     def test_corrupt_startup_can_use_confirmed_render_only_without_resetting_record(self):
         import reezsynth_comfy_controls as controls
         path = self.root / "configuration" / "comfy-session.sqlite"

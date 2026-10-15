@@ -119,8 +119,15 @@ symlinks; other record and integrity tests still run.
 
 The tab uses this module to prepare frozen jobs, upload inputs, and inspect
 owned completed results. A separate explicit action now submits through the
-durable session coordinator. The tab does not provide continuous progress or
-cancellation controls, and live model inference has not been validated here.
+durable session coordinator. An optional checkbox checks the reserved job's
+status every ten seconds while the ComfyUI tab is visible. It is off by default,
+uses the same read-only backend check as the manual button, and stops on verified
+completion, failure, cancellation, a blocked/error status, or when the tab is
+hidden. Unknown status keeps checking while the tab is visible until the option
+is turned off. Unchanged observations do not rewrite the local recovery record.
+It shows the backend's pending/running state, not a percentage. The tab does not
+cancel backend jobs,
+and live model inference has not been validated here.
 
 A separate read-only status helper can query a single job by its ID on the
 configured loopback server. It rejects redirects and oversized responses. A
