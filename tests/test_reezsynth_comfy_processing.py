@@ -207,7 +207,7 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
         tab.saved_candidate.setText(str(candidate))
         tab.frame_number.setValue(7)
         review = SimpleNamespace(image_png=self.files["drawing"].read_bytes(), frame_number=7,
-                                 approved=False)
+                                 approved=False, rejected=False)
         with patch("reezsynth_comfy_controls.load_candidate_review", return_value=review) as load:
             tab.review_saved_candidate()
             deadline = time.monotonic() + 5
@@ -222,6 +222,7 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
         tab.frame_number.setValue(8)
         self.assertIsNone(tab.candidate_review)
         self.assertFalse(tab.approve_button.isEnabled())
+        self.assertFalse(tab.reject_button.isEnabled())
         tab.frame_number.setValue(7)
         with patch("reezsynth_comfy_controls.load_candidate_review", return_value=review):
             tab.review_saved_candidate()
@@ -239,6 +240,39 @@ class TabIntegrationTests(ProcessingFixture, unittest.TestCase):
         approve.assert_called_once_with(review)
         self.assertIn("Approval recorded", tab.approval_status.text())
         self.assertFalse(tab.approve_button.isEnabled())
+        self.assertEqual(hashlib.sha256(self.key.read_bytes()).hexdigest(), self.key_hash)
+        tab.deleteLater()
+        parent.deleteLater()
+
+    def test_saved_candidate_rejection_keeps_numbered_key_unchanged(self):
+        parent = QWidget()
+        parent.project_dir = QLineEdit(str(self.project))
+        parent.path_value = lambda field: str(Path(field.text()).resolve())
+        settings = QSettings(str(self.root / "prefs-reject.ini"), QSettings.Format.IniFormat)
+        tab = ComfyKeyframeTab(parent, settings)
+        candidate = self.project / ".reezsynth-candidates" / "comfy-preview-example"
+        tab.saved_candidate.setText(str(candidate))
+        tab.frame_number.setValue(7)
+        review = SimpleNamespace(image_png=self.files["drawing"].read_bytes(), frame_number=7,
+                                 approved=False, rejected=False)
+        with patch("reezsynth_comfy_controls.load_candidate_review", return_value=review):
+            tab.review_saved_candidate()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        self.assertTrue(tab.reject_button.isEnabled())
+        marker = candidate / "rejection.json"
+        with patch("reezsynth_comfy_controls.reject_candidate", return_value=marker) as reject:
+            tab.reject_reviewed_candidate()
+            deadline = time.monotonic() + 5
+            while tab._worker is not None and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(.01)
+        reject.assert_called_once_with(review)
+        self.assertIn("Rejection recorded", tab.approval_status.text())
+        self.assertFalse(tab.approve_button.isEnabled())
+        self.assertFalse(tab.reject_button.isEnabled())
         self.assertEqual(hashlib.sha256(self.key.read_bytes()).hexdigest(), self.key_hash)
         tab.deleteLater()
         parent.deleteLater()

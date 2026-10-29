@@ -333,6 +333,13 @@ Approval is one-shot for that saved candidate and frame. To choose a different
 frame after approval, save a fresh candidate from the completed job and review
 it again. An already approved candidate can still be reviewed, but its Approve
 button stays disabled.
+
+**Reject reviewed image** records a one-shot rejection for the same frozen
+image and frame. It retains the candidate and source job for inspection, never
+assigns a synthesis keyframe, and disables both review-decision buttons when
+reopened. Approval and rejection share an exclusive decision lock; if the app
+stops while writing a decision, review fails closed until the marker is
+inspected. To retry a rejected result, save a fresh candidate from its job.
 For a new experimental Qwen job, enter a prompt, seed, sampling settings and
 source frame; Modify also requires an existing drawing, both 8-bit grayscale
 masks, Preserve drawing transparency, and an explicit model background. The

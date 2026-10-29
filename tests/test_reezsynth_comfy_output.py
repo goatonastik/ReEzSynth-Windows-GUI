@@ -19,7 +19,7 @@ from reezsynth_comfy_jobs import claim_submission, record_receipt
 from reezsynth_comfy_output import fetch_owned_output
 from reezsynth_comfy_qwen import QwenSettings, plan_qwen
 from reezsynth_comfy_candidate import prepare_job_candidate, save_job_candidate
-from reezsynth_comfy_approval import load_candidate_review, approve_candidate
+from reezsynth_comfy_approval import load_candidate_review, approve_candidate, reject_candidate
 from reezsynth_keyframe_protection import AlphaPolicy, EditIntent, protection_band
 
 
@@ -226,8 +226,38 @@ class OutputTests(unittest.TestCase):
         reopened = load_candidate_review(saved.image_path.parent.parent.parent,
                                          saved.image_path.parent, 97)
         self.assertTrue(reopened.approved)
-        with self.assertRaisesRegex(ValueError, "approved in another window"):
+        with self.assertRaisesRegex(ValueError, "review decision"):
             approve_candidate(review)
+
+    def test_rejection_records_exact_image_without_changing_candidate_or_key(self):
+        saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))
+        project = saved.image_path.parent.parent.parent
+        key = project / "keys" / "kling97.png"
+        key.parent.mkdir()
+        key.write_bytes(b"existing numbered key")
+        original = key.read_bytes()
+        review = load_candidate_review(project, saved.image_path.parent, 97)
+        rejection = reject_candidate(review)
+        self.assertEqual(json.loads(rejection.read_bytes())["candidate_sha256"], review.image_sha256)
+        self.assertTrue(load_candidate_review(project, saved.image_path.parent, 97).rejected)
+        self.assertEqual(saved.image_path.read_bytes(), review.image_png)
+        self.assertEqual(key.read_bytes(), original)
+        self.assertFalse((saved.image_path.parent / "approval.json").exists())
+        with self.assertRaisesRegex(ValueError, "review decision"):
+            approve_candidate(review)
+
+    def test_rejection_fails_closed_on_stale_review_and_interrupted_decision(self):
+        saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))
+        project = saved.image_path.parent.parent.parent
+        review = load_candidate_review(project, saved.image_path.parent, 97)
+        saved.image_path.write_bytes(saved.image_path.read_bytes() + b"changed")
+        with self.assertRaisesRegex(ValueError, "saved bytes"):
+            reject_candidate(review)
+        self.assertFalse((saved.image_path.parent / "rejection.json").exists())
+        saved.image_path.write_bytes(review.image_png)
+        (saved.image_path.parent / ".review-decision").mkdir()
+        with self.assertRaisesRegex(ValueError, "interrupted"):
+            load_candidate_review(project, saved.image_path.parent, 97)
 
     def test_approval_rejects_stale_image_and_wrong_project_or_frame(self):
         saved = save_job_candidate(self.job.directory, prepare_job_candidate(self.job.directory))

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from reezsynth_comfy_client import normalize_local_endpoint, parse_system_stats
 from reezsynth_comfy_candidate import prepare_job_candidate, save_job_candidate
-from reezsynth_comfy_approval import load_candidate_review, approve_candidate
+from reezsynth_comfy_approval import load_candidate_review, approve_candidate, reject_candidate
 from reezsynth_comfy_jobs import load_job
 from reezsynth_comfy_processing import (
     PreviewRequest, prepare_preview, preview_dark_strokes, save_enforced_candidate,
@@ -205,11 +205,15 @@ class ComfyKeyframeTab(QWidget):
         self.approve_button = QPushButton("Approve reviewed image")
         self.approve_button.setEnabled(False)
         self.approve_button.clicked.connect(self.approve_reviewed_candidate)
+        self.reject_button = QPushButton("Reject reviewed image")
+        self.reject_button.setEnabled(False)
+        self.reject_button.clicked.connect(self.reject_reviewed_candidate)
         review_row.addWidget(QLabel("Saved candidate"))
         review_row.addWidget(self.saved_candidate, 1)
         review_row.addWidget(browse_candidate)
         review_row.addWidget(self.review_button)
         review_row.addWidget(self.approve_button)
+        review_row.addWidget(self.reject_button)
         layout.addLayout(review_row)
         self.approval_status = QLabel("Review a saved ComfyUI result before approval. Approval does not assign a keyframe.")
         self.approval_status.setTextFormat(Qt.TextFormat.PlainText)
@@ -598,6 +602,7 @@ class ComfyKeyframeTab(QWidget):
         self.candidate_review = None
         if hasattr(self, "approve_button"):
             self.approve_button.setEnabled(False)
+            self.reject_button.setEnabled(False)
 
     def _browse_saved_candidate(self):
         selected = QFileDialog.getExistingDirectory(self, "Choose saved ComfyUI candidate",
@@ -619,6 +624,7 @@ class ComfyKeyframeTab(QWidget):
             return
         self.candidate_review = None
         self.approve_button.setEnabled(False)
+        self.reject_button.setEnabled(False)
         self._start_work("candidate_review", load_candidate_review,
                          project, directory, self.frame_number.value())
 
@@ -626,6 +632,11 @@ class ComfyKeyframeTab(QWidget):
         if self._worker is not None or self.candidate_review is None:
             return
         self._start_work("candidate_approve", approve_candidate, self.candidate_review)
+
+    def reject_reviewed_candidate(self):
+        if self._worker is not None or self.candidate_review is None:
+            return
+        self._start_work("candidate_reject", reject_candidate, self.candidate_review)
 
     def preview_owned_job(self):
         if self._worker is not None:
@@ -770,6 +781,7 @@ class ComfyKeyframeTab(QWidget):
         self.owned_save_button.setEnabled(False)
         self.review_button.setEnabled(False)
         self.approve_button.setEnabled(False)
+        self.reject_button.setEnabled(False)
         self.prepare_button.setEnabled(False)
         self.session_submit_button.setEnabled(False)
         self.session_refresh_button.setEnabled(False)
@@ -849,7 +861,9 @@ class ComfyKeyframeTab(QWidget):
         self.save_button.setEnabled(self.current_result is not None)
         self.owned_save_button.setEnabled(self.owned_result is not None)
         self.approve_button.setEnabled(self.candidate_review is not None
-                                       and not self.candidate_review.approved)
+                                       and not self.candidate_review.approved
+                                       and not self.candidate_review.rejected)
+        self.reject_button.setEnabled(self.approve_button.isEnabled())
         if error:
             (self.session_status if kind.startswith("session_") else
              self.prepare_status if kind == "job_prepare" else
@@ -864,7 +878,9 @@ class ComfyKeyframeTab(QWidget):
             self.save_button.setEnabled(self.current_result is not None)
             self.owned_save_button.setEnabled(self.owned_result is not None)
             self.approve_button.setEnabled(self.candidate_review is not None
-                                           and not self.candidate_review.approved)
+                                           and not self.candidate_review.approved
+                                           and not self.candidate_review.rejected)
+            self.reject_button.setEnabled(self.approve_button.isEnabled())
             return
         if kind == "candidate_review":
             if self._work_review_revision != self._review_revision:
@@ -873,19 +889,28 @@ class ComfyKeyframeTab(QWidget):
             self.candidate_review = value
             self._display_images = {"Saved candidate for approval": value.image_png}
             self._set_views("Saved candidate for approval")
-            self.approve_button.setEnabled(not value.approved)
+            self.approve_button.setEnabled(not value.approved and not value.rejected)
+            self.reject_button.setEnabled(self.approve_button.isEnabled())
             self.approval_status.setText(
                 f"Saved frame {value.frame_number} already approved; no keyframe is assigned."
                 if value.approved else
+                f"Saved frame {value.frame_number} was rejected; its files remain available."
+                if value.rejected else
                 f"Reviewing saved frame {value.frame_number} at native resolution. "
-                "Approve this exact saved image after inspecting it; no keyframe is assigned.")
+                "Approve or reject this exact saved image after inspecting it; no keyframe is assigned.")
             return
-        if kind == "candidate_approve":
+        if kind in ("candidate_approve", "candidate_reject"):
             self.candidate_review = None
             self.approve_button.setEnabled(False)
+            self.reject_button.setEnabled(False)
             suffix = (" Selection changed while approval was recorded; the earlier reviewed image was approved."
                       if self._work_review_revision != self._review_revision else "")
-            self.approval_status.setText(f"Approval recorded: {value}. No numbered keyframe was changed.{suffix}")
+            if kind == "candidate_approve":
+                self.approval_status.setText(f"Approval recorded: {value}. No numbered keyframe was changed.{suffix}")
+            else:
+                suffix = (" Selection changed while rejection was recorded; the earlier reviewed image was rejected."
+                          if self._work_review_revision != self._review_revision else "")
+                self.approval_status.setText(f"Rejection recorded: {value}. Candidate files remain; no numbered keyframe was changed.{suffix}")
             return
         if kind == "session_submit":
             attempt, durable = value

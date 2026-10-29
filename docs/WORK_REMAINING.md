@@ -537,6 +537,8 @@ validate live backend status and native-size output quality with the owner
 notified before VRAM-intensive work. A CPU-only explicit approval action now
 binds a saved schema-3 candidate to its exact bytes, project and intended or
 selected frame. It records approval without changing numbered synthesis keys.
+Saved candidates can now be explicitly rejected without deletion or keyframe
+assignment; approval and rejection are mutually exclusive durable decisions.
 Safe numbered-key assignment and owned-job cancellation remain separate work;
 the latter requires verified backend identity and durable queued-cancel evidence.
 See COMFYUI_CANCELLATION_DESIGN.md. A percentage progress indicator still needs a

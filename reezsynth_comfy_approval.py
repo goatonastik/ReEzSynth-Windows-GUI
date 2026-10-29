@@ -32,6 +32,7 @@ class CandidateReview:
     raw_sha256: str
     manifest_sha256: str
     approved: bool = False
+    rejected: bool = False
 
 
 def _sha(payload: bytes) -> str:
@@ -128,9 +129,18 @@ def load_candidate_review(project: str | Path, directory: str | Path,
             raise ValueError("Raw output differs from its frozen size or format.")
         raw.load()
     approval = candidate / "approval.json"
+    rejection = candidate / "rejection.json"
+    decision_lock = candidate / ".review-decision"
     approved = False
-    if approval.is_symlink():
-        raise ValueError("Approval marker is redirected.")
+    rejected = False
+    if approval.is_symlink() or rejection.is_symlink():
+        raise ValueError("Review decision marker is redirected.")
+    if approval.exists() and rejection.exists():
+        raise ValueError("Conflicting approval and rejection markers; inspect them before continuing.")
+    if decision_lock.is_symlink() or (decision_lock.exists() and not decision_lock.is_dir()):
+        raise ValueError("Review decision lock is redirected or invalid.")
+    if decision_lock.exists() and not (approval.exists() or rejection.exists()):
+        raise ValueError("Review decision was interrupted; inspect it before continuing.")
     if approval.exists():
         saved = _object(_plain_file(approval), "approval marker")
         if (saved.get("schema") != 1 or saved.get("status") != "approved_unassigned"
@@ -143,25 +153,38 @@ def load_candidate_review(project: str | Path, directory: str | Path,
                 or saved.get("manifest_sha256") != _sha(manifest_bytes)):
             raise ValueError("Approval marker is incomplete or conflicts with this candidate; inspect it before continuing.")
         approved = True
+    if rejection.exists():
+        saved = _object(_plain_file(rejection), "rejection marker")
+        if (saved.get("schema") != 1 or saved.get("status") != "rejected"
+                or saved.get("project") != str(root) or saved.get("frame_number") != chosen
+                or saved.get("prompt_id") != job.prompt_id
+                or saved.get("candidate_sha256") != _sha(image_bytes)
+                or saved.get("record_sha256") != _sha(record_bytes)
+                or saved.get("provenance_sha256") != _sha(provenance_bytes)
+                or saved.get("raw_output_sha256") != _sha(raw_bytes)
+                or saved.get("manifest_sha256") != _sha(manifest_bytes)):
+            raise ValueError("Rejection marker is incomplete or conflicts with this candidate; inspect it before continuing.")
+        rejected = True
     return CandidateReview(root, candidate, image_bytes, chosen, job.prompt_id,
                            _sha(record_bytes), _sha(provenance_bytes), _sha(image_bytes),
-                           _sha(raw_bytes), _sha(manifest_bytes), approved)
+                           _sha(raw_bytes), _sha(manifest_bytes), approved, rejected)
 
 
 def approve_candidate(review: CandidateReview) -> Path:
     """Persist one exact reviewed approval; an interrupted marker fails closed."""
     if not isinstance(review, CandidateReview):
         raise ValueError("Review the saved candidate before approving it.")
-    if review.approved:
-        raise ValueError("This exact candidate and frame are already approved.")
+    if review.approved or review.rejected:
+        raise ValueError("This candidate already has a review decision.")
     current = load_candidate_review(review.project, review.directory, review.frame_number)
-    if current.approved:
-        raise ValueError("This exact candidate and frame were approved in another window.")
+    if current.approved or current.rejected:
+        raise ValueError("This candidate received a review decision in another window.")
     if current != review:
         raise ValueError("Candidate or source job changed since review; review it again.")
     approval = review.directory / "approval.json"
     if approval.is_symlink():
         raise ValueError("Approval marker is redirected.")
+    _claim_decision(review.directory)
     record = {
         "schema": 1, "status": "approved_unassigned",
         "approved_utc": datetime.now(timezone.utc).isoformat(),
@@ -184,3 +207,48 @@ def approve_candidate(review: CandidateReview) -> Path:
     except FileExistsError as exc:
         raise ValueError("Approval marker appeared during approval; review the saved candidate again.") from exc
     return approval
+
+
+def reject_candidate(review: CandidateReview) -> Path:
+    """Record a non-destructive rejection of the exact reviewed candidate."""
+    if not isinstance(review, CandidateReview):
+        raise ValueError("Review the saved candidate before rejecting it.")
+    if review.approved or review.rejected:
+        raise ValueError("This candidate already has a review decision.")
+    current = load_candidate_review(review.project, review.directory, review.frame_number)
+    if current.approved or current.rejected:
+        raise ValueError("This candidate received a review decision in another window.")
+    if current != review:
+        raise ValueError("Candidate or source job changed since review; review it again.")
+    rejection = review.directory / "rejection.json"
+    if rejection.is_symlink():
+        raise ValueError("Rejection marker is redirected.")
+    _claim_decision(review.directory)
+    record = {
+        "schema": 1, "status": "rejected",
+        "rejected_utc": datetime.now(timezone.utc).isoformat(),
+        "project": str(review.project), "frame_number": review.frame_number,
+        "prompt_id": review.prompt_id,
+        "candidate_sha256": review.image_sha256,
+        "record_sha256": review.record_sha256,
+        "provenance_sha256": review.provenance_sha256,
+        "raw_output_sha256": review.raw_sha256,
+        "manifest_sha256": review.manifest_sha256,
+    }
+    payload = json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    try:
+        with rejection.open("xb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileExistsError as exc:
+        raise ValueError("Rejection marker appeared during rejection; review the saved candidate again.") from exc
+    return rejection
+
+
+def _claim_decision(directory: Path) -> None:
+    """Reserve the one review decision across windows; retain on interruption."""
+    try:
+        (directory / ".review-decision").mkdir()
+    except FileExistsError as exc:
+        raise ValueError("A review decision appeared in another window; review the candidate again.") from exc
